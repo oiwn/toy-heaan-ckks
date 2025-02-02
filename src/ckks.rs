@@ -40,14 +40,13 @@ impl<C: CKKSConfig> CKKSFixed<C> {
         self.exponent > C::MIN_EXPONENT && self.exponent < C::MAX_EXPONENT
     }
 
-    /// Creates a new fixed-point number with bounds checking
     pub fn new(mantissa: BigInt, exponent: i64) -> Self {
         let mut num = Self {
             mantissa,
             exponent,
             _config: std::marker::PhantomData,
         };
-        num.normalize();
+        num.normalize(); // Normalize during creation
         assert!(num.check_bounds(), "Exponent out of bounds");
         num
     }
@@ -101,7 +100,7 @@ impl<C: CKKSConfig> Div for CKKSFixed<C> {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self {
-        assert!(!FixedPoint::is_zero(&rhs), "Division by zero");
+        assert!(!rhs.is_zero(), "Division by zero");
 
         // Scale up for precision
         let scaled_mantissa = self.mantissa << C::PRECISION;
@@ -192,5 +191,154 @@ impl<C: CKKSConfig> Zero for CKKSFixed<C> {
 impl<C: CKKSConfig> One for CKKSFixed<C> {
     fn one() -> Self {
         Self::new(BigInt::one(), 0)
+    }
+
+    fn is_one(&self) -> bool {
+        self.mantissa == BigInt::one() && self.exponent == 0
+    }
+}
+
+impl<C: CKKSConfig> PartialEq for CKKSFixed<C> {
+    fn eq(&self, other: &Self) -> bool {
+        // First normalize both numbers
+        let mut a = self.clone();
+        let mut b = other.clone();
+        a.normalize();
+        b.normalize();
+
+        // After normalization, equal numbers should have identical representations
+        a.mantissa == b.mantissa && a.exponent == b.exponent
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigInt;
+    use num_traits::{One, Zero};
+    use proptest::prelude::*;
+
+    type Fixed = CKKSFixed<DefaultConfig>;
+
+    #[test]
+    fn test_zero() {
+        let zero = Fixed::zero();
+        assert!(zero.is_zero());
+        assert_eq!(zero.mantissa(), BigInt::from(0));
+        assert_eq!(zero.exponent(), 0);
+    }
+
+    #[test]
+    fn test_one() {
+        let one = Fixed::one();
+        assert!(one.is_one());
+        assert_eq!(one.mantissa(), BigInt::from(1));
+        assert_eq!(one.exponent(), 0);
+    }
+
+    #[test]
+    fn test_basic_arithmetic() {
+        let a = Fixed::new(BigInt::from(5), 0);
+        let b = Fixed::new(BigInt::from(3), 0);
+
+        // Addition
+        let sum = a.clone() + b.clone();
+        assert_eq!(sum.mantissa(), BigInt::from(8));
+        assert_eq!(sum.exponent(), 0);
+
+        // Subtraction
+        let diff = a.clone() - b.clone();
+        assert_eq!(diff.mantissa(), BigInt::from(2));
+        assert_eq!(diff.exponent(), 0);
+
+        // Multiplication
+        let prod = a.clone() * b.clone();
+        assert_eq!(prod.mantissa(), BigInt::from(15));
+        assert_eq!(prod.exponent(), 0);
+
+        // Division
+        let quot = a / b;
+        // Should be roughly 1.666... after scaling
+        assert!(quot.mantissa() > BigInt::from(1));
+        assert!(quot.mantissa() < BigInt::from(2));
+    }
+
+    #[test]
+    fn test_different_exponents() {
+        let a = Fixed::new(BigInt::from(5), 1); // 5 * 2^1 = 10
+        let b = Fixed::new(BigInt::from(3), 0); // 3 * 2^0 = 3
+
+        let sum = a.clone() + b.clone();
+        assert_eq!(sum.mantissa(), BigInt::from(13));
+        assert_eq!(sum.exponent(), 0);
+
+        let diff = a.clone() - b.clone();
+        assert_eq!(diff.mantissa(), BigInt::from(7));
+        assert_eq!(diff.exponent(), 0);
+    }
+
+    #[test]
+    fn test_normalization() {
+        let mut a = Fixed::new(BigInt::from(8), 0);
+        a.normalize();
+        assert_eq!(a.mantissa(), BigInt::from(1));
+        assert_eq!(a.exponent(), 3); // 8 = 1 * 2^3
+    }
+
+    #[test]
+    fn test_rounding() {
+        let a = Fixed::new(BigInt::from(123456), 0);
+        let rounded = a.round_to(3);
+        assert_eq!(rounded.mantissa(), BigInt::from(15)); // 123456 ≈ 15 * 2^13
+        assert_eq!(rounded.exponent(), 13);
+    }
+
+    #[test]
+    #[should_panic(expected = "Division by zero")]
+    fn test_division_by_zero() {
+        let a = Fixed::new(BigInt::from(5), 0);
+        let b = Fixed::zero();
+        let _ = a / b;
+    }
+
+    #[test]
+    fn test_abs() {
+        let pos = Fixed::new(BigInt::from(5), 0);
+        let neg = Fixed::new(BigInt::from(-5), 0);
+
+        assert_eq!(pos.abs().mantissa(), BigInt::from(5));
+        assert_eq!(neg.abs().mantissa(), BigInt::from(5));
+    }
+
+    proptest! {
+        #[test]
+        fn test_add_commutative(
+            a in -1000i64..1000i64,
+            b in -1000i64..1000i64
+        ) {
+            let fa = Fixed::new(BigInt::from(a), 0);
+            let fb = Fixed::new(BigInt::from(b), 0);
+
+            let sum1 = fa.clone() + fb.clone();
+            let sum2 = fb + fa;
+
+            prop_assert_eq!(sum1.mantissa(), sum2.mantissa());
+            prop_assert_eq!(sum1.exponent(), sum2.exponent());
+        }
+
+        #[test]
+        fn test_mul_commutative(
+            a in -1000i64..1000i64,
+            b in -1000i64..1000i64
+        ) {
+            let fa = Fixed::new(BigInt::from(a), 0);
+            let fb = Fixed::new(BigInt::from(b), 0);
+
+            let prod1 = fa.clone() * fb.clone();
+            let prod2 = fb * fa;
+
+            prop_assert_eq!(prod1.mantissa(), prod2.mantissa());
+            prop_assert_eq!(prod1.exponent(), prod2.exponent());
+        }
     }
 }
