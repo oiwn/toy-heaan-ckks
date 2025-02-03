@@ -47,18 +47,6 @@ pub trait FixedPoint:
     /// while preserving precision
     fn normalize(&mut self);
 
-    // /// Returns true if this number represents zero
-    // fn is_zero(&self) -> bool {
-    //     // Default implementation based on mantissa
-    //     self.mantissa() == Self::IntegerType::zero()
-    // }
-
-    // /// Returns true if this number represents one
-    // fn is_one(&self) -> bool {
-    //     // Should be overridden if more efficient implementation exists
-    //     self.to_float() == 1.0
-    // }
-
     /// Rounds the fixed-point number to a specified precision
     fn round_to(&self, precision: i64) -> Self {
         let mut rounded = self.clone();
