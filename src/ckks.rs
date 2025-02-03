@@ -7,11 +7,11 @@ use std::ops::{Add, Div, Mul, Sub};
 
 thread_local! {
     /// Number of bits used for fixed-point representation
-    static PRECISION: Cell<i64> = Cell::new(150);
-    static SCALE_FACTOR: Cell<i64> = Cell::new(30);
-    static MIN_PRECISION: Cell<i64> = Cell::new(20);
+    static PRECISION: Cell<i64> = const { Cell::new(150) };
+    static SCALING_FACTOR: Cell<i64> = const { Cell::new(30) };
+    static MIN_PRECISION: Cell<i64> = const { Cell::new(20) };
     /// Number of bits used for display/output
-    static OUTPUT_PRECISION: Cell<i64> = Cell::new(10);
+    static OUTPUT_PRECISION: Cell<i64> = const { Cell::new(10) };
 }
 
 /// Minimum exponent allowed before overflow error
@@ -54,11 +54,24 @@ impl CKKSFixed {
 
     /// Convert i64 to fixed-point
     pub fn from_i64(n: i64) -> Self {
-        let scale = SCALE_FACTOR.with(|s| s.get());
+        // let scale = SCALE_FACTOR.with(|s| s.get());
+        let scale = Self::precision_bits();
         CKKSFixed {
             // left-shift is like multiply 2^scale
             mantissa: BigInt::from(n) << scale,
             // nagative exponent to divide when decode
+            exponent: -scale,
+        }
+    }
+
+    pub fn from_f64(n: f64) -> Self {
+        let scale = Self::precision_bits();
+        let factor = 2f64.powi(scale as i32);
+        let scaled = n * factor;
+        // round to nearest integer
+        let mantissa = BigInt::from(scaled.round() as i64);
+        CKKSFixed {
+            mantissa,
             exponent: -scale,
         }
     }
@@ -271,6 +284,21 @@ mod tests {
         // Test i64 min
         let small = CKKSFixed::from_i64(i64::MIN);
         assert_eq!(small.to_f64(), i64::MIN.to_f64().unwrap());
+
+        PRECISION.with(|p| p.set(30));
+
+        // test float
+        let float = CKKSFixed::from_f64(14.40);
+        // Precision (epsilon)
+        let epsilon = 1e-5;
+        let diff = (float.to_f64() - 14.40).abs();
+        assert!(
+            diff < epsilon,
+            "Difference between {} and {} is too large: {}",
+            float.to_f64(),
+            14.40,
+            diff
+        );
     }
 
     /* #[test]
