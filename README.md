@@ -1,2 +1,3 @@
-# heaan-float
-Fixed-point Arithmetic suitable for HE
+# heaan-ring-utils
+
+Experimental library.
