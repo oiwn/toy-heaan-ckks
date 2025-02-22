@@ -1,5 +1,6 @@
 use core::ops::{Add, Mul};
 use crypto_bigint::{CheckedAdd, CheckedMul, NonZero, Uint};
+use std::iter::IntoIterator;
 
 /// Represents a polynomial in a ring Z[X]/(X^N + 1) with coefficients modulo q
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +85,15 @@ impl<const LIMBS: usize> Mul for PolyRing<LIMBS> {
             coeffs: result,
             modulus: self.modulus,
         }
+    }
+}
+
+impl<'a, const LIMBS: usize> IntoIterator for &'a PolyRing<LIMBS> {
+    type Item = &'a Uint<LIMBS>;
+    type IntoIter = std::slice::Iter<'a, Uint<LIMBS>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coeffs.iter()
     }
 }
 
