@@ -34,7 +34,7 @@ impl<const LIMBS: usize> PolyRing<LIMBS> {
         self.coeffs.len().saturating_sub(1)
     }
 
-    fn reduce_coeffs(&mut self) {
+    pub fn reduce_coeffs(&mut self) {
         for coeff in &mut self.coeffs {
             *coeff = coeff.rem(&self.modulus);
         }

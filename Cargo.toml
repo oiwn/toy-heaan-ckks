@@ -7,4 +7,9 @@ edition = "2024"
 crypto-bigint = "0.6"
 
 [dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
 proptest = "1.6"
+
+[[bench]]
+name = "basic"  # Changed from "ring_benchmarks" to "basic"
+harness = false
