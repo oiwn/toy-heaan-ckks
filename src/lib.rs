@@ -1,3 +1,4 @@
+pub mod encoding;
 pub mod ring_utils;
 
 pub use ring_utils::PolyRing;

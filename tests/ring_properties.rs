@@ -1,4 +1,4 @@
-use crypto_bigint::{Uint, nlimbs};
+use crypto_bigint::Uint;
 use heaan_ring_utils::PolyRing;
 use proptest::prelude::*;
 
@@ -7,7 +7,7 @@ const LIMBS: usize = 4; // Using 4 limbs as in the code
 // Strategy to generate coefficients within our modulus
 fn coeff_strategy() -> impl Strategy<Value = Uint<LIMBS>> {
     // Use a fixed range for generating coefficients
-    (0..1000u64).prop_map(|x| Uint::<LIMBS>::from_u64(x))
+    (0..1000u64).prop_map(Uint::<LIMBS>::from_u64)
 }
 
 // Strategy to generate polynomials
@@ -25,7 +25,7 @@ proptest! {
     ) {
         let modulus = Uint::<LIMBS>::from_u64(1231231237);
         let coeffs = coeffs.into_iter()
-            .map(|x| Uint::<LIMBS>::from_u64(x))
+            .map(Uint::<LIMBS>::from_u64)
             .collect::<Vec<_>>();
 
         let poly = PolyRing::from_coeffs(coeffs.clone(), modulus).unwrap();
@@ -131,7 +131,7 @@ proptest! {
     ) {
         let modulus = Uint::<LIMBS>::from_u64(17);
         let coeffs = coeffs.into_iter()
-            .map(|x| Uint::<LIMBS>::from_u64(x))
+            .map(Uint::<LIMBS>::from_u64)
             .collect::<Vec<_>>();
 
         let poly = PolyRing::from_coeffs(coeffs, modulus).unwrap();
