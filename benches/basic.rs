@@ -1,50 +1,56 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use crypto_bigint::{Uint, nlimbs};
-use heaan_ring_utils::PolyRing;
+use criterion::{
+    BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
+};
+use toy_heaan_ckks::PolyRing;
 
 // Helper function to create random polynomials for benchmarking
-fn create_random_poly(
-    degree: usize,
-    modulus: Uint<{ nlimbs!(256) }>,
-) -> PolyRing<{ nlimbs!(256) }> {
+fn create_random_poly(degree: usize, modulus: u64) -> PolyRing {
     let coeffs = (0..=degree)
-        .map(|i| Uint::from_u64((i as u64 * 17 + 11) % 1231231237))
+        .map(|i| (i as u64 * 17 + 11) % 1231231237)
         .collect::<Vec<_>>();
-    PolyRing::from_coeffs(coeffs, modulus).unwrap()
+    PolyRing::from_coeffs(&coeffs, modulus)
 }
 
 fn bench_addition(c: &mut Criterion) {
     let mut group = c.benchmark_group("polynomial_addition");
-    let modulus = Uint::from_u64(1231231237); // Large prime for testing
+    let modulus = 1231231237; // Large prime for testing
 
     // Test different polynomial degrees
     for degree in [100, 1000].iter() {
-        group.bench_with_input(BenchmarkId::from_parameter(degree), degree, |b, &degree| {
-            let p1 = create_random_poly(degree, modulus);
-            let p2 = create_random_poly(degree, modulus);
+        group.bench_with_input(
+            BenchmarkId::from_parameter(degree),
+            degree,
+            |b, &degree| {
+                let p1 = create_random_poly(degree, modulus);
+                let p2 = create_random_poly(degree, modulus);
 
-            b.iter(|| {
-                let _result = black_box(p1.clone()) + black_box(p2.clone());
-            });
-        });
+                b.iter(|| {
+                    let _result = black_box(p1.clone()) + black_box(p2.clone());
+                });
+            },
+        );
     }
     group.finish();
 }
 
 fn bench_multiplication(c: &mut Criterion) {
     let mut group = c.benchmark_group("polynomial_multiplication");
-    let modulus = Uint::from_u64(1231231237);
+    let modulus = 1231231237;
 
     // Test different polynomial degrees
     for degree in [100, 1000].iter() {
-        group.bench_with_input(BenchmarkId::from_parameter(degree), degree, |b, &degree| {
-            let p1 = create_random_poly(degree, modulus);
-            let p2 = create_random_poly(degree, modulus);
+        group.bench_with_input(
+            BenchmarkId::from_parameter(degree),
+            degree,
+            |b, &degree| {
+                let p1 = create_random_poly(degree, modulus);
+                let p2 = create_random_poly(degree, modulus);
 
-            b.iter(|| {
-                let _result = black_box(p1.clone()) * black_box(p2.clone());
-            });
-        });
+                b.iter(|| {
+                    let _result = black_box(p1.clone()) * black_box(p2.clone());
+                });
+            },
+        );
     }
     group.finish();
 }
@@ -53,11 +59,7 @@ fn bench_modular_reduction(c: &mut Criterion) {
     let mut group = c.benchmark_group("modular_reduction");
 
     // Test different moduli sizes
-    let moduli = [
-        Uint::from_u64(17),
-        Uint::from_u64(65537),
-        Uint::from_u64(1231231237),
-    ];
+    let moduli = [17, 65537, 1231231237];
 
     for (i, &modulus) in moduli.iter().enumerate() {
         let degree = 100; // Fixed degree for comparing different moduli
@@ -75,7 +77,7 @@ fn bench_modular_reduction(c: &mut Criterion) {
 
 fn bench_complex_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("complex_operations");
-    let modulus = Uint::from_u64(1231231237);
+    let modulus = 1231231237;
     let degree = 100;
 
     group.bench_function("add_mul_sequence", |b| {
@@ -85,8 +87,8 @@ fn bench_complex_operations(c: &mut Criterion) {
 
         b.iter(|| {
             // (p1 + p2) * p3
-            let _result =
-                black_box(black_box(p1.clone()) + black_box(p2.clone())) * black_box(p3.clone());
+            let _result = black_box(black_box(p1.clone()) + black_box(p2.clone()))
+                * black_box(p3.clone());
         });
     });
 
@@ -97,8 +99,8 @@ fn bench_complex_operations(c: &mut Criterion) {
 
         b.iter(|| {
             // (p1 * p2) + p3
-            let _result =
-                black_box(black_box(p1.clone()) * black_box(p2.clone())) + black_box(p3.clone());
+            let _result = black_box(black_box(p1.clone()) * black_box(p2.clone()))
+                + black_box(p3.clone());
         });
     });
 
