@@ -1,6 +1,6 @@
 use crypto_bigint::Uint;
-use heaan_ring_utils::PolyRing;
 use proptest::prelude::*;
+use toy_heaan_ckks::PolyRing;
 
 const LIMBS: usize = 4; // Using 4 limbs as in the code
 

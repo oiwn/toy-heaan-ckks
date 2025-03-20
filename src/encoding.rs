@@ -1,25 +1,24 @@
+//! The CKKS encoding process transforms a vector of real numbers into a polynomial
+//! with integer coefficients. This transformation happens in the ring R[X]/(X^n + 1)
+//! where n is a power of 2. The encoding preserves the values when the polynomial
+//! is evaluated at specific roots of unity.
+//!
+//! Mathematical background:
+//! - We work in the ring R[X]/(X^n + 1) where n is a power of 2
+//! - The roots of X^n + 1 = 0 are the primitive 2n-th roots of unity
+//! - For n=4, these are e^(2πi/8), e^(6πi/8), e^(10πi/8), e^(14πi/8)
+//! - The encoding maps real values to evaluations at these roots
+//! - We use scaling by 2^scale_bits to handle fixed-point arithmetic
 use num_complex::Complex64;
 use rustfft::FftPlanner;
 
 /// Parameters for the CKKS encoding scheme.
-///
-/// The CKKS encoding process transforms a vector of real numbers into a polynomial
-/// with integer coefficients. This transformation happens in the ring R[X]/(X^n + 1)
-/// where n is a power of 2. The encoding preserves the values when the polynomial
-/// is evaluated at specific roots of unity.
-///
-/// Mathematical background:
-/// - We work in the ring R[X]/(X^n + 1) where n is a power of 2
-/// - The roots of X^n + 1 = 0 are the primitive 2n-th roots of unity
-/// - For n=4, these are e^(2πi/8), e^(6πi/8), e^(10πi/8), e^(14πi/8)
-/// - The encoding maps real values to evaluations at these roots
-/// - We use scaling by 2^scale_bits to handle fixed-point arithmetic
 pub struct EncodingParams {
     /// Polynomial ring degree (must be power of 2).
     /// This determines how many values we can encode:
     /// - We can encode up to n/2 real numbers
     /// - The polynomial will have degree n-1
-    n: usize,
+    ring_degree: usize,
 
     /// Number of bits used for scaling factor.
     /// The scaling factor will be 2^scale_bits.
@@ -35,12 +34,15 @@ impl EncodingParams {
     /// # Arguments
     /// * `n` - Ring degree, must be a power of 2
     /// * `scale_bits` - Number of bits for scaling factor (2^scale_bits)
-    pub fn new(n: usize, scale_bits: u32) -> Result<Self, String> {
+    pub fn new(ring_degree: usize, scale_bits: u32) -> Result<Self, String> {
         // Ring degree must be power of 2 for FFT and CKKS
-        if !n.is_power_of_two() {
+        if !ring_degree.is_power_of_two() {
             return Err("Ring degree must be a power of 2".to_string());
         }
-        Ok(Self { n, scale_bits })
+        Ok(Self {
+            ring_degree,
+            scale_bits,
+        })
     }
 
     /// Gets the scaling factor as a float (2^scale_bits)
@@ -63,11 +65,11 @@ impl EncodingParams {
 /// - Find polynomial m(X) such that m(ζⱼ) ≈ Δ·zⱼ where Δ = 2^scale_bits
 /// - The polynomial coefficients are our encoding
 pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, String> {
-    if values.len() > params.n / 2 {
+    if values.len() > params.ring_degree / 2 {
         return Err("Input vector too long".to_string());
     }
 
-    let mut fft_input = vec![Complex64::new(0.0, 0.0); params.n];
+    let mut fft_input = vec![Complex64::new(0.0, 0.0); params.ring_degree];
 
     // Scale values and prepare conjugate symmetric vector
     // This ensures our polynomial has real coefficients
@@ -75,17 +77,17 @@ pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, Strin
         fft_input[i] = Complex64::new(val * params.delta(), 0.0);
     }
     for i in 1..values.len() {
-        fft_input[params.n - i] = fft_input[i].conj();
+        fft_input[params.ring_degree - i] = fft_input[i].conj();
     }
 
     // Apply inverse FFT to get polynomial coefficients
     let mut planner = FftPlanner::new();
-    let ifft = planner.plan_fft_inverse(params.n);
+    let ifft = planner.plan_fft_inverse(params.ring_degree);
     ifft.process(&mut fft_input);
 
     // Round to nearest integers and normalize
     // The factor of n comes from FFT normalization
-    let scale = (params.n as f64).recip();
+    let scale = (params.ring_degree as f64).recip();
     let coeffs: Vec<i64> = fft_input
         .iter()
         .map(|&x| (x.re * scale).round() as i64)
@@ -112,15 +114,15 @@ pub fn decode(coeffs: &[i64], params: &EncodingParams) -> Result<Vec<f64>, Strin
         .map(|&x| Complex64::new(x as f64, 0.0))
         .collect();
 
-    fft_input.resize(params.n, Complex64::new(0.0, 0.0));
+    fft_input.resize(params.ring_degree, Complex64::new(0.0, 0.0));
 
     let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(params.n);
+    let fft = planner.plan_fft_forward(params.ring_degree);
     fft.process(&mut fft_input);
 
     let result: Vec<f64> = fft_input
         .iter()
-        .take(params.n / 2)
+        .take(params.ring_degree / 2)
         .map(|&x| x.re / params.delta())
         .collect();
 
@@ -223,19 +225,19 @@ mod tests {
             .collect();
 
         let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(params.n);
+        let fft = planner.plan_fft_forward(params.ring_degree);
         fft.process(&mut complex_coeffs);
 
         // Check conjugate pairs
-        for i in 1..params.n / 2 {
+        for i in 1..params.ring_degree / 2 {
             assert_relative_eq!(
                 complex_coeffs[i].conj().re,
-                complex_coeffs[params.n - i].re,
+                complex_coeffs[params.ring_degree - i].re,
                 epsilon = 1e-10
             );
             assert_relative_eq!(
                 complex_coeffs[i].conj().im,
-                complex_coeffs[params.n - i].im,
+                complex_coeffs[params.ring_degree - i].im,
                 epsilon = 1e-10
             );
         }

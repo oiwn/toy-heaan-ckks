@@ -1,18 +1,20 @@
 [package]
-name = "heaan-ring-utils"
+name = "toy-heaan-ckks"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 crypto-bigint = "0.6"
-num-complex = "0.4.6"
-rustfft = "6.2.0"
+num-complex = "0.4"
+rand = "0.9"
+rand_chacha = "0.9"
+rustfft = "6.2"
 
 [dev-dependencies]
-approx = "0.5.1"
-criterion = { version = "0.5.1", features = ["html_reports"] }
+approx = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.6"
 
 [[bench]]
-name = "basic"  # Changed from "ring_benchmarks" to "basic"
+name = "basic"
 harness = false

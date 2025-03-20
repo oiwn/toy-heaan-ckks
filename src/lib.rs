@@ -1,7 +1,9 @@
 pub mod encoding;
-pub mod ring_utils;
+pub mod keys;
+pub mod rings;
 
-pub use ring_utils::PolyRing;
+pub use keys::{KeyGenParams, PublicKey, SecretKey};
+pub use rings::PolyRing;
 
 use crypto_bigint::nlimbs;
 

@@ -24,7 +24,10 @@ impl<const LIMBS: usize> PolyRing<LIMBS> {
 
     /// Create from coefficients with modular reduction
     /// Returns None if modulus is zero
-    pub fn from_coeffs(coeffs: Vec<Uint<LIMBS>>, modulus: Uint<LIMBS>) -> Option<Self> {
+    pub fn from_coeffs(
+        coeffs: Vec<Uint<LIMBS>>,
+        modulus: Uint<LIMBS>,
+    ) -> Option<Self> {
         let mut poly = Self::new(modulus)?;
         poly.coeffs = coeffs;
         poly.reduce_coeffs();
