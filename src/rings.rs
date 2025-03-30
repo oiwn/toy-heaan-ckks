@@ -18,6 +18,11 @@ impl PolyRing {
         }
     }
 
+    /// Returns an iterator over the coefficients
+    pub fn iter(&self) -> std::slice::Iter<'_, u64> {
+        self.coeffs.iter()
+    }
+
     /// Create from coefficients with modular reduction
     pub fn from_coeffs(coeffs: &[u64], modulus: u64) -> Self {
         let mut poly = Self::new(modulus);
@@ -28,6 +33,20 @@ impl PolyRing {
 
     pub fn degree(&self) -> usize {
         self.coeffs.len().saturating_sub(1)
+    }
+
+    pub fn modulus(&self) -> u64 {
+        self.modulus
+    }
+
+    /// Get the length (number of coefficients)
+    pub fn len(&self) -> usize {
+        self.coeffs.len()
+    }
+
+    /// Check if the polynomial has no coefficients
+    pub fn is_empty(&self) -> bool {
+        self.coeffs.is_empty()
     }
 
     pub fn reduce_coeffs(&mut self) {
@@ -57,7 +76,7 @@ impl Add for PolyRing {
     }
 }
 
-impl Mul for PolyRing {
+/* impl Mul for PolyRing {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
@@ -73,6 +92,36 @@ impl Mul for PolyRing {
                     .checked_add(prod)
                     .expect("Addition overflow")
                     .rem(&self.modulus);
+            }
+        }
+
+        Self {
+            coeffs: result,
+            modulus: self.modulus,
+        }
+    }
+} */
+
+impl Mul for PolyRing {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        assert_eq!(self.modulus, rhs.modulus, "Incompatible moduli");
+
+        let n = self.coeffs.len() + rhs.coeffs.len() - 1;
+        let mut result: Vec<u64> = vec![0; n];
+
+        for (i, a) in self.coeffs.iter().enumerate() {
+            for (j, b) in rhs.coeffs.iter().enumerate() {
+                // Use u128 for intermediate calculations to avoid overflow
+                let prod = (*a as u128) * (*b as u128);
+                let mod_prod = prod % (self.modulus as u128);
+
+                // Calculate the new value for result[i + j]
+                let current = result[i + j] as u128;
+                let new_val = (current + mod_prod) % (self.modulus as u128);
+
+                result[i + j] = new_val as u64;
             }
         }
 

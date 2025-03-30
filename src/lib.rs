@@ -1,7 +1,8 @@
 pub mod encoding;
+pub mod encryption;
 pub mod keys;
 pub mod rings;
 
-pub use keys::{PublicKey, PublicKeyParams};
-pub use keys::{SecretKey, SecretKeyParams};
+pub use encryption::{Ciphertext, decrypt, encrypt};
+pub use keys::*;
 pub use rings::PolyRing;
