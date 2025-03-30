@@ -5,6 +5,14 @@ scheme, also known as HEAAN (Homomorphic Encryption for Arithmetic of Approximat
 Numbers). This educational implementation demonstrates the core concepts of
 approximate homomorphic encryption.
 
+```text
+Running `target/debug/examples/full_cycle`
+Original values 1: [1.5, 2.5, 3.5, 4.5]
+Original values 2: [0.5, 1.0, 1.5, 2.0]
+Expected sum: [2.0, 3.5, 5.0, 6.5]
+Decrypted result: [2.000000011175871, 3.4999999979189345, 4.99999999627471, 6.4999999834546145]
+```
+
 ## Overview
 
 CKKS is a homomorphic encryption scheme designed for performing computations
