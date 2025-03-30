@@ -5,7 +5,6 @@ use std::iter::IntoIterator;
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRing {
     coeffs: Vec<u64>,
-    // Store modulus as NonZero to avoid repeated conversions
     modulus: u64,
 }
 
@@ -20,7 +19,6 @@ impl PolyRing {
     }
 
     /// Create from coefficients with modular reduction
-    /// Returns None if modulus is zero
     pub fn from_coeffs(coeffs: &[u64], modulus: u64) -> Self {
         let mut poly = Self::new(modulus);
         poly.coeffs = coeffs.to_vec();
