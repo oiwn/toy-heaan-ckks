@@ -6,7 +6,7 @@ Numbers). This educational implementation demonstrates the core concepts of
 approximate homomorphic encryption.
 
 ```bash
-> cargo run --example full_cycle
+> cargo run --example ckks_sum
 values_1: [1.5, 2.5, 3.5, 4.5]
 values_2: [0.5, 1.0, 1.5, 2.0]
 Expected sum: [2.0, 3.5, 5.0, 6.5]
