@@ -76,32 +76,6 @@ impl Add for PolyRing {
     }
 }
 
-/* impl Mul for PolyRing {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self {
-        assert_eq!(self.modulus, rhs.modulus, "Incompatible moduli");
-
-        let n = self.coeffs.len() + rhs.coeffs.len() - 1;
-        let mut result: Vec<u64> = vec![0; n];
-
-        for (i, a) in self.coeffs.iter().enumerate() {
-            for (j, b) in rhs.coeffs.iter().enumerate() {
-                let prod = a.checked_mul(*b).expect("Multiplication overflow");
-                result[i + j] = result[i + j]
-                    .checked_add(prod)
-                    .expect("Addition overflow")
-                    .rem(&self.modulus);
-            }
-        }
-
-        Self {
-            coeffs: result,
-            modulus: self.modulus,
-        }
-    }
-} */
-
 impl Mul for PolyRing {
     type Output = Self;
 
@@ -186,6 +160,22 @@ mod operation_tests {
         let p2 = create_test_poly(&[3, 1], modulus);
 
         let product = p1 * p2;
+        // In regular polynomial multiplication: Result would be x^2 + 5x + 6
+        // In Z[X]/(X^n + 1) with n=2: We use X^2 = -1, which gives
+        // x^2 + 5x + 6 = -1 + 5x + 6 = 5x + 5
+        assert_eq!(product.coeffs[0], 5); // 6 - 1 = 5 mod 17
+        assert_eq!(product.coeffs[1], 5); // 5 mod 17
+    }
+
+    #[test]
+    fn test_basic_multiplication_old() {
+        let modulus = 17;
+
+        // p1 = x + 2, p2 = x + 3
+        let p1 = create_test_poly(&[2, 1], modulus);
+        let p2 = create_test_poly(&[3, 1], modulus);
+
+        let product = p1 * p2;
         // Result should be x^2 + 5x + 6
         assert_eq!(product.coeffs[0], 6); // (2 * 3) mod 17
         assert_eq!(product.coeffs[1], 5); // (2 * 1 + 1 * 3) mod 17
@@ -219,6 +209,37 @@ mod operation_tests {
 
         let p3 = create_test_poly(&[], modulus);
         assert_eq!(p3.degree(), 0);
+    }
+
+    #[test]
+    fn test_polynomial_ring_multiplication() {
+        // For a ring Z[X]/(X^4 + 1)
+        let modulus = 1231231237; // A large prime for testing
+
+        // Create two polynomials
+        // p1 = 1 + 2x + 3x^2 + 4x^3
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3, 4], modulus);
+
+        // p2 = 5 + 6x + 7x^2 + 8x^3
+        let p2 = PolyRing::from_coeffs(&[5, 6, 7, 8], modulus);
+
+        // Multiply them
+        let result = p1.clone() * p2.clone();
+
+        // In the ring Z[X]/(X^4 + 1), the result should be:
+        // (1 + 2x + 3x^2 + 4x^3) * (5 + 6x + 7x^2 + 8x^3)
+        // = 5 + 16x + 34x^2 + 60x^3 + 61x^4 + 52x^5 + 32x^6 + 32x^7
+        // After reduction with X^4 = -1:
+        // = 5 + 16x + 34x^2 + 60x^3 + 61(-1) + 52(-x) + 32(-x^2) + 32(-x^3)
+        // = 5 - 61 + 16x - 52x + 34x^2 - 32x^2 + 60x^3 - 32x^3
+        // = (5 - 61) + (16 - 52)x + (34 - 32)x^2 + (60 - 32)x^3
+        // = -56 - 36x + 2x^2 + 28x^3
+
+        // Let's check each coefficient
+        assert_eq!(result.coeffs[0], (modulus - 56) % modulus); // -56 mod q
+        assert_eq!(result.coeffs[1], (modulus - 36) % modulus); // -36 mod q
+        assert_eq!(result.coeffs[2], 2); // 2
+        assert_eq!(result.coeffs[3], 28); // 28
     }
 }
 

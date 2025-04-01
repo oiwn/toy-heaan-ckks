@@ -5,10 +5,10 @@ scheme, also known as HEAAN (Homomorphic Encryption for Arithmetic of Approximat
 Numbers). This educational implementation demonstrates the core concepts of
 approximate homomorphic encryption.
 
-```text
-Running `target/debug/examples/full_cycle`
-Original values 1: [1.5, 2.5, 3.5, 4.5]
-Original values 2: [0.5, 1.0, 1.5, 2.0]
+```bash
+> cargo run --example full_cycle
+values_1: [1.5, 2.5, 3.5, 4.5]
+values_2: [0.5, 1.0, 1.5, 2.0]
 Expected sum: [2.0, 3.5, 5.0, 6.5]
 Decrypted result: [2.000000011175871, 3.4999999979189345, 4.99999999627471, 6.4999999834546145]
 ```
@@ -21,11 +21,11 @@ with integers or bits, CKKS is specialized for approximate arithmetic, making it
 suitable for machine learning and statistical analysis on encrypted data.
 
 Key features of this implementation:
-- Polynomial ring operations
-- Encoding/decoding of real numbers
-- Key generation (secret and public)
-- Basic homomorphic operations (addition)
-- FFT-based encoding for efficient slot packing
+- [ ] Encoding/decoding of real numbers
+- [ ] Key generation (secret and public)
+- [ ] Polynomial ring operations
+- [ ] Basic homomorphic operations (addition)
+- [ ] Basic homomorphic operations (multiplication)
 
 ## Getting Started
 
@@ -44,10 +44,9 @@ cargo run --example full_cycle
 This is an educational implementation meant for learning purposes:
 
 - Not optimized for performance (no RNS, no bootstrapping)
-- Limited security analysis
+- No security analysis
 - Not suitable for production use
 - Only basic homomorphic operations implemented
-- No parameter selection guidance
 
 ## Mathematical Background
 

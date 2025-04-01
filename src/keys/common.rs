@@ -84,8 +84,7 @@ pub fn generate_ternary_poly<T: Rng>(
 }
 
 /// Compute the negative of a polynomial in the ring
-#[allow(unused)]
-fn negate_poly(poly: &PolyRing, modulus: u64) -> PolyRing {
+pub fn negate_poly(poly: &PolyRing, modulus: u64) -> PolyRing {
     // Create a polynomial with coefficients (q - a_i) for each coefficient a_i
     let mut neg_coeffs = Vec::with_capacity(poly.degree() + 1);
 
