@@ -28,5 +28,6 @@ Cargo.lock
 .amc.toml
 .tmuxp.yaml
 .code
+.code.txt
 .DS_Store
 plan.md
