@@ -1,11 +1,11 @@
 use toy_heaan_ckks::{
-    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decrypt,
-    encoding, encrypt,
+    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams,
+    coeffs_to_poly, decrypt, encoding, encrypt,
 };
 
 fn main() -> Result<(), String> {
     // Parameters setup
-    let ring_degree = 8; // Small for example
+    let ring_degree = 8;
     let scale_bits = 30;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
 
@@ -39,8 +39,8 @@ fn main() -> Result<(), String> {
     let coeffs2 = encoding::encode(&values2, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = coeffs_to_poly(&coeffs1, modulus);
-    let poly2 = coeffs_to_poly(&coeffs2, modulus);
+    let poly1 = coeffs_to_poly(&coeffs1, modulus, ring_degree as u64);
+    let poly2 = coeffs_to_poly(&coeffs2, modulus, ring_degree as u64);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
@@ -73,22 +73,6 @@ fn main() -> Result<(), String> {
     println!("Decrypted result: {:?}", result);
 
     Ok(())
-}
-
-// Helper functions to convert between coefficient vectors and polynomials
-fn coeffs_to_poly(coeffs: &[i64], modulus: u64) -> PolyRing {
-    let u_coeffs: Vec<u64> = coeffs
-        .iter()
-        .map(|&c| {
-            if c < 0 {
-                modulus - ((-c) as u64 % modulus)
-            } else {
-                c as u64 % modulus
-            }
-        })
-        .collect();
-
-    PolyRing::from_coeffs(&u_coeffs, modulus)
 }
 
 fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {

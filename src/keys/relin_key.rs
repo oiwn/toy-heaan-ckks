@@ -75,7 +75,7 @@ fn multiply_by_scalar(poly: &PolyRing, scalar: u64) -> PolyRing {
         result.push(scaled as u64);
     }
 
-    PolyRing::from_coeffs(&result, modulus)
+    PolyRing::from_coeffs(&result, modulus, 8)
 }
 
 // You'll need the negate_poly function from your common.rs
@@ -91,5 +91,5 @@ fn negate_poly(poly: &PolyRing, modulus: u64) -> PolyRing {
         }
     }
 
-    PolyRing::from_coeffs(&neg_coeffs, modulus)
+    PolyRing::from_coeffs(&neg_coeffs, modulus, 8)
 }

@@ -1,6 +1,6 @@
 use toy_heaan_ckks::{
-    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decrypt,
-    encoding, encrypt,
+    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams,
+    coeffs_to_poly, decrypt, encoding, encrypt,
 };
 
 fn main() -> Result<(), String> {
@@ -27,9 +27,9 @@ fn main() -> Result<(), String> {
     let public_key = PublicKey::from_secret_key(&secret_key, &pk_params);
 
     // Original values
-    let values1 = vec![1.5, 2.5, 3.5, 4.5];
-    let values2 = vec![0.5, 1.0, 1.5, 2.0];
-    let values3 = vec![2.0, 1.0, 1.0, 0.0];
+    let values1 = vec![3.5, 3.0, 4.0, 3.5];
+    let values2 = vec![1.5, 3.0, 3.0, 4.5];
+    let values3 = vec![1.0, 2.0, 3.0, 4.0];
 
     // Parameters for encoding
     let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)?;
@@ -40,9 +40,9 @@ fn main() -> Result<(), String> {
     let coeffs3 = encoding::encode(&values3, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = coeffs_to_poly(&coeffs1, modulus);
-    let poly2 = coeffs_to_poly(&coeffs2, modulus);
-    let poly3 = coeffs_to_poly(&coeffs3, modulus);
+    let poly1 = coeffs_to_poly(&coeffs1, modulus, ring_degree as u64);
+    let poly2 = coeffs_to_poly(&coeffs2, modulus, ring_degree as u64);
+    let poly3 = coeffs_to_poly(&coeffs3, modulus, ring_degree as u64);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
@@ -52,7 +52,6 @@ fn main() -> Result<(), String> {
 
     // Homomorphic Addition and multiplication
     let ct_sum = ct1.add(&ct2).mul(&ct3, &public_key.relin_key);
-    // let ct_sum = ct1.add(&ct2);
 
     // Decrypt
     let decrypted_poly = decrypt(&ct_sum, &secret_key);
@@ -67,36 +66,10 @@ fn main() -> Result<(), String> {
     println!("values_1: {:?}", values1);
     println!("values_2: {:?}", values2);
     println!("values_3: {:?}", values3);
-    println!(
-        "Expected sum: {:?}",
-        values1
-            .iter()
-            .zip(values2.iter())
-            .map(|(a, b)| a + b)
-            .collect::<Vec<_>>()
-    );
-    println!(
-        "Expected result of (values1 + values2) * values3: [-7.5, 2.5, 15.5, 21.5]"
-    );
+    println!("Expected result of (values1 + values2) * values3: [56, 36, 2, 60]");
     println!("Decrypted result: {:?}", result);
 
     Ok(())
-}
-
-// Helper functions to convert between coefficient vectors and polynomials
-fn coeffs_to_poly(coeffs: &[i64], modulus: u64) -> PolyRing {
-    let u_coeffs: Vec<u64> = coeffs
-        .iter()
-        .map(|&c| {
-            if c < 0 {
-                modulus - ((-c) as u64 % modulus)
-            } else {
-                c as u64 % modulus
-            }
-        })
-        .collect();
-
-    PolyRing::from_coeffs(&u_coeffs, modulus)
 }
 
 fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {

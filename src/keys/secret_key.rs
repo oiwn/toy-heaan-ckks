@@ -45,7 +45,7 @@ impl SecretKey {
         }
 
         // Create the polynomial
-        let s = PolyRing::from_coeffs(&coeffs, params.modulus);
+        let s = PolyRing::from_coeffs(&coeffs, params.modulus, 8);
 
         Self { s }
     }

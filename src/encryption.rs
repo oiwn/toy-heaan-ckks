@@ -203,5 +203,5 @@ fn rescale_poly(poly: &PolyRing, scale_factor: u64) -> PolyRing {
         new_coeffs.push(scaled);
     }
 
-    PolyRing::from_coeffs(&new_coeffs, modulus)
+    PolyRing::from_coeffs(&new_coeffs, modulus, poly.ring_degree())
 }
