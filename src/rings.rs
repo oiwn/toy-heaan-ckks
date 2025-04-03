@@ -208,27 +208,27 @@ mod operation_tests {
     #[test]
     fn test_addition_negative() {
         // Test p1 = -2x + 3, p2 = 5x - 4 over modulus 7
-        let p1 = coeffs_to_poly(&[3, -2], 7, 4); // becomes [3, 5]
-        let p2 = coeffs_to_poly(&[-4, 5], 7, 4); // becomes [3, 5]
+        let p1 = PolyRing::from_coeffs(&[3, -2], 7, 4); // becomes [3, 5]
+        let p2 = PolyRing::from_coeffs(&[-4, 5], 7, 4); // becomes [3, 5]
 
         let sum = p1 + p2;
-        // Expected: (3 + 3) = 6, (5 + 5) = 10 ≡ 3 mod 7
+        // Expected: (3 + 3) = 6, (5 + 5) = 10 = 3 mod 7
         assert_eq!(sum.coeffs[0], 6); // constant term
         assert_eq!(sum.coeffs[1], 3); // x term        
     }
 
-    /* #[test]
-    fn test_addition_with_different_degrees() {
-        let modulus = 17;
+    #[test]
+    fn test_basic_multiplication() {
+        // p1 = x + 2, p2 = x + 3
+        let p1 = coeffs_to_poly(&[2, 1], 17, 2);
+        let p2 = coeffs_to_poly(&[3, 1], 17, 2);
 
-        // p1 = 2x^2 + 3x + 4, p2 = 5x + 7
-        let p1 = create_test_poly(&[4, 3, 2], modulus, 8);
-        let p2 = create_test_poly(&[7, 5], modulus, 8);
-
-        let sum = p1 + p2;
-        assert_eq!(sum.coeffs[0], 11); // (4 + 7) mod 17
-        assert_eq!(sum.coeffs[1], 8); // (3 + 5) mod 17
-        assert_eq!(sum.coeffs[2], 2); // 2 mod 17
+        let product = p1 * p2;
+        // In regular polynomial multiplication: Result would be x^2 + 5x + 6
+        // In Z[X]/(X^n + 1) with n=2: We use X^2 = -1, which gives
+        // x^2 + 5x + 6 = -1 + 5x + 6 = 5x + 5
+        assert_eq!(product.coeffs[0], 5); // 6 - 1 = 5 mod 17
+        assert_eq!(product.coeffs[1], 5); // 5 mod 17
     }
 
     #[test]
@@ -236,10 +236,10 @@ mod operation_tests {
         let modulus = 100003; // Large prime to avoid overflow issues in test
 
         // p1 = 5 + 6x + 7x^2 + 8x^3 (coefficients in reverse order in our implementation)
-        let p1 = PolyRing::from_coeffs(&[5, 6, 7, 8], modulus, 8);
+        let p1 = PolyRing::from_coeffs(&[5, 6, 7, 8], modulus, 4);
 
         // p2 = 1 + 2x + 3x^2 + 4x^3
-        let p2 = PolyRing::from_coeffs(&[1, 2, 3, 4], modulus, 8);
+        let p2 = PolyRing::from_coeffs(&[1, 2, 3, 4], modulus, 4);
 
         // Multiply polynomials
         let result = p1 * p2;
@@ -252,9 +252,10 @@ mod operation_tests {
             2,
             60,
         ];
+        println!("{:?}", result);
 
         // Check the result
-        assert_eq!(result.coeffs.len(), 4, "Result should have degree < 4");
+        assert_eq!(result.coeffs.len(), 4, "Result should have degree = 4");
         for i in 0..4 {
             assert_eq!(
                 result.coeffs[i], expected_coeffs[i],
@@ -264,21 +265,22 @@ mod operation_tests {
         }
     }
 
-    #[test]
-    fn test_basic_multiplication() {
+    /* #[test]
+    fn test_addition_with_different_degrees() {
         let modulus = 17;
 
-        // p1 = x + 2, p2 = x + 3
-        let p1 = create_test_poly(&[2, 1], modulus, 8);
-        let p2 = create_test_poly(&[3, 1], modulus, 8);
+        // p1 = 2x^2 + 3x + 4, p2 = 5x + 7
+        let p1 = create_test_poly(&[4, 3, 2], 17, 3);
+        let p2 = create_test_poly(&[7, 5], 17, 2);
 
-        let product = p1 * p2;
-        // In regular polynomial multiplication: Result would be x^2 + 5x + 6
-        // In Z[X]/(X^n + 1) with n=2: We use X^2 = -1, which gives
-        // x^2 + 5x + 6 = -1 + 5x + 6 = 5x + 5
-        assert_eq!(product.coeffs[0], 5); // 6 - 1 = 5 mod 17
-        assert_eq!(product.coeffs[1], 5); // 5 mod 17
+        let sum = p1 + p2;
+        assert_eq!(sum.coeffs[0], 11); // (4 + 7) mod 17
+        assert_eq!(sum.coeffs[1], 8); // (3 + 5) mod 17
+        assert_eq!(sum.coeffs[2], 2); // 2 mod 17
     }
+
+
+
 
     #[test]
     fn test_basic_multiplication_old() {

@@ -5,7 +5,7 @@ use toy_heaan_ckks::{
 
 fn main() -> Result<(), String> {
     // Parameters setup
-    let ring_degree = 8; // Small for example
+    let ring_degree = 4; // Small for example
     let scale_bits = 30;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
 
@@ -32,7 +32,8 @@ fn main() -> Result<(), String> {
     let values3 = vec![1.0, 2.0, 3.0, 4.0];
 
     // Parameters for encoding
-    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)?;
+    let encoding_params =
+        encoding::EncodingParams::new(ring_degree * 2, scale_bits)?;
 
     // Encode
     let coeffs1 = encoding::encode(&values1, &encoding_params)?;
