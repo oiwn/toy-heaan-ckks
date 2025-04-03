@@ -8,7 +8,7 @@ fn create_random_poly(degree: usize, modulus: u64) -> PolyRing {
     let coeffs = (0..=degree)
         .map(|i| (i as u64 * 17 + 11) % 1231231237)
         .collect::<Vec<_>>();
-    PolyRing::from_coeffs(&coeffs, modulus, 8)
+    PolyRing::from_coeffs_unsigned(coeffs.as_slice(), modulus, 8)
 }
 
 fn bench_addition(c: &mut Criterion) {

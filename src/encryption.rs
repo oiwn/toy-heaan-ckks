@@ -12,7 +12,7 @@ pub struct Ciphertext {
     pub c0: PolyRing,
     /// c1 component of ciphertext
     pub c1: PolyRing,
-    /// c2 component of ciphertext (coefficient of s²),
+    /// c2 component of ciphertext (coefficient of s_2),
     /// present only after multiplication before relinearization
     pub c2: Option<PolyRing>,
     /// Tracks the scaling factor used
@@ -39,15 +39,16 @@ impl Ciphertext {
             scale: self.scale,
         }
     }
+
     pub fn relinearize(&self, relin_key: &RelinearizationKey) -> Self {
-        // For a ciphertext (c0, c1, c2) of the form c0 + c1·s + c2·s²
-        // we use the relin_key to replace c2·s² with an encryption of the same value
+        // For a ciphertext (c0, c1, c2) of the form c0 + c1*s + c2*s^2
+        // we use the relin_key to replace c2·s^2 with an encryption of the same value
 
         // In this toy implementation, we'll just use the first component of the key
         // In a full implementation, we'd decompose c2 into digits according to the base
 
         if self.c2.is_none() {
-            // No s² term, nothing to do
+            // No s_2 term, nothing to do
             return self.clone();
         }
 
@@ -56,7 +57,7 @@ impl Ciphertext {
         // Extract the first component of the relinearization key
         let (b0, a0) = &relin_key.components[0];
 
-        // Compute c2 · (b0 + a0·s)
+        // Compute c2 · (b0 + a0*s)
         let c0_new = self.c0.clone() + (c2.clone() * b0.clone());
         let c1_new = self.c1.clone() + (c2.clone() * a0.clone());
 
@@ -204,4 +205,67 @@ fn rescale_poly(poly: &PolyRing, scale_factor: u64) -> PolyRing {
     }
 
     PolyRing::from_coeffs_unsigned(&new_coeffs, modulus, poly.ring_degree())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relinearize_no_c2() {
+        let c0 = PolyRing::from_coeffs(&[1, 2], 7, 2);
+        let c1 = PolyRing::from_coeffs(&[3, 4], 7, 2);
+        let ct = Ciphertext {
+            c0: c0.clone(),
+            c1: c1.clone(),
+            c2: None,
+            scale: 1.0,
+        };
+
+        // With no c2, relinearize should return the same ciphertext.
+        let dummy_relin_key = RelinearizationKey {
+            components: vec![],
+            base: 2,
+            num_components: 1,
+        };
+        let result = ct.relinearize(&dummy_relin_key);
+        assert_eq!(result.c0, ct.c0);
+        assert_eq!(result.c1, ct.c1);
+        assert!(result.c2.is_none());
+    }
+
+    #[test]
+    fn test_relinearize_with_c2() {
+        let c0 = PolyRing::from_coeffs(&[1, 2], 7, 2);
+        let c1 = PolyRing::from_coeffs(&[3, 4], 7, 2);
+        let c2 = PolyRing::from_coeffs(&[2, 3], 7, 2);
+        let ct = Ciphertext {
+            c0: c0.clone(),
+            c1: c1.clone(),
+            c2: Some(c2.clone()),
+            scale: 1.0,
+        };
+
+        // Create a relinearization key with one component (b0, a0)
+        let b0 = PolyRing::from_coeffs(&[4, 5], 7, 2);
+        let a0 = PolyRing::from_coeffs(&[6, 1], 7, 2);
+        let relin_key = RelinearizationKey {
+            components: vec![(b0.clone(), a0.clone())],
+            base: 2,
+            num_components: 1,
+        };
+
+        // Expected:
+        // c2 * b0 = x = [0, 1]
+        // c2 * a0 = 2 + 6x = [2, 6]
+        // c0_new = [1, 2] + [0, 1] = [1, 3]
+        // c1_new = [3, 4] + [2, 6] = [5, (4+6 mod7)= [5, 3]]
+        let expected_c0 = PolyRing::from_coeffs(&[1, 3], 7, 2);
+        let expected_c1 = PolyRing::from_coeffs(&[5, 3], 7, 2);
+
+        let result = ct.relinearize(&relin_key);
+        assert_eq!(result.c0, expected_c0);
+        assert_eq!(result.c1, expected_c1);
+        assert!(result.c2.is_none());
+    }
 }

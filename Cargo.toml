@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crypto-bigint = "0.6"
 num-complex = "0.4"
 rand = "0.9"
 rand_chacha = "0.9"

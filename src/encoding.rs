@@ -61,8 +61,8 @@ impl EncodingParams {
 ///
 /// Mathematical steps:
 /// - Input vector z = (z₁, ..., zₖ) where k ≤ n/2
-/// - Let ζⱼ be the 2n-th roots of unity
-/// - Find polynomial m(X) such that m(ζⱼ) ≈ Δ·zⱼ where Δ = 2^scale_bits
+/// - Let zeta_i be the 2n-th roots of unity
+/// - Find polynomial m(X) such that m(zeta_i) ≈ delta·z_i where delta = 2^scale_bits
 /// - The polynomial coefficients are our encoding
 pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, String> {
     if values.len() > params.ring_degree / 2 {
