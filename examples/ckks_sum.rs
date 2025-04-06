@@ -11,7 +11,7 @@ fn main() -> Result<(), String> {
 
     // Create Secret-Key
     let sk_params = SecretKeyParams {
-        n: ring_degree,
+        ring_degree: ring_degree,
         modulus,
         sparsity: 0.5,
     };
@@ -39,8 +39,8 @@ fn main() -> Result<(), String> {
     let coeffs2 = encoding::encode(&values2, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_degree as u64);
-    let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_degree as u64);
+    let poly1 = PolyRing::from_signed_coeffs(&coeffs1, modulus, ring_degree as u64);
+    let poly2 = PolyRing::from_signed_coeffs(&coeffs2, modulus, ring_degree as u64);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
@@ -79,7 +79,7 @@ fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {
     let modulus = poly.modulus();
     let half_modulus = modulus / 2;
 
-    poly.iter()
+    poly.into_iter()
         .map(|&c| {
             if c > half_modulus {
                 -((modulus - c) as i64)

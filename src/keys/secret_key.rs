@@ -1,3 +1,5 @@
+//! Secret Key (sk): Sample a "small" polynomial s(X) from R.
+//! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1}).
 use crate::PolyRing;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -10,8 +12,8 @@ pub struct SecretKey {
 
 /// Parameters specific to secret key generation
 pub struct SecretKeyParams {
-    /// Polynomial degree (must be power of 2)
-    pub n: usize,
+    /// Ring degree (must be power of 2)
+    pub ring_degree: usize,
     /// Modulus for the polynomial coefficients
     pub modulus: u64,
     /// Controls the sparsity of the ternary distribution (0 to 1)
@@ -26,9 +28,9 @@ impl SecretKey {
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]); // In production use entropy-based seed
 
         // Generate ternary polynomial for secret key
-        let mut coeffs = Vec::with_capacity(params.n);
+        let mut coeffs = Vec::with_capacity(params.ring_degree);
 
-        for _ in 0..params.n {
+        for _ in 0..params.ring_degree {
             // First decide if coefficient is zero based on sparsity
             if rng.random::<f64>() < params.sparsity {
                 coeffs.push(0);
@@ -45,7 +47,7 @@ impl SecretKey {
         }
 
         // Create the polynomial
-        let s = PolyRing::from_coeffs_unsigned(&coeffs, params.modulus, 8);
+        let s = PolyRing::from_unsigned_coeffs(&coeffs, params.modulus, 8);
 
         Self { s }
     }

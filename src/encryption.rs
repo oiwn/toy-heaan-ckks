@@ -168,7 +168,7 @@ fn rescale_poly(poly: &PolyRing, scale_factor: u64) -> PolyRing {
         new_coeffs.push(scaled);
     }
 
-    PolyRing::from_coeffs_unsigned(&new_coeffs, modulus, poly.ring_degree())
+    PolyRing::from_unsigned_coeffs(&new_coeffs, modulus, poly.ring_dimension())
 }
 
 #[cfg(test)]
@@ -177,8 +177,8 @@ mod tests {
 
     #[test]
     fn test_relinearize_no_c2() {
-        let c0 = PolyRing::from_coeffs(&[1, 2], 7, 2);
-        let c1 = PolyRing::from_coeffs(&[3, 4], 7, 2);
+        let c0 = PolyRing::from_unsigned_coeffs(&[1, 2], 7, 2);
+        let c1 = PolyRing::from_unsigned_coeffs(&[3, 4], 7, 2);
         let ct = Ciphertext {
             c0: c0.clone(),
             c1: c1.clone(),
@@ -200,9 +200,9 @@ mod tests {
 
     #[test]
     fn test_relinearize_with_c2() {
-        let c0 = PolyRing::from_coeffs(&[1, 2], 7, 2);
-        let c1 = PolyRing::from_coeffs(&[3, 4], 7, 2);
-        let c2 = PolyRing::from_coeffs(&[2, 3], 7, 2);
+        let c0 = PolyRing::from_unsigned_coeffs(&[1, 2], 7, 2);
+        let c1 = PolyRing::from_unsigned_coeffs(&[3, 4], 7, 2);
+        let c2 = PolyRing::from_unsigned_coeffs(&[2, 3], 7, 2);
         let ct = Ciphertext {
             c0: c0.clone(),
             c1: c1.clone(),
@@ -211,8 +211,8 @@ mod tests {
         };
 
         // Create a relinearization key with one component (b0, a0)
-        let b0 = PolyRing::from_coeffs(&[4, 5], 7, 2);
-        let a0 = PolyRing::from_coeffs(&[6, 1], 7, 2);
+        let b0 = PolyRing::from_unsigned_coeffs(&[4, 5], 7, 2);
+        let a0 = PolyRing::from_unsigned_coeffs(&[6, 1], 7, 2);
         let relin_key = RelinearizationKey {
             components: vec![(b0.clone(), a0.clone())],
             base: 2,
@@ -224,8 +224,8 @@ mod tests {
         // c2 * a0 = 2 + 6x = [2, 6]
         // c0_new = [1, 2] + [0, 1] = [1, 3]
         // c1_new = [3, 4] + [2, 6] = [5, (4+6 mod7)= [5, 3]]
-        let expected_c0 = PolyRing::from_coeffs(&[1, 3], 7, 2);
-        let expected_c1 = PolyRing::from_coeffs(&[5, 3], 7, 2);
+        let expected_c0 = PolyRing::from_unsigned_coeffs(&[1, 3], 7, 2);
+        let expected_c1 = PolyRing::from_unsigned_coeffs(&[5, 3], 7, 2);
 
         let result = ct.relinearize(&relin_key);
         assert_eq!(result.c0, expected_c0);
