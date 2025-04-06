@@ -1,18 +1,18 @@
 use core::ops::{Add, Mul, Rem};
 use std::iter::IntoIterator;
 
-/// Represents a polynomial in a ring Z[X]/(X^N + 1) with coefficients modulo q
+/// Represents a polynomial in a ring Z_q[X]/(X^n + 1) where:
+/// q - coefficients modulo
+/// n - ring degree, should be power of 2
 /// This kind of rings called "quotient rings"
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRing {
     coeffs: Vec<u64>,
     modulus: u64,     // q
-    ring_degree: u64, // Ring degree (where X^n + 1 is the modulus)
+    ring_degree: u64, // n - ring degree (where X^n + 1 is the modulus)
 }
 
 impl PolyRing {
-    /// Create a new polynomial with given modulus
-    /// Returns None if modulus is zero
     pub fn new(modulus: u64, ring_degree: u64) -> Self {
         Self {
             coeffs: Vec::new(),
@@ -172,12 +172,6 @@ impl<'a> IntoIterator for &'a PolyRing {
     }
 }
 
-/// Helper functions to convert between coefficient vectors and polynomials
-// TODO: delete
-pub fn coeffs_to_poly(coeffs: &[i64], modulus: u64, degree: u64) -> PolyRing {
-    PolyRing::from_coeffs(coeffs, modulus, degree)
-}
-
 #[cfg(test)]
 mod operation_tests {
     use super::*;
@@ -185,8 +179,8 @@ mod operation_tests {
     #[test]
     fn test_addition() {
         // Test p1 = 2x + 3, p2 = 5x + 7
-        let p1 = coeffs_to_poly(&[3, 2], 17, 4); // coefficients in reverse order
-        let p2 = coeffs_to_poly(&[7, 5], 17, 4);
+        let p1 = PolyRing::from_coeffs(&[3, 2], 17, 4); // coefficients in reverse order
+        let p2 = PolyRing::from_coeffs(&[7, 5], 17, 4);
 
         let sum = p1 + p2;
         assert_eq!(sum.coeffs[0], 10); // (3 + 7) mod 17
@@ -220,8 +214,8 @@ mod operation_tests {
     #[test]
     fn test_basic_multiplication() {
         // p1 = x + 2, p2 = x + 3
-        let p1 = coeffs_to_poly(&[2, 1], 17, 2);
-        let p2 = coeffs_to_poly(&[3, 1], 17, 2);
+        let p1 = PolyRing::from_coeffs(&[2, 1], 17, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 1], 17, 2);
 
         let product = p1 * p2;
         // In regular polynomial multiplication: Result would be x^2 + 5x + 6
@@ -256,22 +250,21 @@ mod operation_tests {
 
         // Check the result
         assert_eq!(result.coeffs.len(), 4, "Result should have degree = 4");
-        for i in 0..4 {
+        // for i in 0..4 {
+        for (i, item) in expected_coeffs.iter().enumerate() {
             assert_eq!(
-                result.coeffs[i], expected_coeffs[i],
+                result.coeffs[i], *item,
                 "Coefficient at position {} doesn't match",
                 i
             );
         }
     }
 
-    /* #[test]
+    #[test]
     fn test_addition_with_different_degrees() {
-        let modulus = 17;
-
         // p1 = 2x^2 + 3x + 4, p2 = 5x + 7
-        let p1 = create_test_poly(&[4, 3, 2], 17, 3);
-        let p2 = create_test_poly(&[7, 5], 17, 2);
+        let p1 = PolyRing::from_coeffs(&[4, 3, 2], 17, 3);
+        let p2 = PolyRing::from_coeffs(&[7, 5], 17, 2);
 
         let sum = p1 + p2;
         assert_eq!(sum.coeffs[0], 11); // (4 + 7) mod 17
@@ -279,23 +272,7 @@ mod operation_tests {
         assert_eq!(sum.coeffs[2], 2); // 2 mod 17
     }
 
-
-
-
-    #[test]
-    fn test_basic_multiplication_old() {
-        let modulus = 17;
-
-        // p1 = x + 2, p2 = x + 3
-        let p1 = create_test_poly(&[2, 1], modulus, 8);
-        let p2 = create_test_poly(&[3, 1], modulus, 8);
-
-        let product = p1 * p2;
-        // Result should be x^2 + 5x + 6
-        assert_eq!(product.coeffs[0], 6); // (2 * 3) mod 17
-        assert_eq!(product.coeffs[1], 5); // (2 * 1 + 1 * 3) mod 17
-        assert_eq!(product.coeffs[2], 1); // (1 * 1) mod 17
-    }
+    /*
 
     #[test]
     fn test_multiplication_with_reduction() {

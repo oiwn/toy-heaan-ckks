@@ -42,7 +42,7 @@ impl Ciphertext {
 
     pub fn relinearize(&self, relin_key: &RelinearizationKey) -> Self {
         // For a ciphertext (c0, c1, c2) of the form c0 + c1*s + c2*s^2
-        // we use the relin_key to replace c2·s^2 with an encryption of the same value
+        // we use the relin_key to replace c2*s^2 with an encryption of the same value
 
         // In this toy implementation, we'll just use the first component of the key
         // In a full implementation, we'd decompose c2 into digits according to the base
@@ -78,14 +78,14 @@ impl Ciphertext {
         );
 
         // For tensor product of ciphertexts: (c0, c1) * (d0, d1)
-        // Resulting in c0·d0 + (c0·d1 + c1·d0)·s + c1·d1·s²
+        // Resulting in c0*d0 + (c0*d1 + c1*d0)*s + c1*d1*s^2
 
         let d0 = self.c0.clone() * other.c0.clone();
         let d1 = (self.c0.clone() * other.c1.clone())
             + (self.c1.clone() * other.c0.clone());
         let d2 = self.c1.clone() * other.c1.clone();
 
-        // Create intermediate ciphertext with s² term
+        // Create intermediate ciphertext with s^2 term
         let result = Self {
             c0: d0,
             c1: d1,
@@ -93,46 +93,10 @@ impl Ciphertext {
             scale: self.scale * other.scale,
         };
 
-        // Apply relinearization to eliminate the s² term
+        // Apply relinearization to eliminate the s^2 term
         let relinearized = result.relinearize(relin_key);
         // Then rescale back down to the original scale
         relinearized.rescale(self.scale)
-    }
-
-    /// Homomorphic multiplication of ciphertexts
-    pub fn mul_old(&self, other: &Self) -> Self {
-        // Check scaling factors and moduli
-        assert_eq!(
-            self.scale, other.scale,
-            "Ciphertexts must have the same scale for multiplication"
-        );
-
-        // For tensor product of ciphertexts: (c0, c1) * (d0, d1)
-        // c0*d0 + c0*d1*s + c1*d0*s + c1*d1*s²
-        // We need to relinearize to bring it back to the form c0' + c1'*s
-
-        // d0 = c0*d0 (constant term)
-        let d0 = self.c0.clone() * other.c0.clone();
-
-        // d1 = c0*d1 + c1*d0 (coefficient of s)
-        let d1 = (self.c0.clone() * other.c1.clone())
-            + (self.c1.clone() * other.c0.clone());
-
-        // d2 = c1*d1 (coefficient of s²) - this requires relinearization
-        // let d2 = self.c1.clone() * other.c1.clone();
-
-        // For this toy implementation, we'll do a naive relinearization
-        // In a production implementation, this would use evaluation keys
-
-        // The scale doubles after multiplication
-        let new_scale = self.scale * other.scale;
-
-        Self {
-            c0: d0,
-            c1: d1,
-            c2: None,
-            scale: new_scale,
-        }
     }
 
     /// Rescales the ciphertext after multiplication

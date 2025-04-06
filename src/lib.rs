@@ -5,4 +5,4 @@ pub mod rings;
 
 pub use encryption::{Ciphertext, decrypt, encrypt};
 pub use keys::*;
-pub use rings::{PolyRing, coeffs_to_poly};
+pub use rings::PolyRing;

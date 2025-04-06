@@ -1,6 +1,6 @@
 use toy_heaan_ckks::{
-    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams,
-    coeffs_to_poly, decrypt, encoding, encrypt,
+    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decrypt,
+    encoding, encrypt,
 };
 
 fn main() -> Result<(), String> {
@@ -41,9 +41,9 @@ fn main() -> Result<(), String> {
     let coeffs3 = encoding::encode(&values3, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = coeffs_to_poly(&coeffs1, modulus, ring_degree as u64);
-    let poly2 = coeffs_to_poly(&coeffs2, modulus, ring_degree as u64);
-    let poly3 = coeffs_to_poly(&coeffs3, modulus, ring_degree as u64);
+    let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_degree as u64);
+    let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_degree as u64);
+    let poly3 = PolyRing::from_coeffs(&coeffs3, modulus, ring_degree as u64);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
