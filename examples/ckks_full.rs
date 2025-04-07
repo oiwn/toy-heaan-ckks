@@ -11,7 +11,7 @@ fn main() -> Result<(), String> {
 
     // Create Secret-Key
     let sk_params = SecretKeyParams {
-        ring_degree: ring_degree,
+        ring_degree,
         modulus,
         sparsity: 0.5,
     };

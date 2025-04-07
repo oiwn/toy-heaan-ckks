@@ -180,14 +180,14 @@ mod operation_tests {
 
     #[test]
     fn test_addition_overflow() {
-        // test p1 = 4x + 5, p2 = 3x + 4
+        // test p1 = 5 + 4x, p2 = 4 + 3x
         let p1 = PolyRing::from_unsigned_coeffs(&[5, 4], 6, 4);
         let p2 = PolyRing::from_unsigned_coeffs(&[4, 3], 6, 4);
 
-        // (4 + 3)x + (5 + 4) = 7x + 9 ≡ x + 3 mod 6
+        // (5 + 4x) + (3 + 4x) = 9 + 7x = (3 + x) mod 6
         let sum = p1 + p2;
-        assert_eq!(sum.coefficients[0], 3); // (4 + 3) mod 6
-        assert_eq!(sum.coefficients[1], 1); // (5 + 4) mod 6
+        assert_eq!(sum.coefficients[0], 3); // 9 mod 6
+        assert_eq!(sum.coefficients[1], 1); // 7 mod 6
     }
 
     #[test]
