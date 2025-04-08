@@ -211,7 +211,7 @@ mod operation_tests {
         let product = p1 * p2;
         // In regular polynomial multiplication: Result would be x^2 + 5x + 6
         // In Z[X]/(X^n + 1) with n=2: We use X^2 = -1, which gives
-        // x^2 + 5x + 6 = -1 + 5x + 6 = 5x + 5
+        // x^2 + 5x + 6 = -1 + 5x + 6 = 5 + 5x
         assert_eq!(product.coefficients[0], 5); // 6 - 1 = 5 mod 17
         assert_eq!(product.coefficients[1], 5); // 5 mod 17
     }
