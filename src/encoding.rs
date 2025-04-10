@@ -171,6 +171,21 @@ mod tests {
     }
 
     #[test]
+    fn test_encoding_decoding() {
+        // Test roundtrip of values through encoding/decoding
+        let values = vec![1.5, 2.5, 3.5, 4.5];
+        let params = EncodingParams::new(8, 30).unwrap();
+
+        let encoded = encode(&values, &params).unwrap();
+        let decoded = decode(&encoded, &params).unwrap();
+
+        // Check roundtrip precision
+        for (original, result) in values.iter().zip(decoded.iter()) {
+            assert_relative_eq!(original, result, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
     fn test_precise_small_values() {
         let params = EncodingParams::new(8, 30).unwrap();
         // Test small values that should encode/decode exactly

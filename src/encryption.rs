@@ -41,6 +41,31 @@ impl Ciphertext {
     }
 
     pub fn relinearize(&self, relin_key: &RelinearizationKey) -> Self {
+        if self.c2.is_none() {
+            // No s^2 term, nothing to do
+            return self.clone();
+        }
+
+        let c2 = self.c2.as_ref().unwrap();
+
+        // Extract the first component of the relinearization key
+        let (b0, a0) = &relin_key.components[0];
+
+        // Compute c2 · (b0 + a0·s)
+        let c0_new = self.c0.clone() + (c2.clone() * b0.clone());
+        let c1_new = self.c1.clone() + (c2.clone() * a0.clone());
+
+        Self {
+            c0: c0_new,
+            c1: c1_new,
+            c2: None,
+            // During relinearization we've implicitly multiplied by P through the
+            // relinearization key, so we need to adjust the scale
+            scale: self.scale * relin_key.base as f64,
+        }
+    }
+
+    pub fn relinearize_old(&self, relin_key: &RelinearizationKey) -> Self {
         // For a ciphertext (c0, c1, c2) of the form c0 + c1*s + c2*s^2
         // we use the relin_key to replace c2*s^2 with an encryption of the same value
 
@@ -69,8 +94,35 @@ impl Ciphertext {
         }
     }
 
-    /// Homomorphic multiplication of ciphertexts with relinearization
     pub fn mul(&self, other: &Self, relin_key: &RelinearizationKey) -> Self {
+        assert_eq!(
+            self.scale, other.scale,
+            "Ciphertexts must have the same scale for multiplication"
+        );
+
+        let d0 = self.c0.clone() * other.c0.clone();
+        let d1 = (self.c0.clone() * other.c1.clone())
+            + (self.c1.clone() * other.c0.clone());
+        let d2 = self.c1.clone() * other.c1.clone();
+
+        // Create intermediate ciphertext with s^2 term
+        let intermediate = Self {
+            c0: d0,
+            c1: d1,
+            c2: Some(d2),
+            scale: self.scale * other.scale, // Scale multiplies during multiplication
+        };
+
+        // Apply relinearization to eliminate the s^2 term
+        // This will make the scale: self.scale * other.scale * relin_key.base
+        let relinearized = intermediate.relinearize(relin_key);
+
+        // Rescale back down to the original scale
+        relinearized.rescale(self.scale)
+    }
+
+    /// Homomorphic multiplication of ciphertexts with relinearization
+    pub fn mul_old(&self, other: &Self, relin_key: &RelinearizationKey) -> Self {
         // Check scaling factors
         assert_eq!(
             self.scale, other.scale,
@@ -99,9 +151,24 @@ impl Ciphertext {
         relinearized.rescale(self.scale)
     }
 
+    pub fn rescale(&self, target_scale: f64) -> Self {
+        let scale_factor = self.scale / target_scale;
+
+        // Rescale the polynomials by dividing coefficients by scale_factor
+        let c0_scaled = rescale_poly(&self.c0, scale_factor);
+        let c1_scaled = rescale_poly(&self.c1, scale_factor);
+
+        Self {
+            c0: c0_scaled,
+            c1: c1_scaled,
+            c2: None,
+            scale: target_scale,
+        }
+    }
+
     /// Rescales the ciphertext after multiplication
     /// This divides by the scaling factor and updates the scale
-    pub fn rescale(&self, target_scale: f64) -> Self {
+    pub fn rescale_old(&self, target_scale: f64) -> Self {
         // let modulus = self.c0.modulus();
         let scale_factor = self.scale / target_scale;
 
@@ -109,8 +176,8 @@ impl Ciphertext {
         let rounding_factor = scale_factor.round() as u64;
 
         // Create scaled versions of c0 and c1
-        let scaled_c0 = rescale_poly(&self.c0, rounding_factor);
-        let scaled_c1 = rescale_poly(&self.c1, rounding_factor);
+        let scaled_c0 = rescale_poly(&self.c0, rounding_factor as f64);
+        let scaled_c1 = rescale_poly(&self.c1, rounding_factor as f64);
 
         Self {
             c0: scaled_c0,
@@ -151,6 +218,21 @@ pub fn encrypt(
     }
 }
 
+// Helper function to rescale a polynomial
+fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
+    let modulus = poly.modulus();
+    let ring_dim = poly.ring_dimension();
+    let mut new_coeffs = Vec::with_capacity(poly.len());
+
+    for &coeff in poly {
+        // Divide by scale factor and round to nearest integer
+        let scaled = (coeff as f64 / scale_factor).round() as u64 % modulus;
+        new_coeffs.push(scaled);
+    }
+
+    PolyRing::from_unsigned_coeffs(&new_coeffs, modulus, ring_dim)
+}
+
 /// Decrypt a ciphertext using the secret key
 pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
     // Compute c0 + c1*s
@@ -158,7 +240,7 @@ pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
 }
 
 /// Helper function to rescale a polynomial
-fn rescale_poly(poly: &PolyRing, scale_factor: u64) -> PolyRing {
+fn rescale_poly_old(poly: &PolyRing, scale_factor: u64) -> PolyRing {
     let modulus = poly.modulus();
     let mut new_coeffs = Vec::with_capacity(poly.len());
 
