@@ -21,11 +21,14 @@ with integers or bits, CKKS is specialized for approximate arithmetic, making it
 suitable for machine learning and statistical analysis on encrypted data.
 
 Key features of this implementation:
-- [ ] Encoding/decoding of real numbers
-- [ ] Key generation (secret and public)
-- [ ] Polynomial ring operations
-- [ ] Basic homomorphic operations (addition)
+- [x] Encoding/decoding of real numbers
+- [x] Key generation (secret and public)
+- [x] Polynomial ring operations
+- [x] Basic homomorphic operations (addition)
+- [ ] Relinearization and rescale
 - [ ] Basic homomorphic operations (multiplication)
+- [ ] Bootstrapping
+- [ ] Complex math over ciphertexts?
 
 ## Getting Started
 
@@ -36,7 +39,13 @@ Key features of this implementation:
 ### Installation
 
 ```bash
-cargo run --example full_cycle 
+git clone git@github.com:oiwn/toy-heaan-ckks.git
+```
+
+Run example:
+
+```bash
+cargo run --example full_sum
 ```
 
 ## Limitations
