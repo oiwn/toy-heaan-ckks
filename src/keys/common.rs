@@ -17,7 +17,7 @@ pub fn generate_random_poly<T: Rng>(
         coeffs.push(random_val);
     }
 
-    PolyRing::from_unsigned_coeffs(&coeffs, modulus, 8)
+    PolyRing::from_coeffs(&coeffs, modulus, 8)
 }
 
 /// Generate a polynomial with small random coefficients (error polynomial)
@@ -51,7 +51,7 @@ pub fn generate_error_poly<T: Rng>(
         coeffs.push(coeff);
     }
 
-    PolyRing::from_unsigned_coeffs(&coeffs, modulus, 8)
+    PolyRing::from_coeffs(&coeffs, modulus, 8)
 }
 
 /// Generate a ternary polynomial with coefficients in {-1, 0, 1}
@@ -80,7 +80,7 @@ pub fn generate_ternary_poly<T: Rng>(
         }
     }
 
-    PolyRing::from_unsigned_coeffs(&coeffs, modulus, 8)
+    PolyRing::from_coeffs(&coeffs, modulus, 8)
 }
 
 /// Compute the negative of a polynomial in the ring
@@ -97,5 +97,5 @@ pub fn negate_poly(poly: &PolyRing, modulus: u64) -> PolyRing {
         }
     }
 
-    PolyRing::from_unsigned_coeffs(&neg_coeffs, modulus, 8)
+    PolyRing::from_coeffs(&neg_coeffs, modulus, 8)
 }

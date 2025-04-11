@@ -37,11 +37,8 @@ impl RelinearizationKey {
             let scaled_coeff = (coeff as u128 * base as u128) % modulus as u128;
             s_squared_scaled_coeffs.push(scaled_coeff as u64);
         }
-        let s_squared_scaled = PolyRing::from_unsigned_coeffs(
-            &s_squared_scaled_coeffs,
-            modulus,
-            ring_dim,
-        );
+        let s_squared_scaled =
+            PolyRing::from_coeffs(&s_squared_scaled_coeffs, modulus, ring_dim);
 
         // Generate random polynomial a
         let a = generate_random_poly(n, modulus, &mut rng);
@@ -84,7 +81,7 @@ fn convert_poly_to_larger_modulus(poly: &PolyRing, new_modulus: u64) -> PolyRing
         new_coeffs.push(new_coeff);
     }
 
-    PolyRing::from_unsigned_coeffs(&new_coeffs, new_modulus, poly.ring_dimension())
+    PolyRing::from_coeffs(&new_coeffs, new_modulus, poly.ring_dimension())
 }
 
 // Helper function to multiply polynomial by scalar
@@ -97,7 +94,7 @@ fn multiply_by_scalar(poly: &PolyRing, scalar: u64) -> PolyRing {
         result.push(scaled as u64);
     }
 
-    PolyRing::from_unsigned_coeffs(&result, modulus, 8)
+    PolyRing::from_coeffs(&result, modulus, poly.ring_dimension())
 }
 
 #[cfg(test)]

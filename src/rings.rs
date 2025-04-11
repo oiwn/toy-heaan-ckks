@@ -1,28 +1,45 @@
 use core::ops::{Add, Mul, Rem};
+use std::convert::TryInto;
 use std::iter::IntoIterator;
 
 /// Represents a polynomial in a ring Z_q[X]/(X^n + 1) where:
 /// q - coefficients modulo
-/// n - ring degree, should be power of 2
-/// This kind of rings called "quotient rings"
+/// n - ring dimension, should be power of 2
+///
+/// In this quotient ring, polynomials have degree at most n-1,
+/// and X^n = -1 (which is used during multiplication)
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRing {
     coefficients: Vec<u64>,
-    modulus: u64,  // q
-    ring_dim: u64, // n - ring dimention (where X^n + 1 is the modulus)
+    modulus: u64,    // q
+    ring_dim: usize, // n
 }
 
 impl PolyRing {
-    pub fn new_empty(modulus: u64, ring_dim: u64) -> Self {
+    pub fn new_empty(modulus: u64, ring_dim: usize) -> Self {
         Self {
-            coefficients: Vec::new(),
+            coefficients: Vec::with_capacity(ring_dim as usize),
             modulus,
             ring_dim,
         }
     }
 
-    pub fn from_signed_coeffs(coeffs: &[i64], modulus: u64, ring_dim: u64) -> Self {
-        let n = ring_dim as usize;
+    // Or if you specifically want an empty polynomial:
+    pub fn zero(modulus: u64, ring_dim: usize) -> Self {
+        let coefficients = vec![0; ring_dim as usize];
+
+        Self {
+            coefficients,
+            modulus,
+            ring_dim,
+        }
+    }
+
+    /* pub fn from_signed_coeffs(
+        coeffs: &[i64],
+        modulus: u64,
+        ring_dim: usize,
+    ) -> Self {
         let mut poly = Self::new_empty(modulus, ring_dim);
 
         poly.coefficients = coeffs
@@ -30,21 +47,39 @@ impl PolyRing {
             .map(|&c| ((c % modulus as i64) + modulus as i64) as u64 % modulus)
             .collect();
 
-        poly.coefficients.resize(n, 0);
+        poly.coefficients.resize(ring_dim, 0);
         poly
     }
 
     pub fn from_unsigned_coeffs(
         coeffs: &[u64],
         modulus: u64,
-        ring_dim: u64,
+        ring_dim: usize,
     ) -> Self {
-        let n = ring_dim as usize;
         let mut poly = Self::new_empty(modulus, ring_dim);
 
         poly.coefficients = coeffs.to_vec();
-        poly.coefficients.resize(n, 0);
+        poly.coefficients.resize(ring_dim, 0);
         poly.reduce_mod();
+        poly
+    } */
+
+    pub fn from_coeffs<T>(coeffs: &[T], modulus: u64, ring_dim: usize) -> Self
+    where
+        T: Copy,
+        i64: TryFrom<T>,
+        <i64 as TryFrom<T>>::Error: std::fmt::Debug,
+    {
+        let mut poly = Self::zero(modulus, ring_dim);
+
+        for (i, &coeff) in coeffs.iter().enumerate().take(ring_dim) {
+            // Convert to i64, panicking if the value is out of range
+            let value = i64::try_from(coeff).expect("Coefficient out of i64 range");
+            // Proper modular reduction for any integer
+            poly.coefficients[i] =
+                ((value % modulus as i64 + modulus as i64) % modulus as i64) as u64;
+        }
+
         poly
     }
 
@@ -54,7 +89,7 @@ impl PolyRing {
         }
     }
 
-    pub fn ring_dimension(&self) -> u64 {
+    pub fn ring_dimension(&self) -> usize {
         self.ring_dim
     }
 
@@ -170,8 +205,8 @@ mod operation_tests {
     #[test]
     fn test_addition() {
         // Test p1 = 2x + 3, p2 = 5x + 7
-        let p1 = PolyRing::from_unsigned_coeffs(&[3, 2], 17, 4); // coefficients in reverse order
-        let p2 = PolyRing::from_unsigned_coeffs(&[7, 5], 17, 4);
+        let p1 = PolyRing::from_coeffs(&[3, 2], 17, 4); // coefficients in reverse order
+        let p2 = PolyRing::from_coeffs(&[7, 5], 17, 4);
 
         let sum = p1 + p2;
         assert_eq!(sum.coefficients[0], 10); // (3 + 7) mod 17
@@ -181,8 +216,8 @@ mod operation_tests {
     #[test]
     fn test_addition_overflow() {
         // test p1 = 5 + 4x, p2 = 4 + 3x
-        let p1 = PolyRing::from_unsigned_coeffs(&[5, 4], 6, 4);
-        let p2 = PolyRing::from_unsigned_coeffs(&[4, 3], 6, 4);
+        let p1 = PolyRing::from_coeffs(&[5, 4], 6, 4);
+        let p2 = PolyRing::from_coeffs(&[4, 3], 6, 4);
 
         // (5 + 4x) + (3 + 4x) = 9 + 7x = (3 + x) mod 6
         let sum = p1 + p2;
@@ -193,8 +228,8 @@ mod operation_tests {
     #[test]
     fn test_addition_negative() {
         // Test p1 = -2x + 3, p2 = 5x - 4 over modulus 7
-        let p1 = PolyRing::from_signed_coeffs(&[3, -2], 7, 4); // becomes [3, 5]
-        let p2 = PolyRing::from_signed_coeffs(&[-4, 5], 7, 4); // becomes [3, 5]
+        let p1 = PolyRing::from_coeffs(&[3, -2], 7, 4); // becomes [3, 5]
+        let p2 = PolyRing::from_coeffs(&[-4, 5], 7, 4); // becomes [3, 5]
 
         let sum = p1 + p2;
         // Expected: (3 + 3) = 6, (5 + 5) = 10 = 3 mod 7
@@ -205,8 +240,8 @@ mod operation_tests {
     #[test]
     fn test_basic_multiplication() {
         // p1 = x + 2, p2 = x + 3
-        let p1 = PolyRing::from_signed_coeffs(&[2, 1], 17, 2);
-        let p2 = PolyRing::from_signed_coeffs(&[3, 1], 17, 2);
+        let p1 = PolyRing::from_coeffs(&[2, 1], 17, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 1], 17, 2);
 
         let product = p1 * p2;
         // In regular polynomial multiplication: Result would be x^2 + 5x + 6
@@ -221,10 +256,10 @@ mod operation_tests {
         let modulus = 100003; // Large prime to avoid overflow issues in test
 
         // p1 = 5 + 6x + 7x^2 + 8x^3 (coefficients in reverse order in our implementation)
-        let p1 = PolyRing::from_signed_coeffs(&[5, 6, 7, 8], modulus, 4);
+        let p1 = PolyRing::from_coeffs(&[5, 6, 7, 8], modulus, 4);
 
         // p2 = 1 + 2x + 3x^2 + 4x^3
-        let p2 = PolyRing::from_signed_coeffs(&[1, 2, 3, 4], modulus, 4);
+        let p2 = PolyRing::from_coeffs(&[1, 2, 3, 4], modulus, 4);
 
         // Multiply polynomials
         let result = p1 * p2;
@@ -258,8 +293,8 @@ mod operation_tests {
     #[test]
     fn test_addition_with_different_degrees() {
         // p1 = 2x^2 + 3x + 4, p2 = 5x + 7
-        let p1 = PolyRing::from_unsigned_coeffs(&[4, 3, 2], 17, 3);
-        let p2 = PolyRing::from_unsigned_coeffs(&[7, 5], 17, 2);
+        let p1 = PolyRing::from_coeffs(&[4, 3, 2], 17, 3);
+        let p2 = PolyRing::from_coeffs(&[7, 5], 17, 2);
 
         let sum = p1 + p2;
         assert_eq!(sum.coefficients[0], 11); // (4 + 7) mod 17

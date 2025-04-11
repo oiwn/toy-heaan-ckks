@@ -41,9 +41,9 @@ fn main() -> Result<(), String> {
     let coeffs3 = encoding::encode(&values3, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = PolyRing::from_signed_coeffs(&coeffs1, modulus, ring_degree as u64);
-    let poly2 = PolyRing::from_signed_coeffs(&coeffs2, modulus, ring_degree as u64);
-    let poly3 = PolyRing::from_signed_coeffs(&coeffs3, modulus, ring_degree as u64);
+    let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_degree);
+    let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_degree);
+    let poly3 = PolyRing::from_coeffs(&coeffs3, modulus, ring_degree);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
