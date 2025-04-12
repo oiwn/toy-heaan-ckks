@@ -193,7 +193,7 @@ pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
     /* #[test]
     fn test_relinearize_no_c2() {

@@ -85,11 +85,6 @@ mod tests {
         let mut diff_values = Vec::new();
         let half_modulus = modulus / 2;
 
-        // for (i, (&v1, &v2)) in verification
-        //     .into_iter()
-        //     .zip(s_squared.into_iter())
-        //     .enumerate()
-
         for (&v1, &v2) in verification.into_iter().zip(s_squared.into_iter()) {
             let diff = if v1 >= v2 {
                 v1 - v2
