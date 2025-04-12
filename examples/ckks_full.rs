@@ -1,13 +1,13 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decrypt,
-    encoding, encrypt,
+    PolyRing, PublicKey, PublicKeyParams, RelinearizationKey, SecretKey,
+    SecretKeyParams, decrypt, encoding, encrypt,
 };
 
 fn main() -> Result<(), String> {
     // Parameters setup
-    let ring_degree = 4; // Small for example
+    let ring_degree = 8; // Small for example
     let scale_bits = 30;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
     let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
@@ -26,15 +26,16 @@ fn main() -> Result<(), String> {
         error_variance: 3.0,
     };
     let public_key = PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
+    let relin_key =
+        RelinearizationKey::from_secret_key(&secret_key, modulus, 3.0, &mut rng);
 
     // Original values
-    let values1 = vec![3.5, 3.0, 4.0, 3.5];
-    let values2 = vec![1.5, 3.0, 3.0, 4.5];
-    let values3 = vec![1.0, 2.0, 3.0, 4.0];
+    let values1 = vec![1.5, 2.5, 3.5, 4.5];
+    let values2 = vec![0.5, 1.0, 1.5, 2.0];
+    let values3 = vec![0.0, 0.0, 0.0, 0.0];
 
     // Parameters for encoding
-    let encoding_params =
-        encoding::EncodingParams::new(ring_degree * 2, scale_bits)?;
+    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)?;
 
     // Encode
     let coeffs1 = encoding::encode(&values1, &encoding_params)?;
@@ -53,8 +54,7 @@ fn main() -> Result<(), String> {
     let ct3 = encrypt(&poly3, &public_key, scale);
 
     // Homomorphic Addition and multiplication
-    // let ct_sum = ct1.add(&ct2).mul(&ct3, &public_key.relin_key);
-    let ct_sum = ct1.add(&ct2);
+    let ct_sum = ct1.add(&ct2).mul(&ct3, &relin_key);
 
     // Decrypt
     let decrypted_poly = decrypt(&ct_sum, &secret_key);
