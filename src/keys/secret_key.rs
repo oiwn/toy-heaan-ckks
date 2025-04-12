@@ -16,38 +16,35 @@ pub struct SecretKeyParams {
     pub ring_degree: usize,
     /// Modulus for the polynomial coefficients
     pub modulus: u64,
-    /// Controls the sparsity of the ternary distribution (0 to 1)
-    /// Higher values mean more zeros in the polynomial
-    pub sparsity: f64,
+    /// Number of non-zero coefficients in the secret key (Hamming weight)
+    pub hamming_weight: usize,
 }
 
 impl SecretKey {
     /// Generate a new secret key with ternary coefficients {-1, 0, 1}
-    pub fn generate(params: &SecretKeyParams) -> Self {
-        // Create RNG with proper seeding
-        let mut rng = ChaCha20Rng::from_seed([0u8; 32]); // In production use entropy-based seed
+    pub fn generate<R: Rng>(params: &SecretKeyParams, rng: &mut R) -> Self {
+        // Initialize coefficients to zero
+        let mut coeffs = vec![0u64; params.ring_degree];
+        let mut count = 0;
 
-        // Generate ternary polynomial for secret key
-        let mut coeffs = Vec::with_capacity(params.ring_degree);
+        // Add exactly hamming_weight non-zero coefficients
+        while count < params.hamming_weight {
+            let idx = rng.random_range(0..params.ring_degree);
 
-        for _ in 0..params.ring_degree {
-            // First decide if coefficient is zero based on sparsity
-            if rng.random::<f64>() < params.sparsity {
-                coeffs.push(0);
-            } else {
-                // Otherwise, generate -1 or 1 with equal probability
-                let coeff = if rng.random::<bool>() {
-                    1u64
+            // Only set if position is still zero
+            if coeffs[idx] == 0 {
+                // Generate either 1 or -1 (represented as modulus-1) with equal probability
+                coeffs[idx] = if rng.random_bool(0.5) {
+                    1
                 } else {
-                    // -1 is represented as (modulus - 1) in modular arithmetic
-                    params.modulus - 1
+                    params.modulus - 1 // -1 mod q
                 };
-                coeffs.push(coeff);
+                count += 1;
             }
         }
 
         // Create the polynomial
-        let s = PolyRing::from_coeffs(&coeffs, params.modulus, 8);
+        let s = PolyRing::from_coeffs(&coeffs, params.modulus, params.ring_degree);
 
         Self { s }
     }

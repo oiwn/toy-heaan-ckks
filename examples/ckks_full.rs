@@ -1,3 +1,5 @@
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
     PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decrypt,
     encoding, encrypt,
@@ -8,14 +10,15 @@ fn main() -> Result<(), String> {
     let ring_degree = 4; // Small for example
     let scale_bits = 30;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
+    let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
 
     // Create Secret-Key
     let sk_params = SecretKeyParams {
         ring_degree,
         modulus,
-        sparsity: 0.5,
+        hamming_weight: 2,
     };
-    let secret_key = SecretKey::generate(&sk_params);
+    let secret_key = SecretKey::generate(&sk_params, &mut rng);
 
     let pk_params = PublicKeyParams {
         n: ring_degree,

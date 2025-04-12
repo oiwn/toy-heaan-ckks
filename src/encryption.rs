@@ -12,7 +12,7 @@ pub struct Ciphertext {
     pub c0: PolyRing,
     /// c1 component of ciphertext
     pub c1: PolyRing,
-    /// c2 component of ciphertext (coefficient of s_2),
+    /// c2 component of ciphertext (coefficient of s^2),
     /// present only after multiplication before relinearization
     pub c2: Option<PolyRing>,
     /// Tracks the scaling factor used
