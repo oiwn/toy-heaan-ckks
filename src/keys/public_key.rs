@@ -130,7 +130,7 @@ mod tests {
             };
 
             assert!(
-                signed_coeff.abs() as u64 <= error_bound,
+                signed_coeff.unsigned_abs() <= error_bound,
                 "Error coefficient too large: {}, bound: {}",
                 signed_coeff,
                 error_bound
