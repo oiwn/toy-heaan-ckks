@@ -45,7 +45,7 @@ git clone git@github.com:oiwn/toy-heaan-ckks.git
 Run example:
 
 ```bash
-cargo run --example full_sum
+cargo run --example ckks_sum
 ```
 
 ## Limitations
