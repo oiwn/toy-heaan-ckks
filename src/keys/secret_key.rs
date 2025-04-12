@@ -1,8 +1,7 @@
 //! Secret Key (sk): Sample a "small" polynomial s(X) from R.
 //! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1}).
 use crate::PolyRing;
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand::Rng;
 
 /// A secret key in the CKKS scheme
 pub struct SecretKey {
@@ -47,5 +46,78 @@ impl SecretKey {
         let s = PolyRing::from_coeffs(&coeffs, params.modulus, params.ring_degree);
 
         Self { s }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    #[test]
+    fn test_secret_key_hamming_weight() {
+        let params = SecretKeyParams {
+            ring_degree: 128,
+            modulus: 65537,
+            hamming_weight: 40,
+        };
+        let mut rng = StdRng::seed_from_u64(0);
+        let sk = SecretKey::generate(&params, &mut rng);
+        let non_zero_count = sk.s.into_iter().filter(|&&x| x != 0).count();
+
+        assert_eq!(non_zero_count, params.hamming_weight);
+    }
+
+    #[test]
+    fn test_coefficient_values() {
+        let params = SecretKeyParams {
+            ring_degree: 64,
+            modulus: 65537,
+            hamming_weight: 20,
+        };
+        let mut rng = StdRng::seed_from_u64(0);
+        let sk = SecretKey::generate(&params, &mut rng);
+
+        for &coeff in &sk.s {
+            assert!(
+                coeff == 0 || coeff == 1 || coeff == params.modulus - 1,
+                "Coefficient value should be 0, 1, or -1 (mod q)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_value_distribution() {
+        // Generate multiple keys and check distribution of 1/-1 values
+        let params = SecretKeyParams {
+            ring_degree: 1024,
+            modulus: 65537,
+            hamming_weight: 500,
+        };
+
+        let mut ones_count = 0;
+        let mut neg_ones_count = 0;
+
+        for seed in 0..10 {
+            // Generate 10 keys
+            let mut rng = StdRng::seed_from_u64(seed);
+            let sk = SecretKey::generate(&params, &mut rng);
+
+            for &coeff in &sk.s {
+                if coeff == 1 {
+                    ones_count += 1;
+                } else if coeff == params.modulus - 1 {
+                    neg_ones_count += 1;
+                }
+            }
+        }
+
+        // We expect roughly equal numbers of 1 and -1
+        let ratio = ones_count as f64 / (ones_count + neg_ones_count) as f64;
+        assert!(
+            (ratio - 0.5).abs() < 0.1,
+            "1 and -1 should be equally distributed"
+        );
     }
 }
