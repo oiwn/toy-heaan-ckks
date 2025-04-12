@@ -41,10 +41,10 @@ impl RelinearizationKey {
             PolyRing::from_coeffs(&s_squared_scaled_coeffs, modulus, ring_dim);
 
         // Generate random polynomial a
-        let a = generate_random_poly(n, modulus, &mut rng);
+        let a = generate_random_poly(n, modulus, num_components, &mut rng);
 
         // Generate error polynomial e
-        let e = generate_error_poly(n, modulus, 3.0, &mut rng);
+        let e = generate_error_poly(n, modulus, 3.0, num_components, &mut rng);
 
         // Compute b = -(a*s) + e + P*s^2
         let a_times_s = a.clone() * secret_key.s.clone();

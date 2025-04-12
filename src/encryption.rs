@@ -198,8 +198,20 @@ pub fn encrypt(
     let mut rng = ChaCha20Rng::from_seed([2u8; 32]); // Different seed from keys
 
     // Generate small random polynomials for encryption
-    let e1 = generate_error_poly(plaintext.len(), modulus, 3.0, &mut rng);
-    let e2 = generate_error_poly(plaintext.len(), modulus, 3.0, &mut rng);
+    let e1 = generate_error_poly(
+        plaintext.len(),
+        modulus,
+        3.0,
+        plaintext.len(),
+        &mut rng,
+    );
+    let e2 = generate_error_poly(
+        plaintext.len(),
+        modulus,
+        3.0,
+        plaintext.len(),
+        &mut rng,
+    );
 
     // Generate random ephemeral value
     let u = generate_ternary_poly(plaintext.len(), modulus, 0.5, &mut rng);

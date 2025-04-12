@@ -21,13 +21,11 @@ fn main() -> Result<(), String> {
     let secret_key = SecretKey::generate(&sk_params, &mut rng);
 
     let pk_params = PublicKeyParams {
-        n: ring_degree,
+        poly_len: ring_degree,
         modulus,
         error_variance: 3.0,
-        relin_base: 3, // Base for relinearization key decomposition
-        relin_components: 1, // Number of components for our toy example
     };
-    let public_key = PublicKey::from_secret_key(&secret_key, &pk_params);
+    let public_key = PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
 
     // Original values
     let values1 = vec![3.5, 3.0, 4.0, 3.5];
@@ -55,7 +53,8 @@ fn main() -> Result<(), String> {
     let ct3 = encrypt(&poly3, &public_key, scale);
 
     // Homomorphic Addition and multiplication
-    let ct_sum = ct1.add(&ct2).mul(&ct3, &public_key.relin_key);
+    // let ct_sum = ct1.add(&ct2).mul(&ct3, &public_key.relin_key);
+    let ct_sum = ct1.add(&ct2);
 
     // Decrypt
     let decrypted_poly = decrypt(&ct_sum, &secret_key);

@@ -22,13 +22,11 @@ fn main() -> Result<(), String> {
 
     // Create Public-Key
     let pk_params = PublicKeyParams {
-        n: ring_degree,
+        poly_len: ring_degree,
         modulus,
         error_variance: 3.0,
-        relin_base: 3, // Base for relinearization key decomposition
-        relin_components: 1, // Number of components for our toy example
     };
-    let public_key = PublicKey::from_secret_key(&secret_key, &pk_params);
+    let public_key = PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
 
     // Original values
     let values1 = vec![1.5, 2.5, 3.5, 4.5];
