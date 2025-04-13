@@ -32,7 +32,7 @@ fn main() -> Result<(), String> {
     // Original values
     let values1 = vec![1.5, 2.5, 3.5, 4.5];
     let values2 = vec![0.5, 1.0, 1.5, 2.0];
-    let values3 = vec![0.0, 0.0, 0.0, 0.0];
+    let values3 = vec![1.0, 2.0, 3.0, 4.0];
 
     // Parameters for encoding
     let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)?;
@@ -54,23 +54,28 @@ fn main() -> Result<(), String> {
     let ct3 = encrypt(&poly3, &public_key, scale);
 
     // Homomorphic Addition and multiplication
-    let ct_sum = ct1.add(&ct2).mul(&ct3, &relin_key);
+    let ct_sum = ct1.add(&ct2);
+    let ct_mul = ct_sum.mul(&ct3, &relin_key);
 
     // Decrypt
-    let decrypted_poly = decrypt(&ct_sum, &secret_key);
+    let decrypted_poly_sum = decrypt(&ct_sum, &secret_key);
+    let decrypted_poly_mul = decrypt(&ct_mul, &secret_key);
 
     // Convert back to coefficients
-    let decrypted_coeffs = poly_to_coeffs(&decrypted_poly);
+    let decrypted_coeffs = poly_to_coeffs(&decrypted_poly_mul);
 
     // Decode
     let result = encoding::decode(&decrypted_coeffs, &encoding_params)?;
 
     // Print results
-    println!("values_1: {:?}", values1);
-    println!("values_2: {:?}", values2);
-    println!("values_3: {:?}", values3);
-    println!("Expected result of (values1 + values2) * values3: [56, 36, 2, 60]");
+    println!("values_1: {:?} poly: {}", values1, poly1);
+    println!("values_2: {:?} poly: {}", values2, poly2);
+    println!("values_3: {:?} poly: {}", values3, poly3);
+    println!("Result of (values1 + values2) * values3:");
+    println!("values1 + values2 = {}", decrypted_poly_sum);
+    println!("(values1 + values2) * values2 = {}", decrypted_poly_mul);
     println!("Decrypted result: {:?}", result);
+    println!("Reference i64 max: {}", i64::MAX);
 
     Ok(())
 }

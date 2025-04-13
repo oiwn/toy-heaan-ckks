@@ -208,7 +208,7 @@ impl fmt::Display for PolyRing {
                 if abs_value == 1 {
                     write!(f, "x")?;
                 } else {
-                    write!(f, "{}x", abs_value)?;
+                    write!(f, "{}*x", abs_value)?;
                 }
             } else {
                 // Higher degree terms
