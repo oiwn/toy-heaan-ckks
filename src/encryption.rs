@@ -105,27 +105,6 @@ impl Ciphertext {
             scale: target_scale,
         }
     }
-
-    /// Rescales the ciphertext after multiplication
-    /// This divides by the scaling factor and updates the scale
-    pub fn rescale_old(&self, target_scale: f64) -> Self {
-        // let modulus = self.c0.modulus();
-        let scale_factor = self.scale / target_scale;
-
-        // For simplicity, we'll assume scale_factor is a power of 2
-        let rounding_factor = scale_factor.round() as u64;
-
-        // Create scaled versions of c0 and c1
-        let scaled_c0 = rescale_poly(&self.c0, rounding_factor as f64);
-        let scaled_c1 = rescale_poly(&self.c1, rounding_factor as f64);
-
-        Self {
-            c0: scaled_c0,
-            c1: scaled_c1,
-            c2: None,
-            scale: target_scale,
-        }
-    }
 }
 
 /// Encrypt a plaintext polynomial using the public key

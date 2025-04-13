@@ -165,6 +165,74 @@ impl<'a> IntoIterator for &'a PolyRing {
     }
 }
 
+use std::fmt;
+
+impl fmt::Display for PolyRing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.coefficients.is_empty() {
+            return write!(f, "0");
+        }
+
+        let half_modulus = self.modulus / 2;
+        let mut first = true;
+
+        for (i, &coeff) in self.coefficients.iter().enumerate() {
+            if coeff == 0 {
+                continue;
+            }
+
+            // Convert to centered representation (-q/2, q/2)
+            let value = if coeff > half_modulus {
+                -(self.modulus as i64 - coeff as i64) as i64
+            } else {
+                coeff as i64
+            };
+
+            // Handle the sign
+            if first {
+                if value < 0 {
+                    write!(f, "-")?;
+                }
+                first = false;
+            } else {
+                if value < 0 {
+                    write!(f, " - ")?;
+                } else {
+                    write!(f, " + ")?;
+                }
+            }
+
+            // Write coefficient and term
+            let abs_value = value.abs();
+            if i == 0 {
+                // Constant term
+                write!(f, "{}", abs_value)?;
+            } else if i == 1 {
+                // Linear term
+                if abs_value == 1 {
+                    write!(f, "x")?;
+                } else {
+                    write!(f, "{}x", abs_value)?;
+                }
+            } else {
+                // Higher degree terms
+                if abs_value == 1 {
+                    write!(f, "x^{}", i)?;
+                } else {
+                    write!(f, "{}x^{}", abs_value, i)?;
+                }
+            }
+        }
+
+        if first {
+            // All coefficients were zero
+            write!(f, "0")?;
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod operation_tests {
     use super::*;
@@ -279,64 +347,101 @@ mod operation_tests {
     }
 
     /*
+    # Define the polynomial ring
+    n = 4  # Ring dimension (must be power of 2)
+    q = 65537  # Coefficient modulus
+    R.<X> = PolynomialRing(IntegerModRing(q))
+    S = R.quotient(X^n + 1, 'x')
+    x = S.gen()
 
+    # Test polynomial operations
+    p1 = 3 + 4*x + 5*x^2
+    p2 = 2 + x + 3*x^2
+    print("p1 =", p1)
+    print("p2 =", p2)
+    print("p1 + p2 =", p1 + p2)
+    print("p1 * p2 =", p1 * p2)
+
+    p1 = 5*x^2 + 4*x + 3
+    p2 = 3*x^2 + x + 2
+    p1 + p2 = 8*x^2 + 5*x + 5
+    p1 * p2 = 17*x^3 + 23*x^2 + 11*x + 65528
+    */
     #[test]
-    fn test_multiplication_with_reduction() {
-        let modulus = 7;
+    fn test_sage_math_mult() {
+        let modulus = 65537;
 
-        // p1 = 3x + 4, p2 = 2x + 5
-        let p1 = create_test_poly(&[4, 3], modulus, 8);
-        let p2 = create_test_poly(&[5, 2], modulus, 8);
+        let p1 = PolyRing::from_coeffs(&[3, 4, 5], modulus, 4);
+        let p2 = PolyRing::from_coeffs(&[2, 1, 3], modulus, 4);
 
-        let product = p1 * p2;
-        // Raw result would be 6x^2 + 23x + 20, which needs reduction mod 7
-        assert_eq!(product.coeffs[0], 6); // 20 mod 7
-        assert_eq!(product.coeffs[1], 2); // 23 mod 7
-        assert_eq!(product.coeffs[2], 6); // 6 mod 7
+        let sum = p1.clone() + p2.clone();
+        assert_eq!(sum.coefficients[0], 5);
+        assert_eq!(sum.coefficients[1], 5);
+        assert_eq!(sum.coefficients[2], 8);
+
+        let product = p1.clone() * p2.clone();
+        assert_eq!(product.coefficients[0], 65528);
+        assert_eq!(product.coefficients[1], 11);
+        assert_eq!(product.coefficients[2], 23);
+        assert_eq!(product.coefficients[3], 17);
     }
-
 
     #[test]
     fn test_polynomial_ring_multiplication() {
-        // For a ring Z[X]/(X^4 + 1)
-        let modulus = 1231231237; // A large prime for testing
+        // For a ring Z_q[X]/(X^n + 1)
+        let q = 1231231237; // A large prime for testing
+        let n = 4;
 
         // Create two polynomials
         // p1 = 1 + 2x + 3x^2 + 4x^3
-        let p1 = PolyRing::from_coeffs(&[1, 2, 3, 4], modulus, 4);
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3, 4], q, n);
 
         // p2 = 5 + 6x + 7x^2 + 8x^3
-        let p2 = PolyRing::from_coeffs(&[5, 6, 7, 8], modulus, 4);
+        let p2 = PolyRing::from_coeffs(&[5, 6, 7, 8], q, n);
 
         // Multiply them
         let result = p1.clone() * p2.clone();
 
         // In the ring Z[X]/(X^4 + 1), the result should be:
+        // TOOD: WTF?????
         // (1 + 2x + 3x^2 + 4x^3) * (5 + 6x + 7x^2 + 8x^3)
-        // = 5 + 16x + 34x^2 + 60x^3 + 61x^4 + 52x^5 + 32x^6 + 32x^7
+        // = 5 + 16x + 34x^2 + 60x^3 + 61x^4 + 52x^5 + 32x^6
         // After reduction with X^4 = -1:
-        // = 5 + 16x + 34x^2 + 60x^3 + 61(-1) + 52(-x) + 32(-x^2) + 32(-x^3)
+        // = 5 + 16x + 34x^2 + 60x^3 + 61(-1) + 52(-x) + 32(-x^2)
         // = 5 - 61 + 16x - 52x + 34x^2 - 32x^2 + 60x^3 - 32x^3
-        // = (5 - 61) + (16 - 52)x + (34 - 32)x^2 + (60 - 32)x^3
-        // = -56 - 36x + 2x^2 + 28x^3
+        // = (5 - 61) + (16 - 52)x + (34 - 32)x^2 + 60x^3
+        // = -56 - 36x + 2x^2 + 60x^3
+        /*
+        sage: n = 4
+        sage: q = 1231231237;
+        sage: R.<X> = PolynomialRing(IntegerModRing(q))
+        sage: S = R.quotient(X^n + 1, 'x')
+        sage: x = S.gen()
+        sage: p1 = 1 + 2*x + 3*x^2 + 4*x^3
+        sage: p2 = 5 + 6*x + 7*x^2 + 8*x^3
+        sage: print(p1 * p2)
+        60*x^3 + 2*x^2 + 1231231201*x + 1231231181
+        */
+
+        println!("Polynomaial: {}", result);
 
         // Let's check each coefficient
-        assert_eq!(result.coeffs[0], (modulus - 56) % modulus); // -56 mod q
-        assert_eq!(result.coeffs[1], (modulus - 36) % modulus); // -36 mod q
-        assert_eq!(result.coeffs[2], 2); // 2
-        assert_eq!(result.coeffs[3], 28); // 28
+        assert_eq!(result.coefficients[0], (q - 56) % q); // -56 mod q
+        assert_eq!(result.coefficients[1], (q - 36) % q); // -36 mod q
+        assert_eq!(result.coefficients[2], 2); // 2
+        assert_eq!(result.coefficients[3], 60); // 28
     }
 
     #[test]
     fn test_multiplicative_identity() {
         let modulus = 17;
-        let ring_degree = 8;
-        let p1 = create_test_poly(&[1, 2, 3], modulus, ring_degree);
+        let ring_dim = 8;
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3], modulus, ring_dim);
 
         // Create polynomial representing 1 with proper length
-        let mut one_coeffs = vec![0u64; ring_degree as usize];
+        let mut one_coeffs = vec![0u64; ring_dim];
         one_coeffs[0] = 1;
-        let one = PolyRing::from_coeffs(&one_coeffs, modulus, ring_degree);
+        let one = PolyRing::from_coeffs(&one_coeffs, modulus, ring_dim);
 
         let prod1 = p1.clone() * one.clone();
         let prod2 = one * p1.clone();
@@ -347,7 +452,7 @@ mod operation_tests {
             "Multiplying by one should not change polynomial"
         );
         assert_eq!(prod2, p1, "Multiplying by one should not change polynomial");
-    } */
+    }
 }
 
 #[cfg(test)]
