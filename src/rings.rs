@@ -1,5 +1,5 @@
 use core::ops::{Add, Mul, Rem};
-use std::iter::IntoIterator;
+use std::{fmt, iter::IntoIterator};
 
 /// Represents a polynomial in a ring Z_q[X]/(X^n + 1) where:
 /// q - coefficients modulo
@@ -165,8 +165,6 @@ impl<'a> IntoIterator for &'a PolyRing {
     }
 }
 
-use std::fmt;
-
 impl fmt::Display for PolyRing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.coefficients.is_empty() {
@@ -183,7 +181,7 @@ impl fmt::Display for PolyRing {
 
             // Convert to centered representation (-q/2, q/2)
             let value = if coeff > half_modulus {
-                -(self.modulus as i64 - coeff as i64) as i64
+                -(self.modulus as i64 - coeff as i64)
             } else {
                 coeff as i64
             };
@@ -194,13 +192,11 @@ impl fmt::Display for PolyRing {
                     write!(f, "-")?;
                 }
                 first = false;
+            } else if value < 0 {
+                write!(f, " - ")?;
             } else {
-                if value < 0 {
-                    write!(f, " - ")?;
-                } else {
-                    write!(f, " + ")?;
-                }
-            }
+                write!(f, " + ")?;
+            };
 
             // Write coefficient and term
             let abs_value = value.abs();
@@ -457,15 +453,15 @@ mod operation_tests {
 
 #[cfg(test)]
 mod ring_property_tests {
-    // use super::*;
+    use super::*;
 
-    /* #[test]
+    #[test]
     fn test_addition_associativity() {
         let modulus = 17;
 
-        let p1 = create_test_poly(&[1, 2], modulus);
-        let p2 = create_test_poly(&[3, 4], modulus);
-        let p3 = create_test_poly(&[5, 6], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2], modulus, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 4], modulus, 2);
+        let p3 = PolyRing::from_coeffs(&[5, 6], modulus, 2);
 
         // (p1 + p2) + p3
         let sum1 = (p1.clone() + p2.clone()) + p3.clone();
@@ -480,8 +476,8 @@ mod ring_property_tests {
     fn test_addition_commutativity() {
         let modulus = 17;
 
-        let p1 = create_test_poly(&[1, 2, 3], modulus);
-        let p2 = create_test_poly(&[4, 5, 6], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3], modulus, 4);
+        let p2 = PolyRing::from_coeffs(&[4, 5, 6], modulus, 4);
 
         let sum1 = p1.clone() + p2.clone();
         let sum2 = p2 + p1;
@@ -493,9 +489,9 @@ mod ring_property_tests {
     fn test_multiplication_associativity() {
         let modulus = 17;
 
-        let p1 = create_test_poly(&[1, 2], modulus);
-        let p2 = create_test_poly(&[3, 4], modulus);
-        let p3 = create_test_poly(&[5, 6], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2], modulus, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 4], modulus, 2);
+        let p3 = PolyRing::from_coeffs(&[5, 6], modulus, 2);
 
         // (p1 * p2) * p3
         let prod1 = (p1.clone() * p2.clone()) * p3.clone();
@@ -510,8 +506,8 @@ mod ring_property_tests {
     fn test_multiplication_commutativity() {
         let modulus = 17;
 
-        let p1 = create_test_poly(&[1, 2], modulus);
-        let p2 = create_test_poly(&[3, 4], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2], modulus, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 4], modulus, 2);
 
         let prod1 = p1.clone() * p2.clone();
         let prod2 = p2 * p1;
@@ -523,9 +519,9 @@ mod ring_property_tests {
     fn test_distributive_property() {
         let modulus = 17;
 
-        let p1 = create_test_poly(&[1, 2], modulus);
-        let p2 = create_test_poly(&[3, 4], modulus);
-        let p3 = create_test_poly(&[5, 6], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2], modulus, 2);
+        let p2 = PolyRing::from_coeffs(&[3, 4], modulus, 2);
+        let p3 = PolyRing::from_coeffs(&[5, 6], modulus, 2);
 
         // p1 * (p2 + p3)
         let left = p1.clone() * (p2.clone() + p3.clone());
@@ -542,10 +538,10 @@ mod ring_property_tests {
     #[test]
     fn test_additive_identity() {
         let modulus = 17;
-        let p1 = create_test_poly(&[1, 2, 3], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3], modulus, 4);
 
         // Create zero polynomial
-        let zero = PolyRing::from_coeffs(&[], modulus, 8);
+        let zero = PolyRing::zero(modulus, 4);
 
         let sum1 = p1.clone() + zero.clone();
         let sum2 = zero + p1.clone();
@@ -557,10 +553,10 @@ mod ring_property_tests {
     #[test]
     fn test_multiplicative_identity() {
         let modulus = 17;
-        let p1 = create_test_poly(&[1, 2, 3], modulus);
+        let p1 = PolyRing::from_coeffs(&[1, 2, 3], modulus, 4);
 
         // Create polynomial representing 1
-        let one = create_test_poly(&[1], modulus);
+        let one = PolyRing::from_coeffs(&[1], modulus, 4);
 
         let prod1 = p1.clone() * one.clone();
         let prod2 = one * p1.clone();
@@ -571,5 +567,5 @@ mod ring_property_tests {
             "Multiplying by one should not change polynomial"
         );
         assert_eq!(prod2, p1, "Multiplying by one should not change polynomial");
-    } */
+    }
 }
