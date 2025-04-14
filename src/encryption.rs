@@ -174,6 +174,12 @@ pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
 mod tests {
     // use super::*;
 
+    // [2.0, 3.5, 5.0, 6.5] * [1.0, 2.0, 3.0, 4.0]
+    // 26 x^6 + 39.5 x^5 + 42 x^4 + 35 x^3 + 18 x^2 + 7.5 x + 2
+    // 2 + 7.5*x + 18*x^2 + 35*x^3 + 42*(-1) + 39.5*(-x) + 26*(-x^2)
+    // (2-42) + (7.5 - 39.5)*x + (18-26)*x^2 + (35-26)*x^3
+    // -40 - 32*x - 8*x^2 + 35*x^3
+
     /* #[test]
     fn test_relinearize_no_c2() {
         let c0 = PolyRing::from_coeffs(&[1, 2], 7, 2);
