@@ -73,7 +73,7 @@ fn main() -> Result<(), String> {
     println!("values_3: {:?} poly: {}", values3, poly3);
     println!("Result of (values1 + values2) * values3:");
     println!("values1 + values2 = {}", decrypted_poly_sum);
-    println!("(values1 + values2) * values2 = {}", decrypted_poly_mul);
+    println!("(values1 + values2) * values3 = {}", decrypted_poly_mul);
     println!("Decrypted result: {:?}", result);
     println!("Reference i64 max: {}", i64::MAX);
 

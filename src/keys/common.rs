@@ -50,33 +50,37 @@ pub fn generate_error_poly<R: Rng>(
     PolyRing::from_coeffs(&coeffs, modulus, ring_dim)
 }
 
-/// Generate a ternary polynomial with coefficients in {-1, 0, 1}
-/// sparsity controls what fraction of coefficients will be 0
+/// sparsity controls what fraction of coefficients will be non-zero (0.0-1.0)
 pub fn generate_ternary_poly<T: Rng>(
     n: usize,
     modulus: u64,
     sparsity: f64,
     rng: &mut T,
 ) -> PolyRing {
-    let mut coeffs = Vec::with_capacity(n);
+    // Calculate hamming weight from sparsity
+    let hamming_weight = (n as f64 * sparsity).round() as usize;
 
-    for _ in 0..n {
-        // First decide if coefficient is zero based on sparsity
-        if rng.random::<f64>() < sparsity {
-            coeffs.push(0);
-        } else {
-            // Otherwise, generate -1 or 1 with equal probability
-            let coeff = if rng.random::<bool>() {
-                1u64
+    // Initialize all coefficients to zero
+    let mut coeffs = vec![0u64; n];
+    let mut count = 0;
+
+    // Add exactly hamming_weight non-zero coefficients
+    while count < hamming_weight {
+        let idx = rng.random_range(0..n);
+
+        // Only set if position is still zero
+        if coeffs[idx] == 0 {
+            // Generate either 1 or -1 with equal probability
+            coeffs[idx] = if rng.random_bool(0.5) {
+                1
             } else {
-                // -1 is represented as (modulus - 1) in modular arithmetic
-                modulus - 1
+                modulus - 1 // -1 mod q
             };
-            coeffs.push(coeff);
+            count += 1;
         }
     }
 
-    PolyRing::from_coeffs(&coeffs, modulus, 8)
+    PolyRing::from_coeffs(&coeffs, modulus, n)
 }
 
 /// Compute the negative of a polynomial in the ring
@@ -170,5 +174,104 @@ mod tests {
             std_dev,
             expected_std_dev
         );
+    }
+
+    #[test]
+    fn test_ternary_poly_hamming_weight() {
+        let n = 1000;
+        let modulus = 65537;
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        // Test different sparsity levels
+        let sparsity_levels = [0.1, 0.3, 0.5, 0.7, 0.9];
+
+        for &sparsity in &sparsity_levels {
+            let expected_weight = (n as f64 * sparsity).round() as usize;
+            let poly = generate_ternary_poly(n, modulus, sparsity, &mut rng);
+
+            // Count non-zero coefficients
+            let actual_weight = poly.into_iter().filter(|&&x| x != 0).count();
+
+            assert_eq!(
+                actual_weight, expected_weight,
+                "Hamming weight doesn't match for sparsity {}",
+                sparsity
+            );
+        }
+    }
+
+    #[test]
+    fn test_ternary_poly_distribution() {
+        let n = 10000;
+        let modulus = 65537;
+        let sparsity = 0.6;
+        let mut rng = ChaCha20Rng::seed_from_u64(123);
+
+        let poly = generate_ternary_poly(n, modulus, sparsity, &mut rng);
+
+        // Count occurrences of each value
+        let ones_count = poly.into_iter().filter(|&&x| x == 1).count();
+        let neg_ones_count =
+            poly.into_iter().filter(|&&x| x == modulus - 1).count();
+        let zeros_count = poly.into_iter().filter(|&&x| x == 0).count();
+
+        // Calculate hamming weight
+        let expected_weight = (n as f64 * sparsity).round() as usize;
+        let actual_weight = ones_count + neg_ones_count;
+
+        // Check total non-zero count
+        assert_eq!(actual_weight, expected_weight);
+
+        // Check zeros count
+        assert_eq!(zeros_count, n - expected_weight);
+
+        // Check distribution of 1 and -1 (should be approximately equal)
+        let ratio = ones_count as f64 / actual_weight as f64;
+        assert!(
+            (ratio - 0.5).abs() < 0.1,
+            "1 and -1 distribution ratio is {}, expected close to 0.5",
+            ratio
+        );
+    }
+
+    #[test]
+    fn test_deterministic_generation() {
+        let n = 100;
+        let modulus = 65537;
+        let sparsity = 0.4;
+
+        // Create two RNGs with the same seed
+        let mut rng1 = ChaCha20Rng::seed_from_u64(42);
+        let mut rng2 = ChaCha20Rng::seed_from_u64(42);
+
+        let poly1 = generate_ternary_poly(n, modulus, sparsity, &mut rng1);
+        let poly2 = generate_ternary_poly(n, modulus, sparsity, &mut rng2);
+
+        // Polynomials should be identical with same seed
+        for i in 0..n {
+            assert_eq!(
+                poly1.into_iter().nth(i),
+                poly2.into_iter().nth(i),
+                "Coefficients at position {} differ",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        let n = 100;
+        let modulus = 65537;
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        // Test zero sparsity (all zeros)
+        let zero_poly = generate_ternary_poly(n, modulus, 0.0, &mut rng);
+        let non_zero_count = zero_poly.into_iter().filter(|&&x| x != 0).count();
+        assert_eq!(non_zero_count, 0, "Expected all zeros with sparsity 0.0");
+
+        // Test full sparsity (all non-zero)
+        let full_poly = generate_ternary_poly(n, modulus, 1.0, &mut rng);
+        let zero_count = full_poly.into_iter().filter(|&&x| x == 0).count();
+        assert_eq!(zero_count, 0, "Expected no zeros with sparsity 1.0");
     }
 }

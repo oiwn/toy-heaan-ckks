@@ -174,6 +174,7 @@ pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
 mod tests {
     // use super::*;
 
+    // NOTE: This is wrong, Hadamard Product should be used
     // [2.0, 3.5, 5.0, 6.5] * [1.0, 2.0, 3.0, 4.0]
     // 26 x^6 + 39.5 x^5 + 42 x^4 + 35 x^3 + 18 x^2 + 7.5 x + 2
     // 2 + 7.5*x + 18*x^2 + 35*x^3 + 42*(-1) + 39.5*(-x) + 26*(-x^2)
