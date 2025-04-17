@@ -8,7 +8,7 @@ use toy_heaan_ckks::{
 fn main() -> Result<(), String> {
     // Parameters setup
     let ring_degree = 8; // Small for example
-    let scale_bits = 30;
+    let scale_bits = 40;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
     let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
 
