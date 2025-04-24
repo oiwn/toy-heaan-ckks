@@ -27,5 +27,5 @@ Cargo.lock
 # misc
 .amc.toml
 .tmuxp.yaml
-code.txt
+toy_ckks.txt
 .DS_Store

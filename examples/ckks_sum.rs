@@ -45,8 +45,8 @@ fn main() -> Result<(), String> {
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
-    let ct1 = encrypt(&poly1, &public_key, scale);
-    let ct2 = encrypt(&poly2, &public_key, scale);
+    let ct1 = encrypt(&poly1, &public_key, scale, &mut rng);
+    let ct2 = encrypt(&poly2, &public_key, scale, &mut rng);
 
     // Homomorphic Addition
     let ct_sum = ct1.add(&ct2);

@@ -35,33 +35,6 @@ impl Ciphertext {
         }
     }
 
-    pub fn old_mul(&self, other: &Self, relin_key: &RelinearizationKey) -> Self {
-        assert_eq!(
-            self.scale, other.scale,
-            "Ciphertexts must have the same scale for multiplication"
-        );
-
-        let d0 = self.c0.clone() * other.c0.clone();
-        let d1 = (self.c0.clone() * other.c1.clone())
-            + (self.c1.clone() * other.c0.clone());
-        let d2 = self.c1.clone() * other.c1.clone();
-
-        // Create intermediate ciphertext with s^2 term
-        let intermediate = Self {
-            c0: d0,
-            c1: d1,
-            c2: Some(d2),
-            scale: self.scale * other.scale, // Scale multiplies during multiplication
-        };
-
-        // Apply relinearization to eliminate the s^2 term
-        // This will make the scale: self.scale * other.scale * relin_key.base
-        let relinearized = intermediate.relinearize(relin_key);
-
-        // Rescale back down to the original scale
-        relinearized.rescale(other.scale)
-    }
-
     pub fn mul(&self, other: &Self, relin_key: &RelinearizationKey) -> Self {
         assert_eq!(
             self.scale, other.scale,
@@ -81,14 +54,11 @@ impl Ciphertext {
             scale: self.scale * other.scale,
         };
 
-        // println!("Original scale: {}", self.scale);
-        // println!("After multiplication scale: {}", intermediate.scale);
-
         // Apply relinearization to eliminate the s^2 term
         let relinearized = intermediate.relinearize(relin_key);
 
         // Rescale back down to the original scale
-        relinearized.rescale(self.scale) // This is fine if input scales are equal
+        relinearized.rescale(self.scale)
     }
 
     pub fn relinearize(&self, relin_key: &RelinearizationKey) -> Self {

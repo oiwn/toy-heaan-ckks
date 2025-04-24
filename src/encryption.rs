@@ -1,37 +1,45 @@
+//! CKKS encryption and decryption operations.
+//!
+//! This module contains the core cryptographic operations for the CKKS homomorphic
+//! encryption scheme, including functions to encrypt plaintexts and decrypt ciphertexts.
 use crate::{
     Ciphertext, PolyRing, PublicKey, SecretKey, generate_error_poly,
     generate_ternary_poly,
 };
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
+use rand::Rng;
 
-/// Encrypt a plaintext polynomial using the public key
-pub fn encrypt(
+/// Encrypts a plaintext polynomial using a public key.
+///
+/// # Encryption Process
+/// 1. Generate small random error polynomials e1 and e2
+/// 2. Generate a random ephemeral value u (small ternary polynomial)
+/// 3. Compute c0 = b*u + e1 + plaintext
+/// 4. Compute c1 = a*u + e2
+///
+/// # Arguments
+/// * `plaintext` - The plaintext polynomial to encrypt
+/// * `public_key` - The public key used for encryption
+/// * `scale` - Scaling factor used in the CKKS scheme
+/// * `rng` - Random number generator for encryption randomness
+///
+/// # Returns
+/// A new ciphertext containing the encrypted plaintext
+pub fn encrypt<R: Rng>(
     plaintext: &PolyRing,
     public_key: &PublicKey,
     scale: f64,
+    rng: &mut R,
 ) -> Ciphertext {
     let modulus = plaintext.modulus();
-    let mut rng = ChaCha20Rng::from_seed([2u8; 32]); // Different seed from keys
 
     // Generate small random polynomials for encryption
-    let e1 = generate_error_poly(
-        plaintext.len(),
-        modulus,
-        3.0,
-        plaintext.len(),
-        &mut rng,
-    );
-    let e2 = generate_error_poly(
-        plaintext.len(),
-        modulus,
-        3.0,
-        plaintext.len(),
-        &mut rng,
-    );
+    let e1 =
+        generate_error_poly(plaintext.len(), modulus, 3.0, plaintext.len(), rng);
+    let e2 =
+        generate_error_poly(plaintext.len(), modulus, 3.0, plaintext.len(), rng);
 
     // Generate random ephemeral value
-    let u = generate_ternary_poly(plaintext.len(), modulus, 0.5, &mut rng);
+    let u = generate_ternary_poly(plaintext.len(), modulus, 0.5, rng);
 
     // c0 = b*u + e1 + plaintext
     let c0 = (public_key.b.clone() * u.clone()) + e1 + plaintext.clone();
@@ -47,7 +55,19 @@ pub fn encrypt(
     }
 }
 
-/// Decrypt a ciphertext using the secret key
+/// Decrypts a ciphertext using a secret key.
+///
+/// # Decryption Process
+/// Computes c0 + c1*s, where:
+/// * c0, c1 are components of the ciphertext
+/// * s is the secret polynomial
+///
+/// # Arguments
+/// * `ciphertext` - The ciphertext to decrypt
+/// * `secret_key` - The secret key used for decryption
+///
+/// # Returns
+/// The decrypted plaintext polynomial
 pub fn decrypt(ciphertext: &Ciphertext, secret_key: &SecretKey) -> PolyRing {
     // Compute c0 + c1*s
     ciphertext.c0.clone() + (ciphertext.c1.clone() * secret_key.s.clone())
