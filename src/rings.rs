@@ -305,7 +305,8 @@ mod operation_tests {
         let result = p1 * p2;
 
         // Expected result from SageMath: 60*x^3 + 2*x^2 - 36*x - 56
-        // In modular arithmetic, negative values are represented as (modulus - value)
+        // In modular arithmetic, negative values are represented as
+        // (modulus - value)
         let expected_coeffs = [
             modulus - 56, // -56 mod modulus
             modulus - 36, // -36 mod modulus

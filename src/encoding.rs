@@ -9,8 +9,8 @@
 //! - For n=4, these are e^(2πi/8), e^(6πi/8), e^(10πi/8), e^(14πi/8)
 //! - The encoding maps real values to evaluations at these roots
 //! - We use scaling by 2^scale_bits to handle fixed-point arithmetic
-use num_complex::Complex64;
 use rustfft::FftPlanner;
+use rustfft::num_complex::Complex64;
 
 /// Parameters for the CKKS encoding scheme.
 pub struct EncodingParams {

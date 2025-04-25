@@ -4,17 +4,29 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-num-complex = "0.4"
 rand = "0.9"
 rand_chacha = "0.9"
 rand_distr = "0.5.1"
 rustfft = "6.2"
+dhat = "0.3.3"
 
 [dev-dependencies]
 approx = "0.5"
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.6"
 
+[profile.release]
+debug = 1
+
+[features]
+dhat-heap = []    # if you are doing heap profiling
+dhat-ad-hoc = []  # if you are doing ad hoc profiling
+
 [[bench]]
 name = "basic"
 harness = false
+
+[[bench]]
+name = "end_to_end"
+harness = false
+

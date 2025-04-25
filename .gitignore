@@ -21,8 +21,8 @@ Cargo.lock
 #.idea/
 
 # Added by cargo
-
 /target
+/benches/*.json  # dhat artefacts
 
 # misc
 .amc.toml
