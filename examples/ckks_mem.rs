@@ -16,7 +16,7 @@ fn main() {
     println!("Beginning memory profiling for large plaintext operations");
 
     // Parameters setup
-    let ring_degree = 8192;
+    let ring_degree = 8192 * 2;
     let scale_bits = 40;
     let modulus = (1u64 << 60) - 1;
     let mut rng = ChaCha20Rng::seed_from_u64(123);
@@ -40,11 +40,12 @@ fn main() {
 
     // Generate large test vector (10K elements)
     println!("Generating 10K test values...");
-    let large_values: Vec<f64> = (0..10000).map(|i| (i as f64) * 0.01).collect();
+    let large_values: Vec<f64> = (0..8000).map(|i| (i as f64) * 0.01).collect();
 
     // Encoding parameters
-    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)
-        .expect("Failed to create encoding parameters");
+    let encoding_params =
+        encoding::EncodingParams::new(ring_degree * 2, scale_bits)
+            .expect("Failed to create encoding parameters");
 
     // Profile encoding
     println!("Profiling encoding...");

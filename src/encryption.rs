@@ -33,19 +33,25 @@ pub fn encrypt<R: Rng>(
     let modulus = plaintext.modulus();
 
     // Generate small random polynomials for encryption
-    let e1 =
-        generate_error_poly(plaintext.len(), modulus, 3.0, plaintext.len(), rng);
-    let e2 =
-        generate_error_poly(plaintext.len(), modulus, 3.0, plaintext.len(), rng);
+    let ring_dim = plaintext.ring_dimension();
+    let e1 = generate_error_poly(plaintext.len(), modulus, 3.0, ring_dim, rng);
+    let e2 = generate_error_poly(plaintext.len(), modulus, 3.0, ring_dim, rng);
+
+    println!("ring_dim: {}", ring_dim);
+    println!("e1: {}", e1);
+    println!("e2: {}", e2);
 
     // Generate random ephemeral value
     let u = generate_ternary_poly(plaintext.len(), modulus, 0.5, rng);
+    println!("u: {}", u);
 
     // c0 = b*u + e1 + plaintext
     let c0 = (public_key.b.clone() * u.clone()) + e1 + plaintext.clone();
+    println!("c0: {}", c0);
 
     // c1 = a*u + e2
     let c1 = (public_key.a.clone() * u) + e2;
+    println!("c1: {}", c1);
 
     Ciphertext {
         c0,
