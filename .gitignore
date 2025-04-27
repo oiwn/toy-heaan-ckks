@@ -20,7 +20,7 @@ Cargo.lock
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-dhat-heap.json  # dhat artefacts
+dhat-heap.json
 
 # misc
 .amc.toml

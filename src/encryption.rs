@@ -33,7 +33,7 @@ pub fn encrypt<R: Rng>(
     let modulus = plaintext.modulus();
 
     // Generate small random polynomials for encryption
-    let ring_dim = plaintext.ring_dimension();
+    let ring_dim = plaintext.ring_dim();
     let e1 = generate_error_poly(plaintext.len(), modulus, 3.0, ring_dim, rng);
     let e2 = generate_error_poly(plaintext.len(), modulus, 3.0, ring_dim, rng);
 

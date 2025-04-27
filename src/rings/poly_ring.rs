@@ -9,7 +9,7 @@ use std::{fmt, iter::IntoIterator};
 /// and X^n = -1 (which is used during multiplication)
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRing {
-    coefficients: Vec<u64>,
+    pub(crate) coefficients: Vec<u64>,
     modulus: u64,    // q
     ring_dim: usize, // n
 }
@@ -58,7 +58,9 @@ impl PolyRing {
         }
     }
 
-    pub fn ring_dimension(&self) -> usize {
+    /// In the context of a quotient ring like `Z_q[X]/(X^n + 1)`,
+    /// the ring dimension is n — the degree of the modulus polynomial `X^n + 1`.
+    pub fn ring_dim(&self) -> usize {
         self.ring_dim
     }
 
@@ -162,70 +164,6 @@ impl<'a> IntoIterator for &'a PolyRing {
 
     fn into_iter(self) -> Self::IntoIter {
         self.coefficients.iter()
-    }
-}
-
-impl fmt::Display for PolyRing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.coefficients.is_empty() {
-            return write!(f, "0");
-        }
-
-        let half_modulus = self.modulus / 2;
-        let mut first = true;
-
-        for (i, &coeff) in self.coefficients.iter().enumerate() {
-            if coeff == 0 {
-                continue;
-            }
-
-            // Convert to centered representation (-q/2, q/2)
-            let value = if coeff > half_modulus {
-                -(self.modulus as i64 - coeff as i64)
-            } else {
-                coeff as i64
-            };
-
-            // Handle the sign
-            if first {
-                if value < 0 {
-                    write!(f, "-")?;
-                }
-                first = false;
-            } else if value < 0 {
-                write!(f, " - ")?;
-            } else {
-                write!(f, " + ")?;
-            };
-
-            // Write coefficient and term
-            let abs_value = value.abs();
-            if i == 0 {
-                // Constant term
-                write!(f, "{}", abs_value)?;
-            } else if i == 1 {
-                // Linear term
-                if abs_value == 1 {
-                    write!(f, "x")?;
-                } else {
-                    write!(f, "{}*x", abs_value)?;
-                }
-            } else {
-                // Higher degree terms
-                if abs_value == 1 {
-                    write!(f, "x^{}", i)?;
-                } else {
-                    write!(f, "{}x^{}", abs_value, i)?;
-                }
-            }
-        }
-
-        if first {
-            // All coefficients were zero
-            write!(f, "0")?;
-        }
-
-        Ok(())
     }
 }
 

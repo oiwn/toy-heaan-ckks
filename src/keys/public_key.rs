@@ -29,7 +29,7 @@ impl PublicKey {
         rng: &mut R,
     ) -> Self {
         // Get the ring dimension from the secret key
-        let ring_dim = secret_key.s.ring_dimension();
+        let ring_dim = secret_key.s.ring_dim();
 
         // Generate random polynomial a
         let a =

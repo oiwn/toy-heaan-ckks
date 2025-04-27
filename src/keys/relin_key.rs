@@ -19,7 +19,7 @@ impl RelinearizationKey {
         rng: &mut R,
     ) -> Self {
         let n = secret_key.s.len();
-        let ring_dim = secret_key.s.ring_dimension();
+        let ring_dim = secret_key.s.ring_dim();
 
         // Compute s^2
         let s_squared = secret_key.s.clone() * secret_key.s.clone();
