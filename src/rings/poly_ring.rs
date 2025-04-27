@@ -1,5 +1,5 @@
 use core::ops::{Add, Mul, Rem};
-use std::{fmt, iter::IntoIterator};
+use std::iter::IntoIterator;
 
 /// Represents a polynomial in a ring Z_q[X]/(X^n + 1) where:
 /// q - coefficients modulo
