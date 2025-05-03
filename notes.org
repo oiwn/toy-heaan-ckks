@@ -1,9 +1,10 @@
-#+title: Notes
+#+title: ToyCKKS
 
 * Tasks
-** WAIT Try multiplication
+** TODO Try multiplication
 *** multiplication is very complex task:
-- renialization
+- [x] renialization
+- [ ] rescale
 ** TODO Implement key switching
 *** How to generate "switching key"
 *** gadget decomposition (?) for ciphertext
