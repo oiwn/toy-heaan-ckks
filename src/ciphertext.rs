@@ -106,7 +106,7 @@ impl Ciphertext {
     }
 }
 
-fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
+pub fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
     let modulus = poly.modulus();
     let half_modulus = modulus / 2;
     let ring_dim = poly.ring_dim();

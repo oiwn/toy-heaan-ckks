@@ -4,7 +4,7 @@ pub mod encryption;
 pub mod keys;
 pub mod rings;
 
-pub use ciphertext::Ciphertext;
+pub use ciphertext::{Ciphertext, rescale_poly};
 pub use encoding::{EncodingParams, decode, encode};
 pub use encryption::{decrypt, encrypt};
 pub use keys::{
