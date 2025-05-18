@@ -9,7 +9,7 @@ use std::iter::IntoIterator;
 /// and X^n = -1 (which is used during multiplication)
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRing {
-    pub(crate) coefficients: Vec<u64>,
+    pub coefficients: Vec<u64>,
     modulus: u64,    // q
     ring_dim: usize, // n
 }

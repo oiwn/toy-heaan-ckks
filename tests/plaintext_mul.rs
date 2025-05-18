@@ -26,7 +26,7 @@ mod tests {
     fn test_plaintext_multiplication_roundtrip() {
         // 1) CKKS params
         let ring_degree = 8;
-        let scale_bits = 30;
+        let scale_bits = 25;
         let modulus = (1u64 << 61) - 1; // same modulus you use elsewhere
         let scale = (1u64 << scale_bits) as f64;
 
@@ -47,9 +47,25 @@ mod tests {
         let raw_prod = p1 * p2;
         let downscaled = rescale_poly(&raw_prod, scale);
 
+        let signed: Vec<i128> = raw_prod.coefficients[..4]
+            .iter()
+            .map(|&c| {
+                let half = modulus / 2;
+                let c_signed = if c > half {
+                    (c as i128) - (modulus as i128)
+                } else {
+                    c as i128
+                };
+                c_signed
+            })
+            .collect();
+        println!("raw signed coeffs: {:?}", &signed);
+
         // 5) Pull out signed coefficients and decode
         let prod_coeffs = poly_to_coeffs(&downscaled);
         let result = encoding::decode(&prod_coeffs, &enc).unwrap();
+
+        println!("Mul results: {:?}", &result);
 
         // 6) Assert exact recovery
         for (i, (&r, &e)) in result.iter().zip(&expected).enumerate() {

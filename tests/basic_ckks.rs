@@ -11,8 +11,8 @@ mod tests {
     fn test_basic_ckks_operations() {
         // Parameters setup - small for testing
         let ring_degree = 8;
-        let scale_bits = 30;
-        let modulus = (1u64 << 50) - 1; // Large prime-like modulus
+        let scale_bits = 20;
+        let modulus = (1u64 << 61) - 1; // Large prime-like modulus
         let mut rng = ChaCha20Rng::seed_from_u64(42); // Fixed seed for reproducibility
 
         // Create Secret Key
