@@ -144,3 +144,230 @@ pub fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
 
     PolyRing::from_coeffs(&new_coeffs, modulus, ring_dim)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Ciphertext, PolyRing, PublicKey, PublicKeyParams, SecretKey,
+        SecretKeyParams, decrypt, encoding, encrypt, rescale_poly,
+    };
+    use rand::rng;
+
+    #[test]
+    fn test_rescale_function_simple() {
+        let modulus = (1u64 << 61) - 1;
+        let ring_degree = 8;
+
+        // Create a simple polynomial with known coefficients
+        let coeffs = vec![
+            1000000000u64,
+            2000000000u64,
+            3000000000u64,
+            4000000000u64,
+            0,
+            0,
+            0,
+            0,
+        ];
+        let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_degree);
+
+        println!("Original poly coeffs: {:?}", &coeffs[..4]);
+
+        let scale_factor = 1000000.0; // Simple scale factor
+
+        println!("About to call rescale_poly with factor: {}", scale_factor);
+
+        // This is where it's likely hanging
+        let rescaled = rescale_poly(&poly, scale_factor);
+
+        println!("Rescaling completed!");
+        println!("Rescaled coeffs: {:?}", &rescaled.coefficients[..4]);
+    }
+
+    #[test]
+    fn test_key_generation_isolated() {
+        let mut rng = rng();
+        let ring_degree = 8;
+        let modulus = (1u64 << 61) - 1;
+
+        println!("1a. Creating secret key params...");
+        let secret_key_params = SecretKeyParams {
+            ring_degree,
+            modulus,
+            hamming_weight: 4,
+        };
+        println!("Secret key params created!");
+
+        println!("1b. Generating secret key...");
+        let secret_key = SecretKey::generate(&secret_key_params, &mut rng);
+        println!("Secret key generated!");
+
+        println!("1c. Creating public key params...");
+        let public_key_params = PublicKeyParams {
+            poly_len: ring_degree,
+            modulus,
+            error_variance: 3.2,
+        };
+        println!("Public key params created!");
+
+        println!("1d. Generating public key...");
+        let public_key =
+            PublicKey::from_secret_key(&secret_key, &public_key_params, &mut rng);
+        println!("Public key generated!");
+    }
+
+    #[test]
+    fn test_rescaling_isolated() {
+        let mut rng = rng();
+        let ring_degree = 8;
+        let scale_bits = 20;
+        let modulus = (1u64 << 61) - 1;
+
+        println!("1. Setting up keys...");
+        let secret_key_params = SecretKeyParams {
+            ring_degree,
+            modulus,
+            hamming_weight: 4,
+        };
+        let secret_key = SecretKey::generate(&secret_key_params, &mut rng);
+        let public_key_params = PublicKeyParams {
+            poly_len: ring_degree,
+            modulus,
+            error_variance: 3.2,
+        };
+        let public_key =
+            PublicKey::from_secret_key(&secret_key, &public_key_params, &mut rng);
+        println!("Keys generated!");
+
+        let values = vec![5.0, 12.0, 21.0, 32.0];
+
+        println!("2. Encoding...");
+        let enc_params =
+            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+        let coeffs = encoding::encode(&values, &enc_params).unwrap();
+        let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_degree);
+        println!("Encoding complete!");
+
+        println!("3. Encrypting...");
+        let base_scale = (1u64 << scale_bits) as f64;
+        let ct = encrypt(&poly, &public_key, base_scale, &mut rng);
+        println!("Encryption complete! Scale: {}", ct.scale);
+
+        println!("4. Creating high scale ciphertext...");
+        let high_scale_ct = Ciphertext {
+            c0: ct.c0.clone(),
+            c1: ct.c1.clone(),
+            c2: None,
+            scale: ct.scale * ct.scale,
+        };
+        println!("High scale: {}", high_scale_ct.scale);
+
+        println!("5. Rescaling...");
+        let rescaled_ct = high_scale_ct.rescale(base_scale);
+        println!("Rescaling complete! New scale: {}", rescaled_ct.scale);
+
+        println!("6. Decrypting...");
+        let decrypted_poly = decrypt(&rescaled_ct, &secret_key);
+        println!("Decryption complete!");
+
+        println!("7. Converting to coeffs...");
+        let decrypted_coeffs = poly_to_coeffs(&decrypted_poly);
+        println!("Coeffs: {:?}", &decrypted_coeffs[..4]);
+
+        println!("8. Decoding...");
+        let decrypted_values =
+            encoding::decode(&decrypted_coeffs, &enc_params).unwrap();
+        println!("Decoding complete!");
+
+        println!("Expected: {:?}", values);
+        println!("Got: {:?}", decrypted_values);
+    }
+
+    /* #[test]
+    fn test_rescaling_isolated() {
+        let mut rng = rng();
+        let ring_degree = 8;
+        let scale_bits = 20; // 2^20 base scale
+        let modulus = (1u64 << 61) - 1;
+
+        // Create keys
+        let secret_key_params = SecretKeyParams {
+            ring_degree,
+            modulus,
+            hamming_weight: 100,
+        };
+        let secret_key = SecretKey::generate(&secret_key_params, &mut rng);
+        let public_key_params = PublicKeyParams {
+            poly_len: ring_degree,
+            modulus,
+            error_variance: 3.6,
+        };
+        let public_key =
+            PublicKey::from_secret_key(&secret_key, &public_key_params, &mut rng);
+
+        // Create test values
+        let values = vec![5.0, 12.0, 21.0, 32.0]; // Expected multiplication result
+
+        // Encode with base scale
+        let enc_params =
+            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+        let coeffs = encoding::encode(&values, &enc_params).unwrap();
+        let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_degree);
+
+        // Encrypt with base scale
+        let base_scale = (1u64 << scale_bits) as f64;
+        let ct = encrypt(&poly, &public_key, base_scale, &mut rng);
+
+        println!("Original ciphertext scale: {}", ct.scale);
+
+        // Simulate what happens after multiplication - create a ciphertext with doubled scale
+        let high_scale_ct = Ciphertext {
+            c0: ct.c0.clone(),
+            c1: ct.c1.clone(),
+            c2: None,
+            scale: ct.scale * ct.scale, // This simulates post-multiplication scale (2^40)
+        };
+
+        println!("High scale (post-multiplication): {}", high_scale_ct.scale);
+
+        // Now test rescaling back down
+        let rescaled_ct = high_scale_ct.rescale(base_scale);
+
+        println!("After rescaling: {}", rescaled_ct.scale);
+
+        // Decrypt and check if we get back the original values
+        let decrypted_poly = decrypt(&rescaled_ct, &secret_key);
+        let decrypted_coeffs = poly_to_coeffs(&decrypted_poly);
+        let decrypted_values =
+            encoding::decode(&decrypted_coeffs, &enc_params).unwrap();
+
+        println!("Expected values: {:?}", values);
+        println!("Decrypted after rescale: {:?}", decrypted_values);
+
+        // Check if rescaling preserved the values
+        for (expected, actual) in values.iter().zip(&decrypted_values) {
+            assert!(
+                (expected - actual).abs() < 0.1,
+                "Rescaling error: expected {}, got {}",
+                expected,
+                actual
+            );
+        }
+    } */
+
+    // Helper function you'll need if not already present
+    fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {
+        let modulus = poly.modulus();
+        let half_modulus = modulus / 2;
+
+        poly.into_iter()
+            .map(|&c| {
+                if c > half_modulus {
+                    -((modulus - c) as i64)
+                } else {
+                    c as i64
+                }
+            })
+            .collect()
+    }
+}

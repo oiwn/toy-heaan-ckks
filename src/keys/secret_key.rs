@@ -22,6 +22,13 @@ pub struct SecretKeyParams {
 impl SecretKey {
     /// Generate a new secret key with ternary coefficients {-1, 0, 1}
     pub fn generate<R: Rng>(params: &SecretKeyParams, rng: &mut R) -> Self {
+        // Validate parameters before starting
+        if params.hamming_weight > params.ring_degree {
+            panic!(
+                "Invalid parameters: hamming_weight ({}) cannot be larger than ring_degree ({})",
+                params.hamming_weight, params.ring_degree
+            );
+        }
         // Initialize coefficients to zero
         let mut coeffs = vec![0u64; params.ring_degree];
         let mut count = 0;

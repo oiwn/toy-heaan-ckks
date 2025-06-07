@@ -1,6 +1,7 @@
 #+title: ToyCKKS
 
 * Tasks
+** consistent naming for "ring_dim", "poly_len", "n"
 ** TODO Try multiplication
 *** multiplication is very complex task:
 - [x] renialization
