@@ -42,10 +42,13 @@ fn main() {
     println!("Generating 10K test values...");
     let large_values: Vec<f64> = (0..8000).map(|i| (i as f64) * 0.01).collect();
 
+    println!("Secret key ring_dim: {}", secret_key.s.ring_dim());
+    println!("Public key a ring_dim: {}", public_key.a.ring_dim());
+    println!("Public key b ring_dim: {}", public_key.b.ring_dim());
+
     // Encoding parameters
-    let encoding_params =
-        encoding::EncodingParams::new(ring_degree * 2, scale_bits)
-            .expect("Failed to create encoding parameters");
+    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)
+        .expect("Failed to create encoding parameters");
 
     // Profile encoding
     println!("Profiling encoding...");

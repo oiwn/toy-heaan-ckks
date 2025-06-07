@@ -97,7 +97,7 @@ pub fn negate_poly(poly: &PolyRing, modulus: u64) -> PolyRing {
         }
     }
 
-    PolyRing::from_coeffs(&neg_coeffs, modulus, 8)
+    PolyRing::from_coeffs(&neg_coeffs, modulus, poly.ring_dim())
 }
 
 #[cfg(test)]
