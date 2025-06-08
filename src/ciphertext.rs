@@ -107,6 +107,10 @@ impl Ciphertext {
 }
 
 pub fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
+    println!("rescale_poly: scale_factor = {}", scale_factor);
+    let shift_bits = scale_factor.log2().round() as u32;
+    println!("rescale_poly: shift_bits = {}", shift_bits);
+
     let modulus = poly.modulus();
     let half_modulus = modulus / 2;
     let ring_dim = poly.ring_dim();
@@ -141,6 +145,10 @@ pub fn rescale_poly(poly: &PolyRing, scale_factor: f64) -> PolyRing {
 
         new_coeffs.push(scaled);
     }
+
+    // Print first few coefficients before/after
+    println!("Before rescaling: {:?}", &poly.coefficients[..4]);
+    println!("After rescaling: {:?}", &new_coeffs[..4]);
 
     PolyRing::from_coeffs(&new_coeffs, modulus, ring_dim)
 }
@@ -185,6 +193,82 @@ mod tests {
     }
 
     #[test]
+    fn test_rescale_poly_debug() {
+        let ring_degree = 8;
+        let scale_bits = 20; // Base scale 2^20
+        let modulus = (1u64 << 61) - 1;
+        let base_scale = (1u64 << scale_bits) as f64; // 2^20 = 1048576
+        let high_scale = base_scale * base_scale; // 2^40 = 1099511627776
+
+        println!("=== RESCALE DEBUG TEST ===");
+        println!("Base scale (2^20): {}", base_scale);
+        println!("High scale (2^40): {}", high_scale);
+        println!("Scale factor (high/base): {}", high_scale / base_scale);
+
+        // Step 1: Encode [5, 12, 21, 32] with base scale
+        let values = vec![5.0, 12.0, 21.0, 32.0];
+        let enc_params =
+            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+        let coeffs_base = encoding::encode(&values, &enc_params).unwrap();
+        let poly_base = PolyRing::from_coeffs(&coeffs_base, modulus, ring_degree);
+
+        println!("\n--- Step 1: Base encoding ---");
+        println!("Original values: {:?}", values);
+        println!("Encoded coeffs (first 4): {:?}", &coeffs_base[..4]);
+
+        // Step 2: Manually simulate what happens after multiplication
+        // When we multiply two ciphertexts with scale 2^20, we get scale 2^40
+        // The polynomial coefficients should be multiplied by the extra scale factor
+        let scale_multiplier = (high_scale / base_scale) as u64; // Should be 2^20
+        let mut coeffs_high = coeffs_base.clone();
+        for coeff in &mut coeffs_high {
+            *coeff = (*coeff * (scale_multiplier as i64)) % modulus as i64;
+        }
+        let poly_high = PolyRing::from_coeffs(&coeffs_high, modulus, ring_degree);
+
+        println!("\n--- Step 2: High scale simulation ---");
+        println!("Scale multiplier: {}", scale_multiplier);
+        println!("High scale coeffs (first 4): {:?}", &coeffs_high[..4]);
+
+        // Step 3: Use rescale_poly to scale back down
+        println!("\n--- Step 3: Rescaling back down ---");
+        println!(
+            "About to call rescale_poly with factor: {}",
+            scale_multiplier as f64
+        );
+        let poly_rescaled = rescale_poly(&poly_high, scale_multiplier as f64);
+
+        // Step 4: Check if we got back the original coefficients
+        println!("\n--- Step 4: Comparison ---");
+        println!("Original coeffs (first 4): {:?}", &coeffs_base[..4]);
+        println!(
+            "Rescaled coeffs (first 4): {:?}",
+            &poly_rescaled.coefficients[..4]
+        );
+
+        // Step 5: Decode the rescaled result
+        let rescaled_coeffs_signed = poly_to_coeffs(&poly_rescaled);
+        let decoded_values =
+            encoding::decode(&rescaled_coeffs_signed, &enc_params).unwrap();
+
+        println!("\n--- Step 5: Final decode ---");
+        println!("Expected values: {:?}", values);
+        println!("Decoded values: {:?}", decoded_values);
+
+        // Verify the results
+        for (expected, actual) in values.iter().zip(&decoded_values) {
+            let error = (expected - actual).abs();
+            println!("Expected: {}, Got: {}, Error: {}", expected, actual, error);
+            assert!(
+                error < 0.1,
+                "Rescaling failed: expected {}, got {}",
+                expected,
+                actual
+            );
+        }
+    }
+
+    #[test]
     fn test_key_generation_isolated() {
         let mut rng = rng();
         let ring_degree = 8;
@@ -211,7 +295,7 @@ mod tests {
         println!("Public key params created!");
 
         println!("1d. Generating public key...");
-        let public_key =
+        let _public_key =
             PublicKey::from_secret_key(&secret_key, &public_key_params, &mut rng);
         println!("Public key generated!");
     }
