@@ -98,17 +98,30 @@ mod tests {
         let s_squared = secret_key.s.clone() * secret_key.s.clone();
         let a_times_s = relin_key.a.clone() * secret_key.s.clone();
         let verification = relin_key.b.clone() + a_times_s;
-        let expected_error_bound =
-            (params.error_variance * params.error_variance.sqrt()).ceil() as i64;
+
+        let expected_error_bound = (3.0 * 3.0_f64.sqrt()).ceil() as i64; // 3σ bound = 6
+        let half_modulus = modulus / 2;
 
         for (i, &coeff) in verification.coefficients.iter().enumerate() {
             let s2 = s_squared.coefficients[i];
-            let diff = (coeff as i64) - (s2 as i64);
+            // 1) subtract mod q
+            let raw_diff = if coeff >= s2 {
+                coeff - s2
+            } else {
+                modulus - (s2 - coeff)
+            };
+            // 2) recenter into (−q/2..q/2)
+            let signed_diff = if raw_diff > half_modulus {
+                (raw_diff as i64) - (modulus as i64)
+            } else {
+                raw_diff as i64
+            };
+
             assert!(
-                diff.abs() <= expected_error_bound,
+                signed_diff.abs() <= expected_error_bound,
                 "Coefficient {} error too large: {} > {}",
                 i,
-                diff,
+                signed_diff,
                 expected_error_bound
             );
         }
