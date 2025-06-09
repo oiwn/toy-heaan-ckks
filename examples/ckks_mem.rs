@@ -16,14 +16,14 @@ fn main() {
     println!("Beginning memory profiling for large plaintext operations");
 
     // Parameters setup
-    let ring_degree = 8192 * 2;
+    let ring_dim = 8192 * 2;
     let scale_bits = 40;
     let modulus = (1u64 << 60) - 1;
     let mut rng = ChaCha20Rng::seed_from_u64(123);
 
     // Create keys
     let sk_params = SecretKeyParams {
-        ring_degree,
+        ring_dim,
         modulus,
         hamming_weight: 100,
     };
@@ -31,7 +31,7 @@ fn main() {
     let secret_key = SecretKey::generate(&sk_params, &mut rng);
 
     let pk_params = PublicKeyParams {
-        poly_len: ring_degree,
+        ring_dim,
         modulus,
         error_variance: 3.0,
     };
@@ -47,7 +47,7 @@ fn main() {
     println!("Public key b ring_dim: {}", public_key.b.ring_dim());
 
     // Encoding parameters
-    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)
+    let encoding_params = encoding::EncodingParams::new(ring_dim, scale_bits)
         .expect("Failed to create encoding parameters");
 
     // Profile encoding
@@ -57,7 +57,7 @@ fn main() {
 
     // Profile polynomial creation
     println!("Creating polynomial...");
-    let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_degree);
+    let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_dim);
     let scale = (1u64 << scale_bits) as f64;
 
     // Profile encryption

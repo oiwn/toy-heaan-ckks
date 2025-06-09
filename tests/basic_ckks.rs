@@ -3,21 +3,22 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
     use toy_heaan_ckks::{
-        PolyRing, PublicKey, PublicKeyParams, RelinearizationKey, SecretKey,
-        SecretKeyParams, decrypt, encoding, encrypt,
+        PolyRing, PublicKey, PublicKeyParams, RelinearizationKey,
+        RelinearizationKeyParams, SecretKey, SecretKeyParams, decrypt, encoding,
+        encrypt,
     };
 
     #[test]
     fn test_basic_ckks_operations() {
         // Parameters setup - small for testing
-        let ring_degree = 8;
+        let ring_dim = 8;
         let scale_bits = 20;
         let modulus = (1u64 << 61) - 1; // Large prime-like modulus
         let mut rng = ChaCha20Rng::seed_from_u64(42); // Fixed seed for reproducibility
 
         // Create Secret Key
         let sk_params = SecretKeyParams {
-            ring_degree,
+            ring_dim,
             modulus,
             hamming_weight: 3,
         };
@@ -25,7 +26,7 @@ mod tests {
 
         // Create Public Key
         let pk_params = PublicKeyParams {
-            poly_len: ring_degree,
+            ring_dim,
             modulus,
             error_variance: 3.0,
         };
@@ -33,10 +34,10 @@ mod tests {
             PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
 
         // Create relinearization key
+        let relin_params: RelinearizationKeyParams = (&pk_params).into();
         let relin_key = RelinearizationKey::from_secret_key(
             &secret_key,
-            modulus,
-            3.0,
+            &relin_params,
             &mut rng,
         );
 
@@ -53,15 +54,15 @@ mod tests {
 
         // Parameters for encoding
         let encoding_params =
-            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+            encoding::EncodingParams::new(ring_dim, scale_bits).unwrap();
 
         // Encode to polynomials
         let coeffs1 = encoding::encode(&values1, &encoding_params).unwrap();
         let coeffs2 = encoding::encode(&values2, &encoding_params).unwrap();
 
         // Convert to polynomial
-        let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_degree);
-        let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_degree);
+        let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_dim);
+        let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_dim);
 
         println!("Original values1: {:?}", values1);
         println!("Original values2: {:?}", values2);
@@ -89,9 +90,9 @@ mod tests {
 
         // Create params with the actual scales
         let add_params =
-            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+            encoding::EncodingParams::new(ring_dim, scale_bits).unwrap();
         let mult_params =
-            encoding::EncodingParams::new(ring_degree, scale_bits).unwrap();
+            encoding::EncodingParams::new(ring_dim, scale_bits).unwrap();
 
         // Decode
         let result_add =

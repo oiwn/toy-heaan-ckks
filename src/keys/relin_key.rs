@@ -1,7 +1,18 @@
 use crate::{
-    PolyRing, SecretKey, generate_error_poly, generate_random_poly, negate_poly,
+    PolyRing, PublicKeyParams, SecretKey, generate_error_poly,
+    generate_random_poly, negate_poly,
 };
 use rand::Rng;
+
+/// Parameters for relinearization key generation.
+pub struct RelinearizationKeyParams {
+    /// Ring dimension (degree of the polynomial ring, n).
+    pub ring_dim: usize,
+    /// Modulus q.
+    pub modulus: u64,
+    /// Error variance σ².
+    pub error_variance: f64,
+}
 
 /// Relinearization key used to transform ciphertexts after multiplication
 pub struct RelinearizationKey {
@@ -12,30 +23,46 @@ pub struct RelinearizationKey {
 }
 
 impl RelinearizationKey {
+    /// Generate a relinearization key from a secret key and parameters.
     pub fn from_secret_key<R: Rng>(
         secret_key: &SecretKey,
-        modulus: u64,
-        error_variance: f64,
+        params: &RelinearizationKeyParams,
         rng: &mut R,
     ) -> Self {
-        let n = secret_key.s.len();
         let ring_dim = secret_key.s.ring_dim();
+        assert_eq!(
+            ring_dim, params.ring_dim,
+            "Ring dimension mismatch: secret_key.ring_dim()={} but params.ring_dim={}",
+            ring_dim, params.ring_dim
+        );
 
-        // Compute s^2
-        let s_squared = secret_key.s.clone() * secret_key.s.clone();
+        let s = &secret_key.s;
+        let s_squared = s.clone() * s.clone();
 
-        // Generate random polynomial a
-        let a = generate_random_poly(n, modulus, ring_dim, rng);
+        let a =
+            generate_random_poly(params.ring_dim, params.modulus, ring_dim, rng);
+        let e = generate_error_poly(
+            params.ring_dim,
+            params.modulus,
+            params.error_variance,
+            ring_dim,
+            rng,
+        );
 
-        // Generate error polynomial e
-        let e = generate_error_poly(n, modulus, error_variance, ring_dim, rng);
-
-        // Compute b = -(a*s) + e + s^2
-        let a_times_s = a.clone() * secret_key.s.clone();
-        let neg_a_s = negate_poly(&a_times_s, modulus);
-        let b = neg_a_s + e + s_squared;
+        let b =
+            negate_poly(&(a.clone() * s.clone()), params.modulus) + e + s_squared;
 
         Self { a, b }
+    }
+}
+
+impl From<&PublicKeyParams> for RelinearizationKeyParams {
+    fn from(pk: &PublicKeyParams) -> Self {
+        RelinearizationKeyParams {
+            ring_dim: pk.ring_dim,
+            modulus: pk.modulus,
+            error_variance: pk.error_variance,
+        }
     }
 }
 
@@ -47,10 +74,56 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
 
     #[test]
-    fn test_relinearization_key() {
+    fn test_relinearization_key_properties() {
+        let modulus = 1231u64;
+        let ring_dim = 4;
+        let params = RelinearizationKeyParams {
+            ring_dim,
+            modulus,
+            error_variance: 3.0,
+        };
+
+        // Secret key with known coeffs [1, 0, −1, 0]
+        let mut s_coeffs = vec![0u64; ring_dim];
+        s_coeffs[0] = 1;
+        s_coeffs[2] = modulus - 1;
+        let s = PolyRing::from_coeffs(&s_coeffs, modulus, ring_dim);
+        let secret_key = SecretKey { s };
+
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+        let relin_key =
+            RelinearizationKey::from_secret_key(&secret_key, &params, &mut rng);
+
+        // Verify b + a*s ≈ s² within expected error bounds
+        let s_squared = secret_key.s.clone() * secret_key.s.clone();
+        let a_times_s = relin_key.a.clone() * secret_key.s.clone();
+        let verification = relin_key.b.clone() + a_times_s;
+        let expected_error_bound =
+            (params.error_variance * params.error_variance.sqrt()).ceil() as i64;
+
+        for (i, &coeff) in verification.coefficients.iter().enumerate() {
+            let s2 = s_squared.coefficients[i];
+            let diff = (coeff as i64) - (s2 as i64);
+            assert!(
+                diff.abs() <= expected_error_bound,
+                "Coefficient {} error too large: {} > {}",
+                i,
+                diff,
+                expected_error_bound
+            );
+        }
+    }
+
+    #[test]
+    fn test_relinearization_key_to_delete() {
         // Create a secret key with known coefficients
         let modulus = 1231u64;
         let ring_dim = 4;
+        let params = RelinearizationKeyParams {
+            ring_dim,
+            modulus,
+            error_variance: 3.0,
+        };
 
         // Manually create a secret key with coefficients [1, 0, -1, 0]
         let mut s_coeffs = vec![0u64; ring_dim];
@@ -63,12 +136,8 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
         // Create relinearization key
-        let relin_key = RelinearizationKey::from_secret_key(
-            &secret_key,
-            modulus,
-            3.0, // error variance
-            &mut rng,
-        );
+        let relin_key =
+            RelinearizationKey::from_secret_key(&secret_key, &params, &mut rng);
 
         // Calculate s^2
         let s_squared = secret_key.s.clone() * secret_key.s.clone();

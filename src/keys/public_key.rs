@@ -6,7 +6,7 @@ use rand::Rng;
 /// Parameters for public key generation
 pub struct PublicKeyParams {
     /// Number of coefficients in polynomial
-    pub poly_len: usize,
+    pub ring_dim: usize,
     /// Modulus for polynomial coefficients
     pub modulus: u64,
     /// Variance for error distribution
@@ -33,11 +33,11 @@ impl PublicKey {
 
         // Generate random polynomial a
         let a =
-            generate_random_poly(params.poly_len, params.modulus, ring_dim, rng);
+            generate_random_poly(params.ring_dim, params.modulus, ring_dim, rng);
 
         // Generate small error polynomial e
         let e = generate_error_poly(
-            params.poly_len,
+            params.ring_dim,
             params.modulus,
             params.error_variance,
             ring_dim,
@@ -63,12 +63,12 @@ mod tests {
     #[test]
     fn test_public_key_generation() {
         // Setup parameters
-        let ring_degree = 8;
+        let ring_dim = 8;
         let modulus = 65537u64;
 
         // Create secret key
         let sk_params = SecretKeyParams {
-            ring_degree,
+            ring_dim,
             modulus,
             hamming_weight: 4,
         };
@@ -77,7 +77,7 @@ mod tests {
 
         // Create public key
         let pk_params = PublicKeyParams {
-            poly_len: ring_degree,
+            ring_dim,
             modulus,
             error_variance: 3.0,
         };
@@ -86,25 +86,25 @@ mod tests {
             PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
 
         // Verify dimensions and modulus
-        assert_eq!(public_key.a.len(), ring_degree);
-        assert_eq!(public_key.b.len(), ring_degree);
+        assert_eq!(public_key.a.len(), ring_dim);
+        assert_eq!(public_key.b.len(), ring_dim);
         assert_eq!(public_key.a.modulus(), modulus);
     }
 
     #[test]
     fn test_public_key_relation() {
         // Setup parameters
-        let ring_degree = 8;
+        let ring_dim = 8;
         let modulus = 65537u64;
 
         // Create secret key and public key
         let sk_params = SecretKeyParams {
-            ring_degree,
+            ring_dim,
             modulus,
             hamming_weight: 4,
         };
         let pk_params = PublicKeyParams {
-            poly_len: ring_degree,
+            ring_dim,
             modulus,
             error_variance: 3.0,
         };
@@ -141,12 +141,12 @@ mod tests {
     #[test]
     fn test_deterministic_generation() {
         // Setup
-        let ring_degree = 8;
+        let ring_dim = 8;
         let modulus = 65537u64;
 
         // Create secret key
         let sk_params = SecretKeyParams {
-            ring_degree,
+            ring_dim,
             modulus,
             hamming_weight: 4,
         };
@@ -155,7 +155,7 @@ mod tests {
 
         // Create public keys with same seed
         let pk_params = PublicKeyParams {
-            poly_len: ring_degree,
+            ring_dim,
             modulus,
             error_variance: 3.0,
         };
@@ -167,7 +167,7 @@ mod tests {
         let pk2 = PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng2);
 
         // Keys should be identical with same seed
-        for i in 0..ring_degree {
+        for i in 0..ring_dim {
             assert_eq!(pk1.a.into_iter().nth(i), pk2.a.into_iter().nth(i));
             assert_eq!(pk1.b.into_iter().nth(i), pk2.b.into_iter().nth(i));
         }

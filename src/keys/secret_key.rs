@@ -12,7 +12,7 @@ pub struct SecretKey {
 /// Parameters specific to secret key generation
 pub struct SecretKeyParams {
     /// Ring degree (must be power of 2)
-    pub ring_degree: usize,
+    pub ring_dim: usize,
     /// Modulus for the polynomial coefficients
     pub modulus: u64,
     /// Number of non-zero coefficients in the secret key (Hamming weight)
@@ -23,19 +23,19 @@ impl SecretKey {
     /// Generate a new secret key with ternary coefficients {-1, 0, 1}
     pub fn generate<R: Rng>(params: &SecretKeyParams, rng: &mut R) -> Self {
         // Validate parameters before starting
-        if params.hamming_weight > params.ring_degree {
+        if params.hamming_weight > params.ring_dim {
             panic!(
                 "Invalid parameters: hamming_weight ({}) cannot be larger than ring_degree ({})",
-                params.hamming_weight, params.ring_degree
+                params.hamming_weight, params.ring_dim
             );
         }
         // Initialize coefficients to zero
-        let mut coeffs = vec![0u64; params.ring_degree];
+        let mut coeffs = vec![0u64; params.ring_dim];
         let mut count = 0;
 
         // Add exactly hamming_weight non-zero coefficients
         while count < params.hamming_weight {
-            let idx = rng.random_range(0..params.ring_degree);
+            let idx = rng.random_range(0..params.ring_dim);
 
             // Only set if position is still zero
             if coeffs[idx] == 0 {
@@ -50,7 +50,7 @@ impl SecretKey {
         }
 
         // Create the polynomial
-        let s = PolyRing::from_coeffs(&coeffs, params.modulus, params.ring_degree);
+        let s = PolyRing::from_coeffs(&coeffs, params.modulus, params.ring_dim);
 
         Self { s }
     }
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_secret_key_hamming_weight() {
         let params = SecretKeyParams {
-            ring_degree: 128,
+            ring_dim: 128,
             modulus: 65537,
             hamming_weight: 40,
         };
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn test_coefficient_values() {
         let params = SecretKeyParams {
-            ring_degree: 64,
+            ring_dim: 64,
             modulus: 65537,
             hamming_weight: 20,
         };
@@ -98,7 +98,7 @@ mod tests {
     fn test_value_distribution() {
         // Generate multiple keys and check distribution of 1/-1 values
         let params = SecretKeyParams {
-            ring_degree: 1024,
+            ring_dim: 1024,
             modulus: 65537,
             hamming_weight: 500,
         };

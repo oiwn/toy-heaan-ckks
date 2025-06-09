@@ -10,7 +10,7 @@ fn bench_ckks_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("ckks_pipeline");
 
     // Parameters
-    let ring_degree = 8192; // Ensure this is large enough for our data
+    let ring_dim = 8192; // Ensure this is large enough for our data
     let scale_bits = 40;
     let modulus = (1u64 << 60) - 1;
 
@@ -22,14 +22,14 @@ fn bench_ckks_pipeline(c: &mut Criterion) {
 
             // Create keys
             let sk_params = SecretKeyParams {
-                ring_degree,
+                ring_dim,
                 modulus,
                 hamming_weight: 100,
             };
             let secret_key = SecretKey::generate(&sk_params, &mut rng);
 
             let pk_params = PublicKeyParams {
-                poly_len: ring_degree,
+                ring_dim,
                 modulus,
                 error_variance: 3.0,
             };
@@ -40,7 +40,7 @@ fn bench_ckks_pipeline(c: &mut Criterion) {
             let values: Vec<f64> = (0..size).map(|i| (i as f64) * 0.01).collect();
 
             let encoding_params =
-                encoding::EncodingParams::new(ring_degree, scale_bits)
+                encoding::EncodingParams::new(ring_dim, scale_bits)
                     .expect("Failed to create encoding parameters");
 
             // Measure the complete pipeline
@@ -50,7 +50,7 @@ fn bench_ckks_pipeline(c: &mut Criterion) {
                     .expect("Encoding failed");
 
                 // 2. Create polynomial and encrypt
-                let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_degree);
+                let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_dim);
                 let scale = (1u64 << scale_bits) as f64;
                 let ciphertext = encrypt(&poly, &public_key, scale, &mut rng);
 

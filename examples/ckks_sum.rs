@@ -7,14 +7,14 @@ use toy_heaan_ckks::{
 
 fn main() -> Result<(), String> {
     // Parameters setup
-    let ring_degree = 8;
+    let ring_dim = 8;
     let scale_bits = 30;
     let modulus = (1u64 << 60) - 1; // Large prime-like modulus
     let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
 
     // Create Secret-Key
     let sk_params = SecretKeyParams {
-        ring_degree,
+        ring_dim,
         modulus,
         hamming_weight: 4,
     };
@@ -22,7 +22,7 @@ fn main() -> Result<(), String> {
 
     // Create Public-Key
     let pk_params = PublicKeyParams {
-        poly_len: ring_degree,
+        ring_dim,
         modulus,
         error_variance: 3.0,
     };
@@ -33,15 +33,15 @@ fn main() -> Result<(), String> {
     let values2 = vec![0.5, 1.0, 1.5, 2.0];
 
     // Parameters for encoding
-    let encoding_params = encoding::EncodingParams::new(ring_degree, scale_bits)?;
+    let encoding_params = encoding::EncodingParams::new(ring_dim, scale_bits)?;
 
     // Encode to polynomial
     let coeffs1 = encoding::encode(&values1, &encoding_params)?;
     let coeffs2 = encoding::encode(&values2, &encoding_params)?;
 
     // Convert to polynomial (you might need to add a helper function)
-    let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_degree);
-    let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_degree);
+    let poly1 = PolyRing::from_coeffs(&coeffs1, modulus, ring_dim);
+    let poly2 = PolyRing::from_coeffs(&coeffs2, modulus, ring_dim);
 
     // Encrypt
     let scale = (1u64 << scale_bits) as f64;
