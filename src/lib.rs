@@ -3,6 +3,7 @@ pub mod encoding;
 pub mod encryption;
 pub mod keys;
 pub mod rings;
+pub mod rns;
 
 pub use ciphertext::{Ciphertext, rescale_poly};
 pub use encoding::{EncodingParams, decode, encode};
