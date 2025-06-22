@@ -7,6 +7,8 @@ mod arithmetic;
 mod basis;
 mod element;
 
+pub use basis::{RnsBasis, RnsBasisBuilder};
+
 // Re-export common error types
 pub type RnsResult<T> = Result<T, RnsError>;
 
