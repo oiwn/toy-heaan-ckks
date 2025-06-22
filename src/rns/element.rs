@@ -19,15 +19,19 @@ impl RnsElement {
     }
 
     pub fn from_u64(value: u64, basis: Arc<RnsBasis>) -> Self {
-        // Convert single u64 to RNS representation
+        let residues = basis.primes().iter().map(|&prime| value % prime).collect();
+
+        Self { residues, basis }
     }
 
     pub fn residues(&self) -> &[u64] {
         &self.residues
     }
+
     pub fn basis(&self) -> &Arc<RnsBasis> {
         &self.basis
     }
+
     pub fn prime_count(&self) -> usize {
         self.residues.len()
     }
