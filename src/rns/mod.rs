@@ -31,8 +31,8 @@ mod tests {
     #[test]
     fn test_basic_rns_operations() {
         // Create a simple RNS basis
-        let basis = RnsBasisBuilder::new(64)
-            .with_prime_count(3)
+        let basis = RnsBasisBuilder::new(60)
+            .with_prime_count(5)
             .build()
             .unwrap();
 
