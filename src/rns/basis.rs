@@ -46,11 +46,7 @@ impl RnsBasisBuilder {
 
     pub fn build(self) -> RnsResult<Arc<RnsBasis>> {
         let count = self.prime_count.unwrap_or(3);
-        let primes = generate_rns_primes(self.target_bit_size, count);
-
-        if primes.len() != count {
-            return Err(RnsError::InvalidPrime(0));
-        }
+        let primes = generate_rns_primes(self.target_bit_size, count)?; // Add ? operator
 
         let basis = RnsBasis::new(primes)?;
         Ok(Arc::new(basis))
@@ -80,30 +76,26 @@ fn is_prime(n: u64) -> bool {
     true
 }
 
-fn generate_rns_primes(bit_size: u32, count: usize) -> Vec<u64> {
-    assert!(bit_size <= 63 && bit_size >= 4); // Leave room for operations
+fn generate_rns_primes(bit_size: u32, count: usize) -> RnsResult<Vec<u64>> {
+    assert!(bit_size <= 63 && bit_size >= 4);
 
     let mut primes = Vec::with_capacity(count);
-
-    // Start from the largest odd number less than 2^bit_size
     let max_val = (1u64 << bit_size) - 1;
+    let min_val = 1u64 << (bit_size - 1);
     let mut candidate = max_val - (max_val % 2 == 0) as u64; // Ensure odd
 
-    while primes.len() < count && candidate >= (1u64 << (bit_size - 1)) {
+    while primes.len() < count && candidate >= min_val {
         if is_prime(candidate) {
             primes.push(candidate);
         }
-        candidate = candidate.saturating_sub(2); // Go backwards to find large primes
+        candidate = candidate.saturating_sub(2);
     }
 
     if primes.len() < count {
-        // If we couldn't find enough primes, try smaller bit sizes
-        let smaller_primes =
-            generate_rns_primes(bit_size - 1, count - primes.len());
-        primes.extend(smaller_primes);
+        return Err(RnsError::InvalidPrime(bit_size as u64));
     }
 
-    primes
+    Ok(primes)
 }
 
 #[cfg(test)]
@@ -148,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_generate_rns_primes_small() {
-        let primes = generate_rns_primes(8, 3);
+        let primes = generate_rns_primes(8, 3).unwrap();
 
         assert_eq!(primes.len(), 3);
 
@@ -174,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_generate_rns_primes_60bit() {
-        let primes = generate_rns_primes(60, 2);
+        let primes = generate_rns_primes(60, 2).unwrap();
 
         assert_eq!(primes.len(), 2);
 
@@ -256,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_prime_uniqueness() {
-        let primes = generate_rns_primes(16, 10);
+        let primes = generate_rns_primes(16, 10).unwrap();
 
         // Check all primes are unique
         for i in 0..primes.len() {
@@ -271,35 +263,36 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_to_smaller_bit_sizes() {
+    fn test_insufficient_primes_for_bit_size() {
         // Try to generate more primes than exist in a small bit range
-        let primes = generate_rns_primes(6, 5); // 6-bit range has limited primes
+        let result = generate_rns_primes(4, 10); // 4-bit range has very few primes
 
-        // Should generate what it can (might be less than requested if we hit the limit)
-        assert!(primes.len() <= 5);
-        assert!(primes.len() > 0); // Should find at least some primes
+        assert!(result.is_err());
 
-        // All should still be prime
-        for &p in &primes {
-            assert!(is_prime(p), "Generated number {} is not prime", p);
+        if let Err(RnsError::InvalidPrime(bit_size)) = result {
+            assert_eq!(bit_size, 4);
+        } else {
+            panic!("Expected InvalidPrime error with bit_size 4");
         }
+    }
 
-        println!(
-            "Generated {} primes with 6-bit fallback: {:?}",
-            primes.len(),
-            primes
-        );
+    #[test]
+    fn test_builder_insufficient_primes() {
+        // Test that builder also returns error for impossible requests
+        let result = RnsBasisBuilder::new(4).with_prime_count(10).build();
+
+        assert!(result.is_err());
     }
 
     #[test]
     #[should_panic(expected = "assertion failed")]
     fn test_invalid_bit_size_too_large() {
-        generate_rns_primes(64, 1); // Should panic - too large
+        generate_rns_primes(64, 1).unwrap(); // Should panic - too large
     }
 
     #[test]
     #[should_panic(expected = "assertion failed")]
     fn test_invalid_bit_size_too_small() {
-        generate_rns_primes(3, 1); // Should panic - too small
+        generate_rns_primes(3, 1).unwrap(); // Should panic - too small
     }
 }
