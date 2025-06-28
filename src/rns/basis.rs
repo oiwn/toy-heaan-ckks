@@ -23,6 +23,10 @@ impl RnsBasis {
     pub fn prime_count(&self) -> usize {
         self.primes.len()
     }
+
+    pub fn modulus_product(&self) -> u128 {
+        self.primes.iter().map(|&p| p as u128).product()
+    }
 }
 
 /// Builder for constructing RNS bases with specific properties
