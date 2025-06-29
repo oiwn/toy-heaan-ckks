@@ -37,6 +37,19 @@ pub struct RnsPolyRing {
     degree: usize,
 }
 
+impl RnsPolyRing {
+    /// Construct the zero polynomial in this RNS basis
+    pub fn zero(basis: Arc<RnsBasis>) -> Self {
+        let m = basis.primes().len();
+        let n = basis.degree;
+        Self {
+            residue_matrix: vec![vec![0; n]; m],
+            basis,
+            degree: n,
+        }
+    }
+}
+
 impl PolyRing {
     pub fn new_empty(modulus: u64, ring_dim: usize) -> Self {
         Self {
