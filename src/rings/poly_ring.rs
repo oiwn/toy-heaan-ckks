@@ -1,17 +1,40 @@
+use crate::rns::RnsBasis;
 use core::ops::{Add, Mul, Rem};
-use std::iter::IntoIterator;
+use std::{iter::IntoIterator, sync::Arc};
 
-/// Represents a polynomial in a ring Z_q[X]/(X^n + 1) where:
-/// q - coefficients modulo
-/// n - ring dimension, should be power of 2
-///
 /// In this quotient ring, polynomials have degree at most n-1,
 /// and X^n = -1 (which is used during multiplication)
-#[derive(Debug, Clone, PartialEq)]
-pub struct PolyRing {
-    pub coefficients: Vec<u64>,
-    modulus: u64,    // q
-    ring_dim: usize, // n
+///
+/// `RnsPolyRing` is an RNS-encoded polynomial in the ring ℤ[X]/(X^degree + 1).
+/// Coefficients are stored residue-by-residue across a set of prime moduli,
+/// enabling efficient NTT-based arithmetic without ever using big integers.
+///
+/// - Each coefficient is represented by its remainders mod each prime in `basis.primes`.
+/// - Arithmetic (add, mul, NTT, rescale) happens independently in each modulus.
+/// - Only at decode time do you CRT-reconstruct back to a single-integer domain.
+///
+/// # Fields
+/// - `coefficients[mod_index][coeff_index]`
+///   The value of the `coeff_index`-th polynomial coefficient, reduced modulo
+///   the `mod_index`-th prime in the RNS basis.
+///
+/// - `basis`
+///   Shared RNS basis containing:
+///   • `primes`: the list of moduli  
+///   • `roots` / `inv_roots`: NTT twiddle factors for each modulus  
+///   • `inv_degree`: the modular inverse of `degree` in each modulus  
+///
+/// - `degree`
+///   The ring dimension (power of two), giving the polynomial quotient
+///   X^degree + 1. Polynomials have at most `degree - 1` as their highest exponent.
+#[derive(Debug, Clone)]
+pub struct RnsPolyRing {
+    /// RNS residue matrix: outer index = modulus, inner = coefficient slot
+    pub coefficients: Vec<Vec<u64>>,
+    /// RNS basis with primes, NTT roots, inverse roots, and inv_degree
+    pub basis: Arc<RnsBasis>,
+    /// Power-of-two ring dimension for the (X^degree + 1) quotient
+    degree: usize,
 }
 
 impl PolyRing {
