@@ -21,7 +21,7 @@ pub enum RnsError {
     },
 }
 
-/// Convenience result type for RNS operations.
+/// Result type for RNS operations.
 pub type RnsResult<T> = Result<T, RnsError>;
 
 /// An RNS basis containing prime moduli, NTT twiddles, and rescale factors.
@@ -29,43 +29,44 @@ pub type RnsResult<T> = Result<T, RnsError>;
 pub struct RnsBasis {
     /// Prime moduli for each residue channel.
     pub primes: Vec<u64>,
-    /// Precomputed forward NTT roots: roots[i][k] = ω^k mod primes[i]
+    /// Forward NTT twiddle factors per prime: roots[i][k] = ω^k mod primes[i]
     pub roots: Vec<Vec<u64>>,
-    /// Precomputed inverse NTT roots for iNTT.
+    /// Inverse NTT twiddles per prime.
     pub inv_roots: Vec<Vec<u64>>,
-    /// Modular inverse of the polynomial degree (ring size) for each prime.
+    /// Modular inverses of the polynomial degree for each prime.
     pub inv_degree: Vec<u64>,
-    /// Precomputed inverses of rescale factors for CKKS.
+    /// Inverses of rescale factors for CKKS.
     pub rescale_inverses: Vec<u64>,
 }
 
 impl RnsBasis {
-    /// Returns the number of RNS channels (primes).
+    /// Number of RNS channels (primes).
     pub fn channel_count(&self) -> usize {
         self.primes.len()
     }
 
-    /// Validates that this basis matches the given prime channel count.
-    pub fn validate(&self, expected_count: usize) -> RnsResult<()> {
-        let actual_count = self.primes.len();
-        if actual_count != expected_count {
-            return Err(RnsError::BasisMismatch {
-                expected_count,
-                actual_count,
-            });
+    /// Validate expected prime channel count.
+    pub fn validate(&self, expected: usize) -> RnsResult<()> {
+        let actual = self.primes.len();
+        if actual != expected {
+            Err(RnsError::BasisMismatch {
+                expected_count: expected,
+                actual_count: actual,
+            })
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
 
-/// Builder for constructing an RNS basis with specified parameters.
+/// Builder for constructing an RNS basis.
 pub struct RnsBasisBuilder {
     ring_degree: usize,
     prime_bits: Vec<usize>,
 }
 
 impl RnsBasisBuilder {
-    /// Create a new builder for a ring of dimension `ring_degree`.
+    /// Create a new builder for given polynomial degree.
     pub fn new(ring_degree: usize) -> Self {
         Self {
             ring_degree,
@@ -79,38 +80,31 @@ impl RnsBasisBuilder {
         self
     }
 
-    /// Build the `RnsBasis`, generating primes and NTT tables.
+    /// Generate the RnsBasis (primes and NTT tables).
     pub fn build(self) -> RnsResult<RnsBasis> {
-        let prime_count = self.prime_bits.len();
-        if prime_count == 0 {
-            return Err(RnsError::InvalidPrimeCount(prime_count));
+        let count = self.prime_bits.len();
+        if count == 0 {
+            return Err(RnsError::InvalidPrimeCount(count));
         }
-
-        let mut primes = Vec::with_capacity(prime_count);
-        let mut roots = Vec::with_capacity(prime_count);
-        let mut inv_roots = Vec::with_capacity(prime_count);
-        let mut inv_degree = Vec::with_capacity(prime_count);
-        let mut rescale_inverses = Vec::with_capacity(prime_count);
-
+        let mut primes = Vec::with_capacity(count);
+        let mut roots = Vec::with_capacity(count);
+        let mut inv_roots = Vec::with_capacity(count);
+        let mut inv_degree = Vec::with_capacity(count);
+        let mut rescale_inverses = Vec::with_capacity(count);
         for &bits in &self.prime_bits {
-            // Generate a prime p = k * 2*ring_degree + 1 with `bits` bits
             let p = generate_ntt_prime(bits, self.ring_degree)
                 .ok_or(RnsError::PrimeGenerationFailed(bits, self.ring_degree))?;
             let root = find_primitive_root(self.ring_degree * 2, p)
-                .expect("Primitive root must exist for NTT");
-
-            // Build NTT tables
+                .expect("Primitive root must exist");
             let (fwd, inv) = build_ntt_tables(p, self.ring_degree, root);
             let inv_deg = modinv(self.ring_degree as u64, p).unwrap();
-            let rescale_inv = modinv(root, p).unwrap();
-
+            let res_inv = modinv(root, p).unwrap();
             primes.push(p);
             roots.push(fwd);
             inv_roots.push(inv);
             inv_degree.push(inv_deg);
-            rescale_inverses.push(rescale_inv);
+            rescale_inverses.push(res_inv);
         }
-
         Ok(RnsBasis {
             primes,
             roots,
@@ -120,8 +114,6 @@ impl RnsBasisBuilder {
         })
     }
 }
-
-// --- Helper functions below ---
 
 /// Finds a prime of the form p = k*(2*ring_degree) + 1 with `bits` bits.
 fn generate_ntt_prime(bits: usize, ring_degree: usize) -> Option<u64> {

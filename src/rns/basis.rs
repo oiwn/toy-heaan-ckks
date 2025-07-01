@@ -24,6 +24,7 @@ impl RnsBasis {
         self.primes.len()
     }
 
+    // TODO: remove it scince even u128 is not enought
     pub fn modulus_product(&self) -> u128 {
         self.primes.iter().map(|&p| p as u128).product()
     }

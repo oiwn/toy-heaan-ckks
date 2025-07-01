@@ -1,156 +1,85 @@
-use crate::PolyRing;
+use super::{RnsBasis, RnsPolyRing};
 use std::fmt;
+use std::sync::Arc;
 
-impl fmt::Display for PolyRing {
+impl<const DEGREE: usize> fmt::Display for RnsPolyRing<DEGREE> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Check if alternate format is requested (full polynomial)
+        // Alternate (`{:#}`) triggers full expansion
         if f.alternate() {
             return self.fmt_full(f);
         }
-
-        // Get number of coefficients to display from precision, default to 3
-        let num_display = f.precision().unwrap_or(3);
-
-        // Display truncated format
-        self.fmt_truncated(f, num_display)
+        // Default: truncated with precision or 3
+        let num = f.precision().unwrap_or(3);
+        self.fmt_truncated(f, num)
     }
 }
 
-impl PolyRing {
-    // Format with truncated coefficient display
-    fn fmt_truncated(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-        num_display: usize,
-    ) -> fmt::Result {
-        write!(
-            f,
-            "Poly(len={}, n={}, coeffs=[",
-            self.len(),
-            self.ring_dim()
-        )?;
+impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
+    /// Truncated display: first `num` and last `num` CRT-reconstructed coefficients
+    fn fmt_truncated(&self, f: &mut fmt::Formatter<'_>, num: usize) -> fmt::Result {
+        let coeffs = self.crt();
+        let len = coeffs.len();
+        write!(f, "Poly<{}>[", DEGREE)?;
 
-        let half_modulus = self.modulus() / 2;
-        let len = self.len();
-
-        if len <= num_display * 2 {
-            // Display all coefficients if there are few enough
-            let mut first = true;
-            for &coeff in &self.coefficients {
-                if !first {
-                    write!(f, ", ")?;
-                }
-                first = false;
-
-                // Convert to centered representation
-                let value = if coeff > half_modulus {
-                    -(self.modulus() as i64 - coeff as i64)
-                } else {
-                    coeff as i64
-                };
-
-                write!(f, "{}", value)?;
-            }
-        } else {
-            // Display front and back coefficients with ellipsis
-            for i in 0..num_display {
+        if len <= num * 2 {
+            // show all
+            for (i, &c) in coeffs.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-
-                let coeff = self.coefficients[i];
-                let value = if coeff > half_modulus {
-                    -(self.modulus() as i64 - coeff as i64)
-                } else {
-                    coeff as i64
-                };
-
-                write!(f, "{}", value)?;
+                write!(f, "{}", c)?;
             }
-
-            // Ellipsis
+        } else {
+            // front
+            for i in 0..num {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", coeffs[i])?;
+            }
             write!(f, ", …")?;
-
-            // Show ending coefficients
-            for i in (len - num_display)..len {
-                write!(f, ", ")?;
-
-                let coeff = self.coefficients[i];
-                let value = if coeff > half_modulus {
-                    -(self.modulus() as i64 - coeff as i64)
-                } else {
-                    coeff as i64
-                };
-
-                write!(f, "{}", value)?;
+            // back
+            for i in (len - num)..len {
+                write!(f, ", {}", coeffs[i])?;
             }
         }
-
-        write!(f, "])")
+        write!(f, "]")
     }
 
-    // Display the full polynomial in mathematical form
+    /// Full display: CRT-reconstructed polynomial in standard form
     fn fmt_full(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Keep your existing implementation here for the full polynomial display
-        if self.coefficients.is_empty() {
+        let coeffs = self.crt();
+        // All zero?
+        if coeffs.iter().all(|&c| c == 0) {
             return write!(f, "0");
         }
-
-        // Your existing code for full polynomial display...
-        let half_modulus = self.modulus() / 2;
         let mut first = true;
-
-        for (i, &coeff) in self.coefficients.iter().enumerate() {
-            if coeff == 0 {
+        for (i, &c) in coeffs.iter().enumerate() {
+            if c == 0 {
                 continue;
             }
-
-            // Convert to centered representation (-q/2, q/2)
-            let value = if coeff > half_modulus {
-                -(self.modulus() as i64 - coeff as i64)
-            } else {
-                coeff as i64
-            };
-
-            // Handle the sign
-            if first {
-                if value < 0 {
-                    write!(f, "-")?;
-                }
-                first = false;
-            } else if value < 0 {
-                write!(f, " - ")?;
-            } else {
+            if !first {
                 write!(f, " + ")?;
-            };
-
-            // Write coefficient and term
-            let abs_value = value.abs();
-            if i == 0 {
-                // Constant term
-                write!(f, "{}", abs_value)?;
-            } else if i == 1 {
-                // Linear term
-                if abs_value == 1 {
-                    write!(f, "x")?;
-                } else {
-                    write!(f, "{}*x", abs_value)?;
+            }
+            first = false;
+            match i {
+                0 => write!(f, "{}", c)?,
+                1 => {
+                    if c == 1 {
+                        write!(f, "x")?;
+                    } else {
+                        write!(f, "{}*x", c)?;
+                    }
                 }
-            } else {
-                // Higher degree terms
-                if abs_value == 1 {
-                    write!(f, "x^{}", i)?;
-                } else {
-                    write!(f, "{}x^{}", abs_value, i)?;
+                _ => {
+                    if c == 1 {
+                        write!(f, "x^{}", i)?;
+                    } else {
+                        write!(f, "{}*x^{}", c, i)?;
+                    }
                 }
             }
         }
-
-        if first {
-            // All coefficients were zero
-            write!(f, "0")?;
-        }
-
         Ok(())
     }
 }

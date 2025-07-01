@@ -1,4 +1,4 @@
-use crate::rns::RnsBasis;
+use super::basis::RnsBasis;
 use core::ops::{Add, Mul, Rem};
 use std::{iter::IntoIterator, sync::Arc};
 
@@ -27,30 +27,35 @@ use std::{iter::IntoIterator, sync::Arc};
 /// - `degree`
 ///   The ring dimension (power of two), giving the polynomial quotient
 ///   X^degree + 1. Polynomials have at most `degree - 1` as their highest exponent.
+///
+/// `RnsPolyRing<DEGREE>` is an RNS-encoded polynomial in ℤ[X]/(X^DEGREE + 1).
+/// Coefficients per prime channel are stored in a fixed-size array for cache
+/// locality and no extra bounds checks.
 #[derive(Debug, Clone)]
-pub struct RnsPolyRing {
-    /// RNS residue matrix: outer index = modulus, inner = coefficient slot
-    pub coefficients: Vec<Vec<u64>>,
-    /// RNS basis with primes, NTT roots, inverse roots, and inv_degree
+pub struct RnsPolyRing<const DEGREE: usize> {
+    /// Each entry holds one residue channel: [u64; DEGREE]
+    pub coefficients: Vec<[u64; DEGREE]>,
+    /// Shared RNS basis with primes and NTT tables (degree not stored here).
     pub basis: Arc<RnsBasis>,
-    /// Power-of-two ring dimension for the (X^degree + 1) quotient
-    degree: usize,
 }
 
-impl RnsPolyRing {
-    /// Construct the zero polynomial in this RNS basis
+impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
+    /// Zero polynomial: all residues zero across each channel.
     pub fn zero(basis: Arc<RnsBasis>) -> Self {
-        let m = basis.primes().len();
-        let n = basis.degree;
+        let m = basis.channel_count();
         Self {
-            residue_matrix: vec![vec![0; n]; m],
+            coefficients: vec![[0; DEGREE]; m],
             basis,
-            degree: n,
         }
+    }
+
+    /// Number of slots (polynomial degree)
+    pub fn len(&self) -> usize {
+        DEGREE
     }
 }
 
-impl PolyRing {
+/* impl PolyRing {
     pub fn new_empty(modulus: u64, ring_dim: usize) -> Self {
         Self {
             coefficients: Vec::with_capacity(ring_dim),
@@ -543,4 +548,4 @@ mod ring_property_tests {
         );
         assert_eq!(prod2, p1, "Multiplying by one should not change polynomial");
     }
-}
+} */
