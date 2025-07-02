@@ -1,4 +1,69 @@
-use crate::{
+use crate::keys::{SecretKey, SecretKeyParams};
+use crate::rings::{RnsBasis, RnsPolyRing};
+use rand::Rng;
+use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum PublicKeyError {
+    #[error("Secret key validation failed: {0}")]
+    InvalidSecretKey(String),
+    #[error("Public key parameter error: {0}")]
+    InvalidParams(String),
+}
+
+/// Parameters for generating an RNS-encoded public key.
+pub struct PublicKeyParams<const DEGREE: usize> {
+    pub basis: Arc<RnsBasis>,
+    /// Standard deviation for the error distribution
+    pub error_std: f64,
+}
+
+impl<const DEGREE: usize> PublicKeyParams<DEGREE> {
+    fn validate(&self) -> Result<(), PublicKeyError> {
+        if !(self.error_std > 0.0) {
+            Err(PublicKeyError::InvalidParams(
+                "error_std must be positive".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// RNS-encoded public key (RLWE sample).
+pub struct PublicKey<const DEGREE: usize> {
+    /// "b" component: b = a * s + e
+    pub b: RnsPolyRing<DEGREE>,
+    /// "a" component: uniformly random
+    pub a: RnsPolyRing<DEGREE>,
+}
+
+/* impl<const DEGREE: usize> PublicKey<DEGREE> {
+    /// Generate a new RLWE public key under RNS.
+    pub fn generate_rns<R: Rng + ?Sized>(
+        params: &PublicKeyParamsRns<DEGREE>,
+        sk: &SecretKey<DEGREE>,
+        rng: &mut R,
+    ) -> Result<Self, PublicKeyError> {
+        // Validate parameters and secret key
+        params.validate()?;
+        // Draw a uniformly random polynomial 'a'
+        let a = RnsPolyRing::sample_uniform(params.basis.clone(), rng);
+        // Draw error polynomial 'e' from Gaussian
+        let e = RnsPolyRing::sample_gaussian(
+            params.basis.clone(),
+            params.error_std,
+            rng,
+        );
+        // Compute b = a * s + e
+        let mut b = &a * &sk.s;
+        b.add_assign(&e);
+        Ok(PublicKey { b, a })
+    }
+} */
+
+/* use crate::{
     PolyRing, SecretKey, generate_error_poly, generate_random_poly, negate_poly,
 };
 use rand::Rng;
@@ -172,4 +237,4 @@ mod tests {
             assert_eq!(pk1.b.into_iter().nth(i), pk2.b.into_iter().nth(i));
         }
     }
-}
+} */

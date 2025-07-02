@@ -1,8 +1,117 @@
-use crate::PolyRing;
-use rand::Rng;
+use crate::{RnsBasis, RnsPolyRing};
+use rand::{Rng, seq::SliceRandom};
 use rand_distr::{Distribution, Normal};
+use std::sync::Arc;
 
-/// Generate a polynomial with uniformly random coefficients
+/// Sample a uniformly random RNS polynomial (each coeff ∈ [0, q)).
+pub fn sample_uniform<const DEGREE: usize, R: Rng + ?Sized>(
+    basis: Arc<RnsBasis>,
+    rng: &mut R,
+) -> RnsPolyRing<DEGREE> {
+    let mut channels: Vec<[u64; DEGREE]> = Vec::with_capacity(basis.primes().len());
+    for &q in basis.primes() {
+        let mut arr = [0u64; DEGREE];
+        for i in 0..DEGREE {
+            arr[i] = rng.random_range(0..q);
+        }
+        channels.push(arr);
+    }
+    RnsPolyRing {
+        coefficients: channels,
+        basis,
+    }
+}
+
+/// Sample a Gaussian error polynomial in RNS by drawing ~ N(0, std_dev^2) per slot.
+pub fn sample_gaussian<const DEGREE: usize, R: Rng + ?Sized>(
+    basis: Arc<RnsBasis>,
+    std_dev: f64,
+    rng: &mut R,
+) -> RnsPolyRing<DEGREE> {
+    let normal = Normal::new(0.0, std_dev).expect("Invalid Gaussian std_dev");
+    let mut channels: Vec<[u64; DEGREE]> = Vec::with_capacity(basis.primes().len());
+    for &q in basis.primes() {
+        let mut arr = [0u64; DEGREE];
+        let q_i128 = q as i128;
+        for i in 0..DEGREE {
+            let sample = normal.sample(rng);
+            let v = sample.round() as i128;
+            let residue = ((v % q_i128 + q_i128) % q_i128) as u64;
+            arr[i] = residue;
+        }
+        channels.push(arr);
+    }
+    RnsPolyRing {
+        coefficients: channels,
+        basis,
+    }
+}
+
+/// Sample a ternary polynomial (coeffs in \{-1,0,1\}) with given Hamming weight.
+pub fn sample_ternary<const DEGREE: usize, R: Rng + ?Sized>(
+    hamming_weight: usize,
+    rng: &mut R,
+) -> [i64; DEGREE] {
+    let mut out = [0i64; DEGREE];
+    // shuffle indices and pick the first `hamming_weight`
+    let mut indices: Vec<usize> = (0..DEGREE).collect();
+    indices.shuffle(rng);
+    for &idx in indices.iter().take(hamming_weight) {
+        out[idx] = if rng.random_bool(0.5) { 1 } else { -1 };
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rings::{RnsBasisBuilder, RnsPolyRing};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+    use std::sync::Arc;
+
+    #[test]
+    fn test_sample_uniform_coeff_ranges() {
+        const DEGREE: usize = 8;
+        // build basis with primes of bit lengths 3 (7), 4 (11), and 5 (17)
+        let basis = RnsBasisBuilder::new(DEGREE)
+            .add_prime_bits(3)
+            .add_prime_bits(4)
+            .add_prime_bits(5)
+            .build()
+            .unwrap();
+        let basis = Arc::new(basis);
+        let mut rng = StdRng::seed_from_u64(42);
+        let poly: RnsPolyRing<DEGREE> = sample_uniform(basis.clone(), &mut rng);
+        assert_eq!(poly.coefficients.len(), 3);
+        for (i, arr) in poly.coefficients.iter().enumerate() {
+            let q = basis.primes()[i];
+            for &coeff in arr.iter() {
+                assert!(coeff < q, "coeff {} >= modulus {}", coeff, q);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sample_uniform_reproducible() {
+        const DEGREE: usize = 8;
+        let basis = RnsBasisBuilder::new(DEGREE)
+            .add_prime_bits(3)
+            .add_prime_bits(4)
+            .add_prime_bits(5)
+            .build()
+            .unwrap();
+        let basis = Arc::new(basis);
+        let mut rng1 = StdRng::seed_from_u64(123);
+        let mut rng2 = StdRng::seed_from_u64(123);
+        let p1: RnsPolyRing<DEGREE> =
+            RnsPolyRing::sample_uniform(basis.clone(), &mut rng1);
+        let p2: RnsPolyRing<DEGREE> =
+            RnsPolyRing::sample_uniform(basis.clone(), &mut rng2);
+        assert_eq!(p1.coefficients, p2.coefficients);
+    }
+}
+
+/* /// Generate a polynomial with uniformly random coefficients
 pub fn generate_random_poly<R: Rng>(
     n: usize,
     modulus: u64,
@@ -274,4 +383,4 @@ mod tests {
         let zero_count = full_poly.into_iter().filter(|&&x| x == 0).count();
         assert_eq!(zero_count, 0, "Expected no zeros with sparsity 1.0");
     }
-}
+} */

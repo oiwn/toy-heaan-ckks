@@ -37,6 +37,26 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
     pub fn channels(&self) -> usize {
         self.coefficients.len()
     }
+
+    pub fn from_integer_coeffs(ints: &[i64], basis: Arc<RnsBasis>) -> Self {
+        assert_eq!(ints.len(), DEGREE, "Input slice length must match DEGREE");
+        let mut channels: Vec<[u64; DEGREE]> =
+            Vec::with_capacity(basis.primes().len());
+        for &q in basis.primes() {
+            let mut arr = [0u64; DEGREE];
+            let q_i64 = q as i64;
+            for i in 0..DEGREE {
+                // ensure non-negative residue
+                let v = ((ints[i] % q_i64 + q_i64) % q_i64) as u64;
+                arr[i] = v;
+            }
+            channels.push(arr);
+        }
+        Self {
+            coefficients: channels,
+            basis,
+        }
+    }
 }
 
 #[cfg(test)]

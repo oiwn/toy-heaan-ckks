@@ -40,6 +40,11 @@ pub struct RnsBasis {
 }
 
 impl RnsBasis {
+    // Primes
+    pub fn primes(&self) -> &Vec<u64> {
+        &self.primes
+    }
+
     /// Number of RNS channels (primes).
     pub fn channel_count(&self) -> usize {
         self.primes.len()
@@ -63,6 +68,7 @@ impl RnsBasis {
 pub struct RnsBasisBuilder {
     ring_degree: usize,
     prime_bits: Vec<usize>,
+    custom_primes: Option<Vec<u64>>,
 }
 
 impl RnsBasisBuilder {

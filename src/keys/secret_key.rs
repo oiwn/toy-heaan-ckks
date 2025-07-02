@@ -1,4 +1,54 @@
 //! Secret Key (sk): Sample a "small" polynomial s(X) from R.
+//! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1})
+use crate::{RnsBasis, RnsPolyRing, sample_ternary};
+use rand::Rng;
+use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SecretKeyError {
+    #[error("Hamming weight {0} exceeds ring dimension {1}")]
+    InvalidHammingWeight(usize, usize),
+}
+
+/// Parameters for generating an RNS-encoded secret key.
+pub struct SecretKeyParams<const DEGREE: usize> {
+    pub basis: Arc<RnsBasis>,
+    pub hamming_weight: usize,
+}
+
+impl<const DEGREE: usize> SecretKeyParams<DEGREE> {
+    fn validate(&self) -> Result<(), SecretKeyError> {
+        if self.hamming_weight > DEGREE {
+            Err(SecretKeyError::InvalidHammingWeight(
+                self.hamming_weight,
+                DEGREE,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// RNS-encoded secret key wrapper.
+pub struct SecretKey<const DEGREE: usize> {
+    pub s: RnsPolyRing<DEGREE>,
+}
+
+impl<const DEGREE: usize> SecretKey<DEGREE> {
+    /// Generate a new sparse ternary secret key in the RNS domain.
+    pub fn generate<R: Rng + ?Sized>(
+        params: &SecretKeyParams<DEGREE>,
+        rng: &mut R,
+    ) -> Result<Self, SecretKeyError> {
+        params.validate()?;
+        let plain = sample_ternary::<DEGREE, _>(params.hamming_weight, rng);
+        let s = RnsPolyRing::from_integer_coeffs(&plain, params.basis.clone());
+        Ok(SecretKey { s })
+    }
+}
+
+/* //! Secret Key (sk): Sample a "small" polynomial s(X) from R.
 //! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1}).
 use crate::PolyRing;
 use rand::Rng;
@@ -127,4 +177,4 @@ mod tests {
             "1 and -1 should be equally distributed"
         );
     }
-}
+} */

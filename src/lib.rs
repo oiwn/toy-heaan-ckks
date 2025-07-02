@@ -1,7 +1,7 @@
 // pub mod ciphertext;
 // pub mod encoding;
 // pub mod encryption;
-// pub mod keys;
+pub mod keys;
 pub mod rings;
 // pub mod rns;
 
@@ -13,4 +13,5 @@ pub mod rings;
 //     SecretKey, SecretKeyParams, generate_error_poly, generate_random_poly,
 //     generate_ternary_poly, negate_poly,
 // };
-pub use rings::RnsPolyRing;
+pub use keys::{sample_gaussian, sample_ternary, sample_uniform};
+pub use rings::{RnsBasis, RnsBasisBuilder, RnsPolyRing};
