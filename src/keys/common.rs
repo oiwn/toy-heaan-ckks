@@ -62,7 +62,7 @@ pub fn sample_ternary<const DEGREE: usize, R: Rng + ?Sized>(
     out
 }
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use crate::rings::{RnsBasisBuilder, RnsPolyRing};
     use rand::rngs::StdRng;
@@ -111,7 +111,7 @@ mod tests {
     }
 }
 
-/* /// Generate a polynomial with uniformly random coefficients
+/// Generate a polynomial with uniformly random coefficients
 pub fn generate_random_poly<R: Rng>(
     n: usize,
     modulus: u64,

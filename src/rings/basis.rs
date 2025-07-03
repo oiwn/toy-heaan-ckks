@@ -1,3 +1,4 @@
+use super::NttTables;
 use thiserror::Error;
 
 /// Errors for RNS basis construction and operations.
@@ -19,24 +20,20 @@ pub enum RnsError {
         expected_count: usize,
         actual_count: usize,
     },
+    #[error("Invalid prime: {0}")]
+    InvalidPrime(u64),
 }
 
 /// Result type for RNS operations.
 pub type RnsResult<T> = Result<T, RnsError>;
 
 /// An RNS basis containing prime moduli, NTT twiddles, and rescale factors.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RnsBasis {
     /// Prime moduli for each residue channel.
-    pub primes: Vec<u64>,
-    /// Forward NTT twiddle factors per prime: roots[i][k] = ω^k mod primes[i]
-    pub roots: Vec<Vec<u64>>,
-    /// Inverse NTT twiddles per prime.
-    pub inv_roots: Vec<Vec<u64>>,
-    /// Modular inverses of the polynomial degree for each prime.
-    pub inv_degree: Vec<u64>,
-    /// Inverses of rescale factors for CKKS.
-    pub rescale_inverses: Vec<u64>,
+    primes: Vec<u64>,
+    /// NTT tables
+    ntt_tables: NttTables,
 }
 
 impl RnsBasis {
@@ -77,6 +74,7 @@ impl RnsBasisBuilder {
         Self {
             ring_degree,
             prime_bits: Vec::new(),
+            custom_primes: None,
         }
     }
 
@@ -86,38 +84,43 @@ impl RnsBasisBuilder {
         self
     }
 
-    /// Generate the RnsBasis (primes and NTT tables).
+    /// Specify custom primes directly (for testing).
+    pub fn with_custom_primes(mut self, primes: Vec<u64>) -> Self {
+        self.custom_primes = Some(primes);
+        self
+    }
+
     pub fn build(self) -> RnsResult<RnsBasis> {
-        let count = self.prime_bits.len();
-        if count == 0 {
-            return Err(RnsError::InvalidPrimeCount(count));
+        let primes = self.get_or_generate_primes()?;
+        let ntt_tables = NttTables::build_ntt_tables_for_primes(&primes)?;
+
+        Ok(RnsBasis { primes, ntt_tables })
+    }
+
+    // Use custom primes or generated to required bit size
+    fn get_or_generate_primes(&self) -> RnsResult<Vec<u64>> {
+        if let Some(ref custom) = self.custom_primes {
+            if custom.is_empty() {
+                return Err(RnsError::InvalidPrimeCount(0));
+            }
+            Ok(custom.clone())
+        } else {
+            self.generate_primes_from_bits()
         }
-        let mut primes = Vec::with_capacity(count);
-        let mut roots = Vec::with_capacity(count);
-        let mut inv_roots = Vec::with_capacity(count);
-        let mut inv_degree = Vec::with_capacity(count);
-        let mut rescale_inverses = Vec::with_capacity(count);
-        for &bits in &self.prime_bits {
-            let p = generate_ntt_prime(bits, self.ring_degree)
-                .ok_or(RnsError::PrimeGenerationFailed(bits, self.ring_degree))?;
-            let root = find_primitive_root(self.ring_degree * 2, p)
-                .expect("Primitive root must exist");
-            let (fwd, inv) = build_ntt_tables(p, self.ring_degree, root);
-            let inv_deg = modinv(self.ring_degree as u64, p).unwrap();
-            let res_inv = modinv(root, p).unwrap();
-            primes.push(p);
-            roots.push(fwd);
-            inv_roots.push(inv);
-            inv_degree.push(inv_deg);
-            rescale_inverses.push(res_inv);
+    }
+
+    fn generate_primes_from_bits(&self) -> RnsResult<Vec<u64>> {
+        if self.prime_bits.is_empty() {
+            return Err(RnsError::InvalidPrimeCount(0));
         }
-        Ok(RnsBasis {
-            primes,
-            roots,
-            inv_roots,
-            inv_degree,
-            rescale_inverses,
-        })
+
+        self.prime_bits
+            .iter()
+            .map(|&bits| {
+                generate_ntt_prime(bits, self.ring_degree)
+                    .ok_or(RnsError::PrimeGenerationFailed(bits, self.ring_degree))
+            })
+            .collect()
     }
 }
 

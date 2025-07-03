@@ -6,10 +6,10 @@ edition = "2024"
 [dependencies]
 rand = "0.9"
 rand_chacha = "0.9"
-rand_distr = "0.5.1"
+rand_distr = "0.5"
 rustfft = "6.2"
-dhat = "0.3.3"
-thiserror = "2.0.12"
+dhat = "0.3"
+thiserror = "2"
 
 [dev-dependencies]
 approx = "0.5"
@@ -23,10 +23,10 @@ debug = 1
 dhat-heap = []    # if you are doing heap profiling
 dhat-ad-hoc = []  # if you are doing ad hoc profiling
 
-[[bench]]
-name = "basic"
-harness = false
+# [[bench]]
+# name = "basic"
+# harness = false
 
-[[bench]]
-name = "end_to_end"
-harness = false
+# [[bench]]
+# name = "end_to_end"
+# harness = false

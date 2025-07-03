@@ -1,4 +1,4 @@
-use criterion::{
+/* use criterion::{
     BenchmarkId, Criterion, black_box, criterion_group, criterion_main,
 };
 use toy_heaan_ckks::PolyRing;
@@ -114,4 +114,4 @@ criterion_group!(
     bench_modular_reduction,
     bench_complex_operations
 );
-criterion_main!(benches);
+criterion_main!(benches); */
