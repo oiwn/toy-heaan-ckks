@@ -1,4 +1,4 @@
-use rand::SeedableRng;
+/* use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
     PolyRing, PublicKey, PublicKeyParams, RelinearizationKey,
@@ -96,4 +96,8 @@ fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {
             }
         })
         .collect()
+} */
+
+fn main() {
+    todo!();
 }

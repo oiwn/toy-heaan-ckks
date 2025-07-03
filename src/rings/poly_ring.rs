@@ -61,18 +61,16 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
 
 #[cfg(test)]
 mod tests {
+    use crate::rings::NttTables;
+
     use super::*;
     use std::sync::Arc;
 
     /// Build a minimal RNS basis with `channels` identical primes.
     fn dummy_basis<const D: usize>(channels: usize) -> Arc<RnsBasis> {
-        Arc::new(RnsBasis {
-            primes: vec![17u64; channels],
-            roots: vec![vec![1u64; D]; channels],
-            inv_roots: vec![vec![1u64; D]; channels],
-            inv_degree: vec![1u64; channels],
-            rescale_inverses: vec![1u64; channels],
-        })
+        let primes = vec![17u64; channels];
+        let ntt_tables = NttTables::build_ntt_tables_for_primes(&primes).unwrap();
+        Arc::new(RnsBasis { primes, ntt_tables })
     }
 
     #[test]

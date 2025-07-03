@@ -31,9 +31,9 @@ pub type RnsResult<T> = Result<T, RnsError>;
 #[derive(Debug)]
 pub struct RnsBasis {
     /// Prime moduli for each residue channel.
-    primes: Vec<u64>,
+    pub(crate) primes: Vec<u64>,
     /// NTT tables
-    ntt_tables: NttTables,
+    pub(crate) ntt_tables: NttTables,
 }
 
 impl RnsBasis {

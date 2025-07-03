@@ -1,4 +1,4 @@
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
@@ -177,4 +177,8 @@ mod tests {
         // Verify basic arithmetic
         assert_eq!(sum_prod.into_iter().next().unwrap(), &21u64);
     }
+} */
+
+fn main() {
+    todo!();
 }

@@ -1,4 +1,4 @@
-#[cfg(feature = "dhat-heap")]
+/* #[cfg(feature = "dhat-heap")]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
@@ -93,4 +93,8 @@ fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {
             }
         })
         .collect()
+} */
+
+fn main() {
+    todo!();
 }
