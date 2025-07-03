@@ -1,4 +1,4 @@
-use super::NttTables;
+use super::{NttTables, generate_primes};
 use thiserror::Error;
 
 /// Errors for RNS basis construction and operations.
@@ -103,47 +103,115 @@ impl RnsBasisBuilder {
             if custom.is_empty() {
                 return Err(RnsError::InvalidPrimeCount(0));
             }
-            Ok(custom.clone())
-        } else {
-            self.generate_primes_from_bits()
+            return Ok(custom.clone());
         }
-    }
 
-    fn generate_primes_from_bits(&self) -> RnsResult<Vec<u64>> {
         if self.prime_bits.is_empty() {
             return Err(RnsError::InvalidPrimeCount(0));
         }
 
-        self.prime_bits
-            .iter()
-            .map(|&bits| {
-                generate_ntt_prime(bits, self.ring_degree)
-                    .ok_or(RnsError::PrimeGenerationFailed(bits, self.ring_degree))
-            })
-            .collect()
+        let mut primes = Vec::new();
+        for &bit_size in &self.prime_bits {
+            let new_primes = generate_primes(bit_size, 1).map_err(|_| {
+                RnsError::PrimeGenerationFailed(bit_size, self.ring_degree)
+            })?;
+            primes.extend(new_primes);
+        }
+
+        Ok(primes)
+    }
+
+    pub fn with_uniform_prime_bits(
+        mut self,
+        bit_size: usize,
+        count: usize,
+    ) -> Self {
+        self.prime_bits = std::iter::repeat(bit_size).take(count).collect();
+        self
     }
 }
 
-/// Finds a prime of the form p = k*(2*ring_degree) + 1 with `bits` bits.
-fn generate_ntt_prime(bits: usize, ring_degree: usize) -> Option<u64> {
-    unimplemented!()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rings::math::is_prime;
 
-/// Finds a primitive `order`-th root of unity mod `p`.
-fn find_primitive_root(order: usize, p: u64) -> Option<u64> {
-    unimplemented!()
-}
+    #[test]
+    fn test_builder_with_custom_primes() {
+        let primes = vec![17, 257, 65537];
+        let basis = RnsBasisBuilder::new(1024)
+            .with_custom_primes(primes.clone())
+            .build()
+            .expect("should build RNS basis");
 
-/// Builds forward and inverse NTT tables for modulus `p` and root `omega`.
-fn build_ntt_tables(
-    p: u64,
-    ring_degree: usize,
-    omega: u64,
-) -> (Vec<u64>, Vec<u64>) {
-    unimplemented!()
-}
+        assert_eq!(basis.primes(), &primes);
+        assert_eq!(basis.channel_count(), 3);
+    }
 
-/// Compute modular inverse using extended Euclidean algorithm.
-fn modinv(x: u64, m: u64) -> Option<u64> {
-    unimplemented!()
+    #[test]
+    fn test_builder_with_uniform_prime_bits() {
+        let basis = RnsBasisBuilder::new(1024)
+            .with_uniform_prime_bits(10, 3)
+            .build()
+            .expect("should build RNS basis");
+
+        assert_eq!(basis.channel_count(), 3);
+        for &p in basis.primes() {
+            assert!(
+                p >= (1 << 9) && p < (1 << 10),
+                "prime bit size not in expected range"
+            );
+            assert!(is_prime(p), "not a prime");
+        }
+    }
+
+    #[test]
+    fn test_builder_fails_on_empty_custom_primes() {
+        let err = RnsBasisBuilder::new(1024)
+            .with_custom_primes(vec![])
+            .build()
+            .unwrap_err();
+
+        match err {
+            RnsError::InvalidPrimeCount(0) => (),
+            _ => panic!("unexpected error: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_builder_fails_on_empty_prime_bits() {
+        let err = RnsBasisBuilder::new(1024).build().unwrap_err();
+
+        match err {
+            RnsError::InvalidPrimeCount(0) => (),
+            _ => panic!("unexpected error: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_validate_channel_count_ok() {
+        let basis = RnsBasisBuilder::new(1024)
+            .with_uniform_prime_bits(12, 2)
+            .build()
+            .unwrap();
+
+        assert!(basis.validate(2).is_ok());
+    }
+
+    #[test]
+    fn test_validate_channel_count_fail() {
+        let basis = RnsBasisBuilder::new(1024)
+            .with_uniform_prime_bits(12, 2)
+            .build()
+            .unwrap();
+
+        let err = basis.validate(3).unwrap_err();
+        match err {
+            RnsError::BasisMismatch {
+                expected_count: 3,
+                actual_count: 2,
+            } => (),
+            _ => panic!("unexpected error: {:?}", err),
+        }
+    }
 }

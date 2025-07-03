@@ -1,6 +1,6 @@
 use super::{RnsError, RnsResult};
 
-fn is_prime(n: u64) -> bool {
+pub fn is_prime(n: u64) -> bool {
     if n < 2 {
         return false;
     }
@@ -23,7 +23,7 @@ fn is_prime(n: u64) -> bool {
     true
 }
 
-fn generate_rns_primes(bit_size: u32, count: usize) -> RnsResult<Vec<u64>> {
+pub fn generate_primes(bit_size: usize, count: usize) -> RnsResult<Vec<u64>> {
     assert!(bit_size <= 63 && bit_size >= 4);
 
     let mut primes = Vec::with_capacity(count);
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_generate_rns_primes_small() {
-        let primes = generate_rns_primes(8, 3).unwrap();
+        let primes = generate_primes(8, 3).unwrap();
 
         assert_eq!(primes.len(), 3);
 
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_generate_rns_primes_60bit() {
-        let primes = generate_rns_primes(60, 2).unwrap();
+        let primes = generate_primes(60, 2).unwrap();
 
         assert_eq!(primes.len(), 2);
 
