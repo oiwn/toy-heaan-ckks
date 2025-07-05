@@ -1,5 +1,28 @@
 use super::{RnsError, RnsResult};
 
+/// Checks whether a given number `n` is prime using trial division.
+///
+/// This function uses the 6k ± 1 optimization to skip unnecessary checks:
+/// - Returns `false` for values less than 2.
+/// - Returns `true` immediately for 2 and 3.
+/// - Eliminates multiples of 2 and 3 early.
+/// - Then checks divisibility by all numbers of the form 6k ± 1 up to √n.
+///
+/// # Arguments
+///
+/// * `n` - The number to check for primality.
+///
+/// # Returns
+///
+/// * `true` if `n` is a prime number.
+/// * `false` otherwise.
+///
+/// # Examples
+///
+/// ```
+/// assert!(is_prime(7));
+/// assert!(!is_prime(9));
+/// ```
 pub fn is_prime(n: u64) -> bool {
     if n < 2 {
         return false;
@@ -23,6 +46,36 @@ pub fn is_prime(n: u64) -> bool {
     true
 }
 
+/// Generates a list of distinct prime numbers of a given bit size.
+///
+/// This function searches for odd prime numbers within the specified bit range,
+/// starting from the maximum possible value and working downward. It uses
+/// a brute-force method with `is_prime()` to check for primality.
+///
+/// # Arguments
+///
+/// * `bit_size` - The bit size of each prime (must be between 4 and 63 inclusive).
+/// * `count` - The number of primes to generate.
+///
+/// # Returns
+///
+/// * `Ok(Vec<u64>)` containing the generated primes if successful.
+/// * `Err(RnsError::InvalidPrime)` if not enough primes can be found within the range.
+///
+/// # Panics
+///
+/// * Panics if `bit_size` is not between 4 and 63 inclusive.
+///
+/// # Example
+///
+/// ```
+/// let primes = generate_primes(32, 3).unwrap();
+/// assert_eq!(primes.len(), 3);
+/// for p in primes {
+///     assert!(is_prime(p));
+///     assert!(p.leading_zeros() <= (64 - 32) as u32);
+/// }
+/// ```
 pub fn generate_primes(bit_size: usize, count: usize) -> RnsResult<Vec<u64>> {
     assert!(bit_size <= 63 && bit_size >= 4);
 
