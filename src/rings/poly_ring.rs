@@ -106,4 +106,109 @@ mod tests {
         // Check shared basis Arc count
         assert_eq!(Arc::strong_count(&basis), 2);
     }
+
+    #[test]
+    fn test_rns_roundtrip_conversion() {
+        const DEGREE: usize = 8;
+
+        // Create RNS basis with small coprime primes for testing
+        let primes = vec![17u64, 19u64, 23u64]; // Product = 7429, so we can represent numbers < 7429
+        let ntt_tables = NttTables::build_ntt_tables_for_primes(&primes).unwrap();
+        let basis = Arc::new(RnsBasis { primes, ntt_tables });
+
+        // Test various coefficient vectors
+        let test_cases = vec![
+            // Case 1: Small positive numbers
+            vec![1i64, 2, 3, 4, 5, 6, 7, 8],
+            // Case 2: Mix of positive and negative (within product range)
+            vec![-1i64, 10, -50, 100, -200, 300, -500, 1000],
+            // Case 3: Edge cases including zero
+            vec![0i64, 1, -1, 7428, -7428, 3714, -3714, 42],
+            // Case 4: Larger numbers that should wrap around modulo product
+            vec![8000i64, -8000, 15000, -15000, 7429, -7429, 7430, -7430],
+        ];
+
+        for (case_idx, original_coeffs) in test_cases.iter().enumerate() {
+            println!("Testing case {}: {:?}", case_idx + 1, original_coeffs);
+
+            // Step 1: Create RNS polynomial from integer coefficients
+            let rns_poly: RnsPolyRing<8> =
+                RnsPolyRing::from_integer_coeffs(original_coeffs, basis.clone());
+
+            // Step 2: Verify that residues are correct for each prime
+            let product: u64 = basis.primes().iter().product();
+            for (i, &coeff) in original_coeffs.iter().enumerate() {
+                for (channel_idx, &prime) in basis.primes().iter().enumerate() {
+                    let expected_residue = ((coeff % prime as i64 + prime as i64)
+                        % prime as i64)
+                        as u64;
+                    let actual_residue = rns_poly.coefficients[channel_idx][i];
+                    assert_eq!(
+                        actual_residue, expected_residue,
+                        "Channel {} position {}: expected residue {}, got {}",
+                        channel_idx, i, expected_residue, actual_residue
+                    );
+                }
+            }
+
+            // Step 3: Reconstruct back to u64 coefficients
+            let reconstructed = rns_poly.to_u64_coefficients();
+
+            // Step 4: Verify reconstruction (accounting for modular reduction)
+            for (i, (&original, &reconstructed)) in
+                original_coeffs.iter().zip(reconstructed.iter()).enumerate()
+            {
+                // Convert original to expected value in [0, product) range
+                let expected = ((original % product as i64 + product as i64)
+                    % product as i64) as u64;
+
+                assert_eq!(
+                    reconstructed, expected,
+                    "Position {}: original={}, reconstructed={}, expected={}",
+                    i, original, reconstructed, expected
+                );
+            }
+
+            // Step 5: Test individual coefficient reconstruction
+            for i in 0..DEGREE {
+                let single_coeff = rns_poly.coefficient_to_u64(i);
+                assert_eq!(
+                    single_coeff, reconstructed[i],
+                    "Single coefficient reconstruction mismatch at position {}",
+                    i
+                );
+            }
+
+            println!(
+                "✓ Case {} passed: {:?} -> {:?}",
+                case_idx + 1,
+                original_coeffs,
+                reconstructed
+            );
+        }
+
+        // Additional test: Verify that different coefficient sets produce different RNS representations
+        let coeffs1 = vec![1i64, 2, 3, 4, 5, 6, 7, 8];
+        let coeffs2 = vec![1i64, 2, 3, 4, 5, 6, 7, 9]; // Only last coefficient differs
+
+        let poly1: RnsPolyRing<8> =
+            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
+        let poly2: RnsPolyRing<8> =
+            RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+
+        // They should be different (at least in the last coefficient)
+        let last_idx = DEGREE - 1;
+        let different_channels =
+            basis.primes().iter().enumerate().any(|(channel_idx, _)| {
+                poly1.coefficients[channel_idx][last_idx]
+                    != poly2.coefficients[channel_idx][last_idx]
+            });
+
+        assert!(
+            different_channels,
+            "Different input coefficients should produce different RNS representations"
+        );
+
+        println!("✓ All roundtrip tests passed!");
+    }
 }
