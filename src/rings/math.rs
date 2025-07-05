@@ -98,6 +98,34 @@ pub fn generate_primes(bit_size: usize, count: usize) -> RnsResult<Vec<u64>> {
     Ok(primes)
 }
 
+pub fn extended_gcd(a: i64, b: i64) -> (i64, i64, i64) {
+    if a == 0 {
+        (b, 0, 1)
+    } else {
+        let (g, x, y) = extended_gcd(b % a, a);
+        (g, y - (b / a) * x, x)
+    }
+}
+
+pub fn mod_inverse(a: u64, m: u64) -> u64 {
+    let (g, x, _) = extended_gcd(a as i64, m as i64);
+    assert_eq!(g, 1, "Numbers must be coprime");
+    ((x % m as i64 + m as i64) % m as i64) as u64
+}
+
+pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
+    let product: u64 = primes.iter().product();
+
+    let mut result = 0u64;
+    for (i, (&residue, &prime)) in residues.iter().zip(primes.iter()).enumerate() {
+        let partial_product = product / prime;
+        let inverse = mod_inverse(partial_product, prime);
+        result = (result + residue * partial_product * inverse) % product;
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

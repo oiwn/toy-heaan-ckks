@@ -1,5 +1,6 @@
 use super::basis::RnsBasis;
-use core::ops::{Add, Mul, Rem};
+use super::math::crt_reconstruct;
+// use core::ops::{Add, Mul, Rem};
 use std::{iter::IntoIterator, sync::Arc};
 
 /// An RNS-encoded polynomial in ℤ[X]/(X^DEGREE + 1) using const generics.
@@ -56,6 +57,22 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
             coefficients: channels,
             basis,
         }
+    }
+    pub fn coefficient_to_u64(&self, position: usize) -> u64 {
+        assert!(position < DEGREE);
+
+        let residues: Vec<u64> = self
+            .coefficients
+            .iter()
+            .map(|channel| channel[position])
+            .collect();
+
+        crt_reconstruct(&residues, self.basis.primes())
+    }
+
+    /// Convert entire polynomial to Vec<u64> for debugging
+    pub fn to_u64_coefficients(&self) -> Vec<u64> {
+        (0..DEGREE).map(|i| self.coefficient_to_u64(i)).collect()
     }
 }
 
