@@ -1,7 +1,6 @@
-use super::basis::{RnsBasis, RnsBasisBuilder};
+use super::basis::RnsBasis;
 use super::math::crt_reconstruct;
-// use core::ops::{Add, Mul, Rem};
-use std::{iter::IntoIterator, sync::Arc};
+use std::sync::Arc;
 
 /// An RNS-encoded polynomial in ℤ[X]/(X^DEGREE + 1) using const generics.
 ///
@@ -79,6 +78,7 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
 
 #[cfg(test)]
 mod tests {
+    use crate::RnsBasisBuilder;
     use crate::rings::NttTables;
 
     use super::*;
