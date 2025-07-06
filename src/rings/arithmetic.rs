@@ -4,7 +4,7 @@
 //! in RNS representation.
 //! Operations are performed channel-by-channel (per prime) with
 use super::RnsPolyRing;
-use std::ops::{AddAssign, MulAssign};
+use std::ops::{Add, AddAssign, MulAssign, Neg};
 use thiserror::Error;
 
 pub type ArithmeticResult<T> = Result<T, ArithmeticError>;
@@ -170,6 +170,83 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
         }
 
         Ok(())
+    }
+}
+
+impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
+    /// In-place negation: self = -self (mod each prime)
+    ///
+    /// For each coefficient c, computes prime - c to get -c mod prime
+    pub fn negate_assign(&mut self) {
+        let channel_count = self.channels();
+
+        for channel_idx in 0..channel_count {
+            let prime = self.basis.primes()[channel_idx];
+
+            for coeff_idx in 0..DEGREE {
+                let current = self.coefficients[channel_idx][coeff_idx];
+
+                // -c mod p = p - c (for c != 0)
+                if current == 0 {
+                    self.coefficients[channel_idx][coeff_idx] = 0;
+                } else {
+                    self.coefficients[channel_idx][coeff_idx] = prime - current;
+                }
+            }
+        }
+    }
+
+    /// Returns negated polynomial: -self (mod each prime)
+    pub fn negate(&self) -> Self {
+        let mut result = self.clone();
+        result.negate_assign();
+        result
+    }
+}
+
+// Implement Add trait for RnsPolyRing references
+impl<const DEGREE: usize> Add<&RnsPolyRing<DEGREE>> for &RnsPolyRing<DEGREE> {
+    type Output = RnsPolyRing<DEGREE>;
+
+    fn add(self, rhs: &RnsPolyRing<DEGREE>) -> Self::Output {
+        // Check basis compatibility
+        assert!(
+            std::ptr::eq(self.basis.as_ref(), rhs.basis.as_ref()),
+            "Cannot add RnsPolyRing with different bases"
+        );
+
+        let mut result = self.clone();
+        result
+            .add_assign_checked(rhs)
+            .expect("Addition failed due to basis mismatch");
+        result
+    }
+}
+
+// Implement Add trait for owned RnsPolyRing values
+impl<const DEGREE: usize> Add<RnsPolyRing<DEGREE>> for RnsPolyRing<DEGREE> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        &self + &rhs
+    }
+}
+
+// Implement Neg trait for RnsPolyRing reference
+impl<const DEGREE: usize> Neg for &RnsPolyRing<DEGREE> {
+    type Output = RnsPolyRing<DEGREE>;
+
+    fn neg(self) -> Self::Output {
+        self.negate()
+    }
+}
+
+// Implement Neg trait for owned RnsPolyRing
+impl<const DEGREE: usize> Neg for RnsPolyRing<DEGREE> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        (&self).negate()
     }
 }
 

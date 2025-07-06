@@ -1,5 +1,5 @@
-// pub mod ciphertext;
-// pub mod encoding;
+pub mod ciphertext;
+pub mod encoding;
 // pub mod encryption;
 pub mod keys;
 pub mod rings;
