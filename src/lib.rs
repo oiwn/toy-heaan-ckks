@@ -13,5 +13,5 @@ pub mod rings;
 //     SecretKey, SecretKeyParams, generate_error_poly, generate_random_poly,
 //     generate_ternary_poly, negate_poly,
 // };
-pub use keys::{sample_gaussian, sample_ternary, sample_uniform};
+pub use keys::*;
 pub use rings::{RnsBasis, RnsBasisBuilder, RnsPolyRing};
