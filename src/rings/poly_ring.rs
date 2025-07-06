@@ -1,4 +1,4 @@
-use super::basis::RnsBasis;
+use super::basis::{RnsBasis, RnsBasisBuilder};
 use super::math::crt_reconstruct;
 // use core::ops::{Add, Mul, Rem};
 use std::{iter::IntoIterator, sync::Arc};
@@ -58,6 +58,7 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
             basis,
         }
     }
+
     pub fn coefficient_to_u64(&self, position: usize) -> u64 {
         assert!(position < DEGREE);
 
@@ -112,9 +113,12 @@ mod tests {
         const DEGREE: usize = 8;
 
         // Create RNS basis with small coprime primes for testing
-        let primes = vec![17u64, 19u64, 23u64]; // Product = 7429, so we can represent numbers < 7429
-        let ntt_tables = NttTables::build_ntt_tables_for_primes(&primes).unwrap();
-        let basis = Arc::new(RnsBasis { primes, ntt_tables });
+        let basis = Arc::new(
+            RnsBasisBuilder::new(DEGREE)
+                .with_custom_primes(vec![17u64, 19u64, 23u64]) // Product = 7429
+                .build()
+                .expect("Failed to build test RNS basis"),
+        );
 
         // Test various coefficient vectors
         let test_cases = vec![

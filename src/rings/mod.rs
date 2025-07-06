@@ -1,3 +1,4 @@
+mod arithmetic;
 mod basis;
 mod display;
 mod math;
