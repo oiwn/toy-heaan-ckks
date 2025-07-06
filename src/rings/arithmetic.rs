@@ -4,7 +4,7 @@
 //! in RNS representation.
 //! Operations are performed channel-by-channel (per prime) with
 use super::RnsPolyRing;
-use std::ops::AddAssign;
+use std::ops::{AddAssign, MulAssign};
 use thiserror::Error;
 
 pub type ArithmeticResult<T> = Result<T, ArithmeticError>;
@@ -57,6 +57,16 @@ impl<const DEGREE: usize> AddAssign<&RnsPolyRing<DEGREE>> for RnsPolyRing<DEGREE
     }
 }
 
+impl<const DEGREE: usize> MulAssign<&RnsPolyRing<DEGREE>> for RnsPolyRing<DEGREE> {
+    /// In-place multiplication: self *= rhs
+    ///
+    /// Panics on basis mismatch for ergonomic use with the *= operator.
+    fn mul_assign(&mut self, rhs: &RnsPolyRing<DEGREE>) {
+        self.mul_assign(rhs)
+            .expect("Multiplication failed due to incompatible bases");
+    }
+}
+
 impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
     /// Checked in-place addition that returns a Result instead of panicking.
     ///
@@ -94,6 +104,68 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
                     + rhs.coefficients[channel_idx][coeff_idx];
 
                 self.coefficients[channel_idx][coeff_idx] = sum % prime;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// In-place polynomial multiplication in quotient ring Z[X]/(X^n + 1)
+    ///
+    /// Uses schoolbook multiplication with on-the-fly reduction.
+    /// Each coefficient product is immediately reduced modulo the quotient.
+    pub fn mul_assign(
+        &mut self,
+        rhs: &RnsPolyRing<DEGREE>,
+    ) -> ArithmeticResult<()> {
+        // Validate basis compatibility
+        if !std::ptr::eq(self.basis.as_ref(), rhs.basis.as_ref()) {
+            return Err(ArithmeticError::BasisMismatch);
+        }
+
+        let channel_count = self.channels();
+        if channel_count != rhs.channels() {
+            return Err(ArithmeticError::ChannelMismatch {
+                left: channel_count,
+                right: rhs.channels(),
+            });
+        }
+
+        // Perform multiplication channel by channel
+        for channel_idx in 0..channel_count {
+            let prime = self.basis.primes()[channel_idx] as u128;
+
+            // Store original coefficients (we're modifying in-place)
+            let lhs_coeffs = self.coefficients[channel_idx];
+            let rhs_coeffs = rhs.coefficients[channel_idx];
+
+            // Initialize result to zero
+            for coeff in &mut self.coefficients[channel_idx] {
+                *coeff = 0;
+            }
+
+            // Schoolbook multiplication with on-the-fly quotient reduction
+            for i in 0..DEGREE {
+                for j in 0..DEGREE {
+                    let prod =
+                        (lhs_coeffs[i] as u128 * rhs_coeffs[j] as u128) % prime;
+                    let degree_sum = i + j;
+
+                    if degree_sum < DEGREE {
+                        // Normal coefficient: result[i+j] += a[i] * b[j]
+                        let current =
+                            self.coefficients[channel_idx][degree_sum] as u128;
+                        self.coefficients[channel_idx][degree_sum] =
+                            ((current + prod) % prime) as u64;
+                    } else {
+                        // Quotient reduction: X^(n+k) = -X^k, so subtract from lower degree
+                        let wrapped_idx = degree_sum - DEGREE;
+                        let current =
+                            self.coefficients[channel_idx][wrapped_idx] as u128;
+                        self.coefficients[channel_idx][wrapped_idx] =
+                            ((current + prime - prod) % prime) as u64;
+                    }
+                }
             }
         }
 
@@ -228,5 +300,70 @@ mod tests {
 
         // This should panic
         poly1 += &poly2;
+    }
+
+    #[test]
+    fn test_mul_assign_basic() {
+        const DEGREE: usize = 4;
+        let basis = create_test_basis::<DEGREE>();
+
+        // Test simple case: [1, 0, 0, 0] * [1, 1, 0, 0] = [1, 1, 0, 0]
+        let coeffs1 = [1i64, 0, 0, 0];
+        let coeffs2 = [1i64, 1, 0, 0];
+
+        let mut poly1: RnsPolyRing<4> =
+            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+
+        poly1.mul_assign(&poly2).unwrap();
+
+        let result = poly1.to_u64_coefficients();
+        let expected = [1u64, 1, 0, 0]; // (1) * (1 + X) = 1 + X
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_mul_assign_quotient_reduction() {
+        const DEGREE: usize = 4;
+        let basis = create_test_basis::<DEGREE>();
+
+        // Test X^3 * X = X^4 = -1 in Z[X]/(X^4 + 1)
+        let coeffs1 = [0i64, 0, 0, 1]; // X^3
+        let coeffs2 = [0i64, 1, 0, 0]; // X
+
+        let mut poly1: RnsPolyRing<4> =
+            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+
+        poly1.mul_assign(&poly2).unwrap();
+
+        let result = poly1.to_u64_coefficients();
+
+        // X^3 * X = X^4 = -1, but we're working in unsigned arithmetic
+        // So -1 mod (product of primes) = (product - 1)
+        let product = basis.primes().iter().product::<u64>();
+        let expected = [product - 1, 0, 0, 0]; // -1 represented as unsigned
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_mul_assign_operator_syntax() {
+        const DEGREE: usize = 4;
+        let basis = create_test_basis::<DEGREE>();
+
+        let coeffs1 = [1i64, 2, 0, 0];
+        let coeffs2 = [1i64, 1, 0, 0];
+
+        let mut poly1: RnsPolyRing<4> =
+            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+
+        // Test operator syntax
+        poly1 *= &poly2;
+
+        // (1 + 2X) * (1 + X) = 1 + X + 2X + 2X^2 = 1 + 3X + 2X^2
+        let result = poly1.to_u64_coefficients();
+        let expected = [1u64, 3, 2, 0];
+        assert_eq!(result, expected);
     }
 }
