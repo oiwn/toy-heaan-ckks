@@ -33,6 +33,7 @@ pub struct RnsBasis {
     /// Prime moduli for each residue channel.
     pub(crate) primes: Vec<u64>,
     /// NTT tables
+    #[allow(dead_code)]
     pub(crate) ntt_tables: NttTables,
 }
 

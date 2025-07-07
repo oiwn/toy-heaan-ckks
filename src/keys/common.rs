@@ -4,7 +4,7 @@ use rand_distr::{Distribution, Normal};
 use std::sync::Arc;
 
 // Sample uniformly random integer coefficients in range [0, max_value)
-pub fn sample_uniform_integers<const DEGREE: usize, R: Rng + ?Sized>(
+pub fn sample_uniform_u64<const DEGREE: usize, R: Rng + ?Sized>(
     max_value: u64,
     rng: &mut R,
 ) -> [u64; DEGREE] {
@@ -16,7 +16,7 @@ pub fn sample_uniform_integers<const DEGREE: usize, R: Rng + ?Sized>(
 }
 
 /// Sample Gaussian noise as signed integers, then convert to unsigned mod max_value
-pub fn sample_gaussian_integers<const DEGREE: usize, R: Rng + ?Sized>(
+pub fn sample_gaussian_u64<const DEGREE: usize, R: Rng + ?Sized>(
     std_dev: f64,
     max_value: u64,
     rng: &mut R,
@@ -41,7 +41,7 @@ pub fn sample_gaussian_integers<const DEGREE: usize, R: Rng + ?Sized>(
 }
 
 /// Sample a ternary polynomial (coeffs in \{-1,0,1\}) with given Hamming weight.
-pub fn sample_ternary_u64<const DEGREE: usize, R: Rng + ?Sized>(
+pub fn sample_ternary_i64<const DEGREE: usize, R: Rng + ?Sized>(
     hamming_weight: usize,
     rng: &mut R,
 ) -> [i64; DEGREE] {
@@ -56,7 +56,7 @@ pub fn sample_ternary_u64<const DEGREE: usize, R: Rng + ?Sized>(
 }
 
 /// Convert integer coefficients to RNS representation
-pub fn integers_to_rns<const DEGREE: usize>(
+pub fn u64_to_rns<const DEGREE: usize>(
     coeffs: &[u64; DEGREE],
     basis: Arc<RnsBasis>,
 ) -> RnsPolyRing<DEGREE> {
@@ -77,7 +77,7 @@ pub fn integers_to_rns<const DEGREE: usize>(
 }
 
 /// Convert signed integer coefficients to RNS representation
-pub fn signed_integers_to_rns<const DEGREE: usize>(
+pub fn i64_to_rns<const DEGREE: usize>(
     coeffs: &[i64; DEGREE],
     basis: Arc<RnsBasis>,
 ) -> RnsPolyRing<DEGREE> {
@@ -100,7 +100,7 @@ pub fn signed_integers_to_rns<const DEGREE: usize>(
 }
 
 /// Simplified uniform polynomial sampling: integers first, then convert to RNS
-pub fn sample_uniform_simple<const DEGREE: usize, R: Rng + ?Sized>(
+pub fn sample_uniform_poly<const DEGREE: usize, R: Rng + ?Sized>(
     basis: Arc<RnsBasis>,
     rng: &mut R,
 ) -> RnsPolyRing<DEGREE> {
@@ -108,14 +108,14 @@ pub fn sample_uniform_simple<const DEGREE: usize, R: Rng + ?Sized>(
     let max_prime = *basis.primes().iter().max().unwrap_or(&1);
 
     // Sample uniform integers
-    let coeffs = sample_uniform_integers::<DEGREE, _>(max_prime, rng);
+    let coeffs = sample_uniform_u64::<DEGREE, _>(max_prime, rng);
 
     // Convert to RNS
-    integers_to_rns(&coeffs, basis)
+    u64_to_rns(&coeffs, basis)
 }
 
 /// Simplified Gaussian polynomial sampling: integers first, then convert to RNS
-pub fn sample_gaussian_simple<const DEGREE: usize, R: Rng + ?Sized>(
+pub fn sample_gaussian_poly<const DEGREE: usize, R: Rng + ?Sized>(
     basis: Arc<RnsBasis>,
     std_dev: f64,
     rng: &mut R,
@@ -124,11 +124,10 @@ pub fn sample_gaussian_simple<const DEGREE: usize, R: Rng + ?Sized>(
     let modulus_product: u64 = basis.primes().iter().product();
 
     // Sample Gaussian integers
-    let coeffs =
-        sample_gaussian_integers::<DEGREE, _>(std_dev, modulus_product, rng);
+    let coeffs = sample_gaussian_u64::<DEGREE, _>(std_dev, modulus_product, rng);
 
     // Convert to RNS
-    integers_to_rns(&coeffs, basis)
+    u64_to_rns(&coeffs, basis)
 }
 
 #[cfg(test)]
@@ -143,7 +142,7 @@ mod tests {
         const DEGREE: usize = 8;
         let mut rng = StdRng::seed_from_u64(42);
 
-        let coeffs = sample_uniform_integers::<DEGREE, _>(100, &mut rng);
+        let coeffs = sample_uniform_u64::<DEGREE, _>(100, &mut rng);
 
         // All coefficients should be in range [0, 100)
         for &coeff in &coeffs {
@@ -159,7 +158,7 @@ mod tests {
         const DEGREE: usize = 16;
         let mut rng = StdRng::seed_from_u64(123);
 
-        let coeffs = sample_gaussian_integers::<DEGREE, _>(3.2, 1000, &mut rng);
+        let coeffs = sample_gaussian_u64::<DEGREE, _>(3.2, 1000, &mut rng);
 
         // All coefficients should be in range [0, 1000)
         for &coeff in &coeffs {
@@ -185,7 +184,7 @@ mod tests {
         );
 
         let coeffs = [100u64, 200, 300, 400];
-        let rns_poly = integers_to_rns(&coeffs, basis.clone());
+        let rns_poly = u64_to_rns(&coeffs, basis.clone());
 
         // Verify each channel has correct residues
         let expected_residues = [
@@ -214,8 +213,7 @@ mod tests {
         );
 
         let coeffs = [1i64, -1, 0, -5];
-        let rns_poly: RnsPolyRing<DEGREE> =
-            signed_integers_to_rns(&coeffs, basis.clone());
+        let rns_poly: RnsPolyRing<DEGREE> = i64_to_rns(&coeffs, basis.clone());
 
         // -1 mod 17 = 16, -1 mod 19 = 18
         // -5 mod 17 = 12, -5 mod 19 = 14
@@ -238,7 +236,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(42);
         let poly: RnsPolyRing<DEGREE> =
-            sample_uniform_simple(basis.clone(), &mut rng);
+            sample_uniform_poly(basis.clone(), &mut rng);
 
         // Verify it's a valid RNS polynomial
         assert_eq!(poly.channels(), 3);
@@ -264,7 +262,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(123);
         let poly: RnsPolyRing<DEGREE> =
-            sample_gaussian_simple(basis.clone(), 3.2, &mut rng);
+            sample_gaussian_poly(basis.clone(), 3.2, &mut rng);
 
         // Verify it's a valid RNS polynomial
         assert_eq!(poly.channels(), 2);
@@ -293,8 +291,8 @@ mod tests {
         let mut rng2 = StdRng::seed_from_u64(999);
 
         let poly1: RnsPolyRing<DEGREE> =
-            sample_uniform_simple(basis.clone(), &mut rng1);
-        let poly2 = sample_uniform_simple(basis.clone(), &mut rng2);
+            sample_uniform_poly(basis.clone(), &mut rng1);
+        let poly2 = sample_uniform_poly(basis.clone(), &mut rng2);
 
         assert_eq!(poly1.coefficients, poly2.coefficients);
     }

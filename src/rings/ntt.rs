@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::RnsResult;
 
 #[derive(Debug)]
@@ -13,16 +14,16 @@ pub struct NttTables {
 impl NttTables {
     pub fn build_ntt_tables_for_primes(primes: &[u64]) -> RnsResult<NttTables> {
         let capacity = primes.len();
-        let mut tables = NttTables {
+        let mut _tables = NttTables {
             roots: Vec::with_capacity(capacity),
             inv_roots: Vec::with_capacity(capacity),
             inv_degree: Vec::with_capacity(capacity),
         };
 
-        for &p in primes {
+        for &_p in primes {
             // Self::build_tables_for_prime(p, &mut tables)?;
         }
 
-        Ok(tables)
+        Ok(_tables)
     }
 }

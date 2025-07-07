@@ -120,7 +120,7 @@ pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
     let product: u64 = primes.iter().product();
 
     let mut result = 0u64;
-    for (i, (&residue, &prime)) in residues.iter().zip(primes.iter()).enumerate() {
+    for (_i, (&residue, &prime)) in residues.iter().zip(primes.iter()).enumerate() {
         let partial_product = product / prime;
         let inverse = mod_inverse(partial_product, prime);
         result = (result + residue * partial_product * inverse) % product;

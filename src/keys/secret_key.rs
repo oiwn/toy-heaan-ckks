@@ -1,6 +1,6 @@
 //! Secret Key (sk): Sample a "small" polynomial s(X) from R.
 //! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1})
-use crate::{RnsBasis, RnsPolyRing, sample_ternary_u64};
+use crate::{RnsBasis, RnsPolyRing, sample_ternary_i64};
 use rand::Rng;
 use std::sync::Arc;
 use thiserror::Error;
@@ -43,7 +43,7 @@ impl<const DEGREE: usize> SecretKey<DEGREE> {
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
         params.validate()?;
-        let plain = sample_ternary_u64::<DEGREE, _>(params.hamming_weight, rng);
+        let plain = sample_ternary_i64::<DEGREE, _>(params.hamming_weight, rng);
         let s = RnsPolyRing::from_integer_coeffs(&plain, params.basis.clone());
         Ok(SecretKey { s })
     }
