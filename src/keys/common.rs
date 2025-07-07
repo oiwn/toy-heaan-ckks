@@ -99,6 +99,49 @@ pub fn i64_to_rns<const DEGREE: usize>(
     }
 }
 
+/// Generate a ternary polynomial in RNS representation.
+///
+/// Creates a polynomial with coefficients in {-1, 0, 1} with given probability
+/// for non-zero coefficients, then converts to RNS representation.
+///
+/// # Arguments
+/// * `basis` - The RNS basis to use
+/// * `prob` - Probability that a coefficient is non-zero (typically 0.5)
+/// * `rng` - Random number generator
+///
+/// # Returns
+/// A ternary polynomial in RNS representation
+pub fn generate_ternary_poly<const DEGREE: usize, R: Rng>(
+    basis: Arc<crate::RnsBasis>,
+    prob: f64,
+    rng: &mut R,
+) -> RnsPolyRing<DEGREE> {
+    // Generate ternary coefficients as signed integers
+    let mut ternary_coeffs = [0i64; DEGREE];
+
+    for coeff in &mut ternary_coeffs {
+        if rng.random::<f64>() < prob {
+            *coeff = if rng.random::<bool>() { 1 } else { -1 };
+        }
+        // else remains 0
+    }
+
+    // Convert to RNS representation
+    i64_to_rns(&ternary_coeffs, basis)
+}
+
+/// Generate an error polynomial with Gaussian distribution in RNS representation.
+///
+/// This is just an alias for the existing sample_gaussian_simple function
+/// to maintain compatibility with the old API naming.
+pub fn generate_error_poly<const DEGREE: usize, R: Rng>(
+    basis: Arc<crate::RnsBasis>,
+    std_dev: f64,
+    rng: &mut R,
+) -> RnsPolyRing<DEGREE> {
+    sample_gaussian_poly(basis, std_dev, rng)
+}
+
 /// Simplified uniform polynomial sampling: integers first, then convert to RNS
 pub fn sample_uniform_poly<const DEGREE: usize, R: Rng + ?Sized>(
     basis: Arc<RnsBasis>,

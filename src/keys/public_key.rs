@@ -34,7 +34,7 @@ impl<const DEGREE: usize> PublicKeyParams<DEGREE> {
 
 /// RNS-encoded public key (RLWE sample).
 pub struct PublicKey<const DEGREE: usize> {
-    /// "b" component: b = a * s + e
+    /// "b" component: b = -(a * s) + e
     pub b: RnsPolyRing<DEGREE>,
     /// "a" component: uniformly random
     pub a: RnsPolyRing<DEGREE>,
@@ -57,10 +57,14 @@ impl<const DEGREE: usize> PublicKey<DEGREE> {
         let e: RnsPolyRing<DEGREE> =
             sample_gaussian_poly(params.basis.clone(), params.error_std, rng);
 
-        // Compute b = a * s + e
-        let mut b = a.clone();
-        b *= &secret_key.s; // b = a * s
-        b += &e; // b = a * s + e
+        // Compute b = -(a * s) + e = -a * s + e
+        let mut a_times_s = a.clone();
+        a_times_s *= &secret_key.s; // a * s
+
+        let neg_a_times_s = -&a_times_s; // -(a * s)
+
+        let mut b = neg_a_times_s;
+        b += &e; // b = -(a * s) + e
 
         Ok(PublicKey { b, a })
     }
