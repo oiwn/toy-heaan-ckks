@@ -38,7 +38,7 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
         self.coefficients.len()
     }
 
-    pub fn from_integer_coeffs(ints: &[i64], basis: Arc<RnsBasis>) -> Self {
+    pub fn from_i64_slice(ints: &[i64], basis: Arc<RnsBasis>) -> Self {
         assert_eq!(ints.len(), DEGREE, "Input slice length must match DEGREE");
         let mut channels: Vec<[u64; DEGREE]> =
             Vec::with_capacity(basis.primes().len());
@@ -73,6 +73,23 @@ impl<const DEGREE: usize> RnsPolyRing<DEGREE> {
     /// Convert entire polynomial to Vec<u64> for debugging
     pub fn to_u64_coefficients(&self) -> Vec<u64> {
         (0..DEGREE).map(|i| self.coefficient_to_u64(i)).collect()
+    }
+
+    /// Convert RNS coefficients to signed i64 values via CRT reconstruction
+    pub fn to_i64_coefficients(&self) -> Vec<i64> {
+        let u64s = self.to_u64_coefficients();
+        let product: u64 = self.basis.primes.iter().product();
+        let half_mod = product / 2;
+
+        u64s.into_iter()
+            .map(|x| {
+                if x >= half_mod {
+                    (x as i128 - product as i128) as i64
+                } else {
+                    x as i64
+                }
+            })
+            .collect()
     }
 }
 
@@ -137,7 +154,7 @@ mod tests {
 
             // Step 1: Create RNS polynomial from integer coefficients
             let rns_poly: RnsPolyRing<8> =
-                RnsPolyRing::from_integer_coeffs(original_coeffs, basis.clone());
+                RnsPolyRing::from_i64_slice(original_coeffs, basis.clone());
 
             // Step 2: Verify that residues are correct for each prime
             let product: u64 = basis.primes().iter().product();
@@ -196,9 +213,9 @@ mod tests {
         let coeffs2 = vec![1i64, 2, 3, 4, 5, 6, 7, 9]; // Only last coefficient differs
 
         let poly1: RnsPolyRing<8> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
         let poly2: RnsPolyRing<8> =
-            RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         // They should be different (at least in the last coefficient)
         let last_idx = DEGREE - 1;

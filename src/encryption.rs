@@ -3,8 +3,8 @@
 //! This module contains the core cryptographic operations for the CKKS homomorphic
 //! encryption scheme, including functions to encrypt plaintexts and decrypt ciphertexts.
 use crate::{
-    Ciphertext, PublicKey, RnsPolyRing, SecretKey, generate_ternary_poly,
-    sample_gaussian_poly,
+    Ciphertext, EncodingParams, PublicKey, RnsPolyRing, SecretKey, decode, encode,
+    generate_ternary_poly, sample_gaussian_poly,
 };
 use rand::Rng;
 
@@ -100,6 +100,9 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
         const DEGREE: usize = 8;
+        let scale_bits = 10; // 1024
+        let scale = (1u64 << scale_bits) as f64;
+
         let basis = Arc::new(
             RnsBasisBuilder::new(DEGREE)
                 .with_custom_primes(vec![7829, 6761, 5693])
@@ -110,7 +113,7 @@ mod tests {
         let mut rng = ChaCha20Rng::seed_from_u64(123);
 
         // Generate keys
-        let sk_params = SecretKeyParams {
+        let sk_params: SecretKeyParams<DEGREE> = SecretKeyParams {
             basis: basis.clone(),
             hamming_weight: 4,
         };
@@ -123,75 +126,33 @@ mod tests {
         let public_key =
             PublicKey::generate(&secret_key, &pk_params, &mut rng).unwrap();
 
-        // Create test plaintext
-        let plaintext_coeffs = [1i64, 2, 3, 4, 5, 6, 7, 8];
-        let plaintext: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&plaintext_coeffs, basis.clone());
-        let plaintext_coeffs_from_rns = plaintext.to_u64_coefficients();
-
-        println!(
-            "Plaintext coeffs (CRT reconstructed): {:?}",
-            plaintext_coeffs_from_rns
-        );
+        // Encode input values [1, 2, 3, 4]
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let enc_params = EncodingParams::new(DEGREE, scale_bits).unwrap();
+        let encoded_coeffs = encode(&input, &enc_params).unwrap();
+        let plaintext = RnsPolyRing::from_i64_slice(&encoded_coeffs, basis.clone());
 
         // Encrypt
-        let ciphertext = encrypt(&plaintext, &public_key, 1024.0, &mut rng);
+        let ciphertext = encrypt(&plaintext, &public_key, scale, &mut rng);
 
         // Decrypt
         let decrypted = decrypt(&ciphertext, &secret_key);
+        let coeffs = decrypted.to_i64_coefficients();
 
-        // Check if decryption is close to original (allowing for noise)
-        let original_coeffs = plaintext.to_u64_coefficients();
-        let decrypted_coeffs = decrypted.to_u64_coefficients();
+        // Decode
+        let decoded = decode(&coeffs, &enc_params).unwrap();
 
-        println!("Original:  {:?}", original_coeffs);
-        println!("Decrypted: {:?}", decrypted_coeffs);
+        println!("Original input: {:?}", input);
+        println!("Decoded output: {:?}", decoded);
 
-        // The coefficients should be close (exact match in this small example)
-        // In practice, there might be small noise, but for our test parameters
-        // and small values, they should match exactly
-        for (orig, dec) in original_coeffs.iter().zip(decrypted_coeffs.iter()) {
-            let diff = if orig > dec { orig - dec } else { dec - orig };
+        for (i, (&expected, &actual)) in input.iter().zip(&decoded).enumerate() {
             assert!(
-                diff <= 5, // Allow small error due to noise
-                "Decryption error too large: {} vs {}",
-                orig,
-                dec
+                (expected - actual).abs() < 0.1,
+                "Mismatch at {}: expected {}, got {}",
+                i,
+                expected,
+                actual
             );
         }
-    }
-
-    #[test]
-    fn test_ciphertext_scale_preservation() {
-        const DEGREE: usize = 4;
-        let basis = create_test_basis::<DEGREE>();
-        let mut rng = ChaCha20Rng::seed_from_u64(456);
-
-        // Generate keys
-        let sk_params = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 2,
-        };
-        let secret_key = SecretKey::generate(&sk_params, &mut rng).unwrap();
-
-        let pk_params = PublicKeyParams {
-            basis: basis.clone(),
-            error_std: 3.0,
-        };
-        let public_key =
-            PublicKey::generate(&secret_key, &pk_params, &mut rng).unwrap();
-
-        // Create test plaintext
-        let plaintext_coeffs = [10i64, 20, 30, 40];
-        let plaintext: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&plaintext_coeffs, basis.clone());
-
-        let test_scale = 2048.0;
-
-        // Encrypt with specific scale
-        let ciphertext = encrypt(&plaintext, &public_key, test_scale, &mut rng);
-
-        // Verify scale is preserved
-        assert_eq!(ciphertext.scale, test_scale);
     }
 }

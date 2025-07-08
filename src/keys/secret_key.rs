@@ -44,7 +44,7 @@ impl<const DEGREE: usize> SecretKey<DEGREE> {
     ) -> Result<Self, SecretKeyError> {
         params.validate()?;
         let plain = sample_ternary_i64::<DEGREE, _>(params.hamming_weight, rng);
-        let s = RnsPolyRing::from_integer_coeffs(&plain, params.basis.clone());
+        let s = RnsPolyRing::from_i64_slice(&plain, params.basis.clone());
         Ok(SecretKey { s })
     }
 }

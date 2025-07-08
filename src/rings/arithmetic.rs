@@ -275,8 +275,8 @@ mod tests {
         let coeffs2 = [5i64, 6, 7, 8];
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         // Perform addition
         poly1 += &poly2;
@@ -299,8 +299,8 @@ mod tests {
         let coeffs2 = [5i64, 6, 7, 8];
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         poly1 += &poly2;
 
@@ -324,8 +324,8 @@ mod tests {
         let coeffs2 = [5i64, 6, 7, 8];
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         // Should succeed
         let result = poly1.add_assign_checked(&poly2);
@@ -350,8 +350,8 @@ mod tests {
 
         let coeffs = [1i64, 2, 3, 4];
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs, basis1);
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs, basis2);
+            RnsPolyRing::from_i64_slice(&coeffs, basis1);
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs, basis2);
 
         // Should fail with basis mismatch
         let result = poly1.add_assign_checked(&poly2);
@@ -372,8 +372,8 @@ mod tests {
 
         let coeffs = [1i64, 2, 3, 4];
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs, basis1);
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs, basis2);
+            RnsPolyRing::from_i64_slice(&coeffs, basis1);
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs, basis2);
 
         // This should panic
         poly1 += &poly2;
@@ -389,8 +389,8 @@ mod tests {
         let coeffs2 = [1i64, 1, 0, 0];
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         poly1.mul_assign(&poly2).unwrap();
 
@@ -409,8 +409,8 @@ mod tests {
         let coeffs2 = [0i64, 1, 0, 0]; // X
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         poly1.mul_assign(&poly2).unwrap();
 
@@ -432,8 +432,8 @@ mod tests {
         let coeffs2 = [1i64, 1, 0, 0];
 
         let mut poly1: RnsPolyRing<4> =
-            RnsPolyRing::from_integer_coeffs(&coeffs1, basis.clone());
-        let poly2 = RnsPolyRing::from_integer_coeffs(&coeffs2, basis.clone());
+            RnsPolyRing::from_i64_slice(&coeffs1, basis.clone());
+        let poly2 = RnsPolyRing::from_i64_slice(&coeffs2, basis.clone());
 
         // Test operator syntax
         poly1 *= &poly2;

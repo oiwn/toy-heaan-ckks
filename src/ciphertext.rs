@@ -167,8 +167,8 @@ mod tests {
         let basis = create_test_basis::<DEGREE>();
 
         let c0: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&[1, 2, 3, 4], basis.clone());
-        let c1 = RnsPolyRing::from_integer_coeffs(&[5, 6, 7, 8], basis.clone());
+            RnsPolyRing::from_i64_slice(&[1, 2, 3, 4], basis.clone());
+        let c1 = RnsPolyRing::from_i64_slice(&[5, 6, 7, 8], basis.clone());
         let scale = 1024.0;
 
         let ct = Ciphertext::new(c0, c1, scale);
@@ -184,12 +184,12 @@ mod tests {
         let basis = create_test_basis::<DEGREE>();
 
         let c0_1: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&[1, 2, 3, 4], basis.clone());
-        let c1_1 = RnsPolyRing::from_integer_coeffs(&[5, 6, 7, 8], basis.clone());
+            RnsPolyRing::from_i64_slice(&[1, 2, 3, 4], basis.clone());
+        let c1_1 = RnsPolyRing::from_i64_slice(&[5, 6, 7, 8], basis.clone());
         let ct1 = Ciphertext::new(c0_1, c1_1, 1024.0);
 
-        let c0_2 = RnsPolyRing::from_integer_coeffs(&[2, 3, 4, 5], basis.clone());
-        let c1_2 = RnsPolyRing::from_integer_coeffs(&[6, 7, 8, 9], basis.clone());
+        let c0_2 = RnsPolyRing::from_i64_slice(&[2, 3, 4, 5], basis.clone());
+        let c1_2 = RnsPolyRing::from_i64_slice(&[6, 7, 8, 9], basis.clone());
         let ct2 = Ciphertext::new(c0_2, c1_2, 1024.0);
 
         let result = ct1.add(ct2);
@@ -210,8 +210,8 @@ mod tests {
         let basis = create_test_basis::<DEGREE>();
 
         let c0: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&[1, 2, 3, 4], basis.clone());
-        let c1 = RnsPolyRing::from_integer_coeffs(&[5, 6, 7, 8], basis.clone());
+            RnsPolyRing::from_i64_slice(&[1, 2, 3, 4], basis.clone());
+        let c1 = RnsPolyRing::from_i64_slice(&[5, 6, 7, 8], basis.clone());
         let ct = Ciphertext::new(c0, c1, 1024.0);
 
         let neg_ct = ct.negate();
@@ -232,12 +232,12 @@ mod tests {
         let basis = create_test_basis::<DEGREE>();
 
         let c0_1: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&[1, 2, 3, 4], basis.clone());
-        let c1_1 = RnsPolyRing::from_integer_coeffs(&[5, 6, 7, 8], basis.clone());
+            RnsPolyRing::from_i64_slice(&[1, 2, 3, 4], basis.clone());
+        let c1_1 = RnsPolyRing::from_i64_slice(&[5, 6, 7, 8], basis.clone());
         let ct1 = Ciphertext::new(c0_1, c1_1, 1024.0);
 
-        let c0_2 = RnsPolyRing::from_integer_coeffs(&[2, 3, 4, 5], basis.clone());
-        let c1_2 = RnsPolyRing::from_integer_coeffs(&[6, 7, 8, 9], basis.clone());
+        let c0_2 = RnsPolyRing::from_i64_slice(&[2, 3, 4, 5], basis.clone());
+        let c1_2 = RnsPolyRing::from_i64_slice(&[6, 7, 8, 9], basis.clone());
         let ct2 = Ciphertext::new(c0_2, c1_2, 1024.0);
 
         // Test addition operator
@@ -259,12 +259,12 @@ mod tests {
         let basis = create_test_basis::<DEGREE>();
 
         let c0_1: RnsPolyRing<DEGREE> =
-            RnsPolyRing::from_integer_coeffs(&[1, 2, 3, 4], basis.clone());
-        let c1_1 = RnsPolyRing::from_integer_coeffs(&[5, 6, 7, 8], basis.clone());
+            RnsPolyRing::from_i64_slice(&[1, 2, 3, 4], basis.clone());
+        let c1_1 = RnsPolyRing::from_i64_slice(&[5, 6, 7, 8], basis.clone());
         let ct1 = Ciphertext::new(c0_1, c1_1, 1024.0);
 
-        let c0_2 = RnsPolyRing::from_integer_coeffs(&[2, 3, 4, 5], basis.clone());
-        let c1_2 = RnsPolyRing::from_integer_coeffs(&[6, 7, 8, 9], basis.clone());
+        let c0_2 = RnsPolyRing::from_i64_slice(&[2, 3, 4, 5], basis.clone());
+        let c1_2 = RnsPolyRing::from_i64_slice(&[6, 7, 8, 9], basis.clone());
         let ct2 = Ciphertext::new(c0_2, c1_2, 512.0); // Different scale
 
         let _result = ct1.add(ct2); // Should panic
