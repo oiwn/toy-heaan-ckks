@@ -1,5 +1,5 @@
-use super::basis::RnsBasis;
-use super::math::crt_reconstruct;
+// use super::basis::RnsBasis;
+use crate::crt_reconstruct;
 use std::sync::Arc;
 
 /// An RNS-encoded polynomial in ℤ[X]/(X^DEGREE + 1) using const generics.

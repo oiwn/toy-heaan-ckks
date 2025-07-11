@@ -1,4 +1,5 @@
-use rand::SeedableRng;
+fn main() {}
+/* use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::Arc;
 use toy_heaan_ckks::{
@@ -125,4 +126,4 @@ fn add_ciphertexts<const DEGREE: usize>(
     let scale = ct1.scale;
 
     Ciphertext::new(c0_sum, c1_sum, scale)
-}
+} */

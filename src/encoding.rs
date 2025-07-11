@@ -11,15 +11,28 @@
 //! - We use scaling by 2^scale_bits to handle fixed-point arithmetic
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex64;
+use thiserror::Error;
+
+/// Errors that can occur during encoding/decoding
+#[derive(Error, Debug)]
+pub enum EncodingError {
+    #[error("Ring degree {degree} is not a power of 2")]
+    InvalidRingDegree { degree: usize },
+
+    #[error("Input vector too long: {input_len} > {max_len} (ring_degree/2)")]
+    InputTooLong { input_len: usize, max_len: usize },
+
+    #[error("FFT processing failed: {message}")]
+    FftError { message: String },
+
+    #[error("Coefficient conversion failed: value {value} out of range")]
+    CoefficientOutOfRange { value: f64 },
+}
+
+pub type EncodingResult<T> = Result<T, EncodingError>;
 
 /// Parameters for the CKKS encoding scheme.
-pub struct EncodingParams {
-    /// Polynomial ring degree (must be power of 2).
-    /// This determines how many values we can encode:
-    /// - We can encode up to n/2 real numbers
-    /// - The polynomial will have degree n-1
-    ring_degree: usize,
-
+pub struct EncodingParams<const DEGREE: usize> {
     /// Number of bits used for scaling factor.
     /// The scaling factor will be 2^scale_bits.
     /// This determines the precision of our fixed-point representation:
@@ -28,26 +41,32 @@ pub struct EncodingParams {
     scale_bits: u32,
 }
 
-impl EncodingParams {
+impl<const DEGREE: usize> EncodingParams<DEGREE> {
     /// Creates new encoding parameters.
     ///
     /// # Arguments
     /// * `n` - Ring degree, must be a power of 2
     /// * `scale_bits` - Number of bits for scaling factor (2^scale_bits)
-    pub fn new(ring_degree: usize, scale_bits: u32) -> Result<Self, String> {
+    pub fn new(scale_bits: u32) -> EncodingResult<Self> {
         // Ring degree must be power of 2 for FFT and CKKS
-        if !ring_degree.is_power_of_two() {
-            return Err("Ring degree must be a power of 2".to_string());
+        if !DEGREE.is_power_of_two() {
+            return Err(EncodingError::InvalidRingDegree { degree: DEGREE });
         }
-        Ok(Self {
-            ring_degree,
-            scale_bits,
-        })
+        Ok(Self { scale_bits })
     }
 
     /// Gets the scaling factor as a float (2^scale_bits)
     fn delta(&self) -> f64 {
         (1u64 << self.scale_bits) as f64
+    }
+
+    pub fn degree(&self) -> usize {
+        DEGREE
+    }
+
+    /// Maximum number of values that can be encoded
+    pub fn max_slots(&self) -> usize {
+        DEGREE / 2
     }
 }
 
@@ -64,12 +83,20 @@ impl EncodingParams {
 /// - Let zeta_i be the 2n-th roots of unity
 /// - Find polynomial m(X) such that m(zeta_i) ≈ delta*z_i where delta = 2^scale_bits
 /// - The polynomial coefficients are our encoding
-pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, String> {
-    if values.len() > params.ring_degree / 2 {
-        return Err("Input vector too long".to_string());
+pub fn encode<const DEGREE: usize>(
+    values: &[f64],
+    params: &EncodingParams<DEGREE>,
+) -> EncodingResult<[i64; DEGREE]> {
+    let max_slots = params.max_slots();
+
+    if values.len() > max_slots {
+        return Err(EncodingError::InputTooLong {
+            input_len: values.len(),
+            max_len: max_slots,
+        });
     }
 
-    let mut fft_input = vec![Complex64::new(0.0, 0.0); params.ring_degree];
+    let mut fft_input = vec![Complex64::new(0.0, 0.0); DEGREE];
 
     // Scale values and prepare conjugate symmetric vector
     // This ensures our polynomial has real coefficients
@@ -77,21 +104,29 @@ pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, Strin
         fft_input[i] = Complex64::new(val * params.delta(), 0.0);
     }
     for i in 1..values.len() {
-        fft_input[params.ring_degree - i] = fft_input[i].conj();
+        fft_input[DEGREE - i] = fft_input[i].conj();
     }
 
     // Apply inverse FFT to get polynomial coefficients
     let mut planner = FftPlanner::new();
-    let ifft = planner.plan_fft_inverse(params.ring_degree);
+    let ifft = planner.plan_fft_inverse(DEGREE);
     ifft.process(&mut fft_input);
 
     // Round to nearest integers and normalize
-    // The factor of n comes from FFT normalization
-    let scale = (params.ring_degree as f64).recip();
-    let coeffs: Vec<i64> = fft_input
-        .iter()
-        .map(|&x| (x.re * scale).round() as i64)
-        .collect();
+    // The factor of DEGREE comes from FFT normalization
+    let scale = (DEGREE as f64).recip();
+    let mut coeffs = [0i64; DEGREE];
+
+    for (i, &complex_coeff) in fft_input.iter().enumerate() {
+        let real_val = complex_coeff.re * scale;
+
+        // Check for overflow before conversion
+        if real_val.abs() > i64::MAX as f64 {
+            return Err(EncodingError::CoefficientOutOfRange { value: real_val });
+        }
+
+        coeffs[i] = real_val.round() as i64;
+    }
 
     Ok(coeffs)
 }
@@ -108,21 +143,25 @@ pub fn encode(values: &[f64], params: &EncodingParams) -> Result<Vec<i64>, Strin
 /// - Evaluate at roots of unity via FFT
 /// - Scale down by 2^scale_bits
 /// - Extract real parts to get original values
-pub fn decode(coeffs: &[i64], params: &EncodingParams) -> Result<Vec<f64>, String> {
+pub fn decode<const DEGREE: usize>(
+    coeffs: &[i64],
+    params: &EncodingParams<DEGREE>,
+) -> Result<Vec<f64>, String> {
     let mut fft_input: Vec<Complex64> = coeffs
         .iter()
         .map(|&x| Complex64::new(x as f64, 0.0))
         .collect();
 
-    fft_input.resize(params.ring_degree, Complex64::new(0.0, 0.0));
+    fft_input.resize(DEGREE, Complex64::new(0.0, 0.0));
 
     let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(params.ring_degree);
+    let fft = planner.plan_fft_forward(DEGREE);
     fft.process(&mut fft_input);
 
+    let max_slots = params.max_slots();
     let result: Vec<f64> = fft_input
         .iter()
-        .take(params.ring_degree / 2)
+        .take(max_slots)
         .map(|&x| x.re / params.delta())
         .collect();
 
@@ -142,7 +181,7 @@ mod tests {
 
         for scale_bits in test_scales {
             println!("Scale bits: {}", scale_bits);
-            let params = EncodingParams::new(8, scale_bits).unwrap();
+            let params = EncodingParams::<8>::new(scale_bits).unwrap();
             let encoded = encode(&input, &params).unwrap();
             let decoded = decode(&encoded, &params).unwrap();
 
@@ -157,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_toy_example() {
-        let params = EncodingParams::new(8, 16).unwrap(); // Delta = 2^7 = 128
+        let params = EncodingParams::<8>::new(16).unwrap(); // Delta = 2^7 = 128
         let input = vec![1.2, 3.4, 0.0, 5.4];
 
         let encoded = encode(&input, &params).unwrap();
@@ -174,7 +213,7 @@ mod tests {
     fn test_encoding_decoding() {
         // Test roundtrip of values through encoding/decoding
         let values = vec![1.5, 2.5, 3.5, 4.5];
-        let params = EncodingParams::new(8, 30).unwrap();
+        let params = EncodingParams::<8>::new(30).unwrap();
 
         let encoded = encode(&values, &params).unwrap();
         let decoded = decode(&encoded, &params).unwrap();
@@ -187,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_precise_small_values() {
-        let params = EncodingParams::new(8, 30).unwrap();
+        let params = EncodingParams::<8>::new(30).unwrap();
         // Test small values that should encode/decode exactly
         let input = vec![0.5, 0.25, 0.125, 0.0625];
 
@@ -201,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_large_values() {
-        let params = EncodingParams::new(8, 20).unwrap();
+        let params = EncodingParams::<8>::new(20).unwrap();
         // Test larger values to check scaling behavior
         let input = vec![1000.0, -2000.0, 3000.0];
 
@@ -216,10 +255,10 @@ mod tests {
     #[test]
     fn test_error_cases() {
         // Test invalid ring degree
-        assert!(EncodingParams::new(3, 20).is_err());
+        assert!(EncodingParams::<3>::new(20).is_err());
 
         // Test vector too long
-        let params = EncodingParams::new(4, 20).unwrap();
+        let params = EncodingParams::<4>::new(20).unwrap();
         let long_input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         assert!(encode(&long_input, &params).is_err());
     }
@@ -228,7 +267,7 @@ mod tests {
     fn test_conjugate_symmetry() {
         // This test verifies that our encoding preserves conjugate symmetry,
         // which is essential for real polynomial coefficients
-        let params = EncodingParams::new(4, 20).unwrap();
+        let params = EncodingParams::<4>::new(20).unwrap();
         let input = vec![1.0, 2.0];
 
         let encoded = encode(&input, &params).unwrap();
@@ -240,19 +279,19 @@ mod tests {
             .collect();
 
         let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(params.ring_degree);
+        let fft = planner.plan_fft_forward(params.degree());
         fft.process(&mut complex_coeffs);
 
         // Check conjugate pairs
-        for i in 1..params.ring_degree / 2 {
+        for i in 1..params.degree() / 2 {
             assert_relative_eq!(
                 complex_coeffs[i].conj().re,
-                complex_coeffs[params.ring_degree - i].re,
+                complex_coeffs[params.degree() - i].re,
                 epsilon = 1e-10
             );
             assert_relative_eq!(
                 complex_coeffs[i].conj().im,
-                complex_coeffs[params.ring_degree - i].im,
+                complex_coeffs[params.degree() - i].im,
                 epsilon = 1e-10
             );
         }

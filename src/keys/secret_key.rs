@@ -30,6 +30,13 @@ impl<const DEGREE: usize> SecretKeyParams<DEGREE> {
     }
 }
 
+/* pub struct SecretKey<P, const DEGREE: usize>
+where
+    P: PolyRing<DEGREE> + PolySampler<DEGREE>,
+{
+    poly: P,
+} */
+
 /// RNS-encoded secret key wrapper.
 #[derive(Debug)]
 pub struct SecretKey<const DEGREE: usize> {
@@ -44,8 +51,8 @@ impl<const DEGREE: usize> SecretKey<DEGREE> {
     ) -> Result<Self, SecretKeyError> {
         params.validate()?;
         let plain = sample_ternary_i64::<DEGREE, _>(params.hamming_weight, rng);
-        let s = RnsPolyRing::from_i64_slice(&plain, params.basis.clone());
-        Ok(SecretKey { s })
+        let poly = RnsPolyRing::from_i64_slice(&plain, params.basis.clone());
+        Ok(SecretKey { poly })
     }
 }
 

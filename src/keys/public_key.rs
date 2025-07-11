@@ -20,6 +20,14 @@ pub struct PublicKeyParams<const DEGREE: usize> {
     pub error_std: f64,
 }
 
+/* pub struct PublicKey<P, const DEGREE: usize>
+where
+    P: PolyRing<DEGREE> + PolySampler<DEGREE>,
+{
+    a: P,
+    b: P,
+} */
+
 impl<const DEGREE: usize> PublicKeyParams<DEGREE> {
     fn validate(&self) -> Result<(), PublicKeyError> {
         if !(self.error_std > 0.0) {
