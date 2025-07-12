@@ -1,8 +1,7 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    CkksEngine, EncodingParams, PublicKeyParams, RelinKeyParams, RnsPoly,
-    SecretKeyParams, params,
+    CkksEngine, EncodingParams, PublicKeyParams, SecretKeyParams,
 };
 
 const DEGREE: usize = 8;

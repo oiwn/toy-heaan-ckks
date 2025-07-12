@@ -2,7 +2,8 @@
 // mod basis;
 // mod display;
 // mod ntt;
-mod poly_ring;
+mod backends;
+// mod poly_ring;
 
 // pub use basis::{RnsBasis, RnsBasisBuilder, RnsError, RnsResult};
 // pub use ntt::NttTables;
@@ -13,18 +14,17 @@ use std::ops::{AddAssign, MulAssign, Neg};
 
 // Core polynomial ring trait - all CKKS operations work on this
 pub trait PolyRing<const DEGREE: usize>:
-    Clone + AddAssign + MulAssign + Neg<Output = Self>
+    Clone
+    + for<'a> AddAssign<&'a Self>
+    + for<'a> MulAssign<&'a Self>
+    + Neg<Output = Self>
 {
     type Context;
 
     fn zero() -> Self;
     fn from_coeffs(coeffs: &[u64]) -> Self;
 
-    fn add_assign(&mut self, rhs: &Self);
-    fn mul_assign(&mut self, rhs: &Self);
-    fn neg_assign(&mut self);
-
-    //
+    // Convert to coeffs if possible
     fn to_coeffs(&self) -> [u64; DEGREE];
 }
 

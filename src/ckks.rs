@@ -1,6 +1,6 @@
 use crate::{
-    Ciphertext, EncodingParams, PolyRing, PolySampler, PublicKey, PublicKeyParams,
-    SecretKey, SecretKeyParams,
+    Ciphertext, EncodingParams, Plaintext, PolyRing, PolySampler, PublicKey,
+    PublicKeyParams, SecretKey, SecretKeyParams,
 };
 use rand::Rng;
 use std::marker::PhantomData;
@@ -35,8 +35,9 @@ where
 
         // b = -(a * s + e)
         let mut b = a.clone();
-        b.mul_assign(&secret_key.poly);
-        b.add_assign(&e);
+        // FIXME: remove clone
+        b *= &secret_key.poly;
+        b += &e;
         b = -b;
 
         PublicKey { a, b }
@@ -48,7 +49,7 @@ where
         params: &EncodingParams<DEGREE>,
     ) -> Plaintext<P, DEGREE> {
         // Abstract encoding logic
-        let scale = (1u64 << params.scale_bits) as f64;
+        let scale = params.delta();
         let coeffs = Self::fft_encode(values, scale);
         let poly = P::from_coeffs(&coeffs);
         Plaintext { poly, scale }
@@ -63,6 +64,7 @@ where
     }
 
     // Encryption/Decryption
+    // FIXME: remove clones
     pub fn encrypt<R: Rng>(
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
@@ -74,14 +76,14 @@ where
 
         // c0 = b * u + e0 + m
         let mut c0 = public_key.b.clone();
-        c0.mul_assign(&u);
-        c0.add_assign(&e0);
-        c0.add_assign(&plaintext.poly);
+        c0 *= &u;
+        c0 += &e0;
+        c0 += &plaintext.poly;
 
         // c1 = a * u + e1
         let mut c1 = public_key.a.clone();
-        c1.mul_assign(&u);
-        c1.add_assign(&e1);
+        c1 *= &u;
+        c1 += &e1;
 
         Ciphertext {
             c0,
@@ -96,8 +98,8 @@ where
     ) -> Plaintext<P, DEGREE> {
         // m = c0 + c1 * s
         let mut result = ciphertext.c1.clone();
-        result.mul_assign(&secret_key.poly);
-        result.add_assign(&ciphertext.c0);
+        result *= &secret_key.poly;
+        result += &ciphertext.c0;
 
         Plaintext {
             poly: result,
@@ -111,10 +113,10 @@ where
         ct2: &Ciphertext<P, DEGREE>,
     ) -> Ciphertext<P, DEGREE> {
         let mut c0 = ct1.c0.clone();
-        c0.add_assign(&ct2.c0);
+        c0 += &ct2.c0;
 
         let mut c1 = ct1.c1.clone();
-        c1.add_assign(&ct2.c1);
+        c1 += &ct2.c1;
 
         // Scale should be the same for both
         assert_eq!(ct1.scale, ct2.scale);
@@ -137,77 +139,6 @@ where
             c0,
             c1: ciphertext.c1.clone(),
             scale: ciphertext.scale,
-        }
-    }
-
-    pub fn multiply_ciphertexts(
-        ct1: &Ciphertext<P, DEGREE>,
-        ct2: &Ciphertext<P, DEGREE>,
-        relin_key: &RelinearizationKey<P, DEGREE>,
-    ) -> Ciphertext<P, DEGREE> {
-        // Tensor product multiplication
-        // (c0, c1) * (d0, d1) = (c0*d0, c0*d1 + c1*d0, c1*d1)
-
-        let mut new_c0 = ct1.c0.clone();
-        new_c0.mul_assign(&ct2.c0);
-
-        let mut temp1 = ct1.c0.clone();
-        temp1.mul_assign(&ct2.c1);
-
-        let mut temp2 = ct1.c1.clone();
-        temp2.mul_assign(&ct2.c0);
-
-        let mut new_c1 = temp1;
-        new_c1.add_assign(&temp2);
-
-        let mut c2 = ct1.c1.clone();
-        c2.mul_assign(&ct2.c1);
-
-        // Relinearization: eliminate c2 term
-        let mut relin_part = relin_key.rlk1.clone();
-        relin_part.mul_assign(&c2);
-        new_c1.add_assign(&relin_part);
-
-        let mut relin_part0 = relin_key.rlk0.clone();
-        relin_part0.mul_assign(&c2);
-        new_c0.add_assign(&relin_part0);
-
-        let new_scale = ct1.scale * ct2.scale;
-
-        Ciphertext {
-            c0: new_c0,
-            c1: new_c1,
-            scale: new_scale,
-        }
-    }
-
-    pub fn rescale(
-        ciphertext: &Ciphertext<P, DEGREE>,
-        new_scale: f64,
-    ) -> Ciphertext<P, DEGREE> {
-        let scale_factor = ciphertext.scale / new_scale;
-
-        // Convert to coeffs, rescale, convert back
-        let c0_coeffs = ciphertext.c0.to_coeffs();
-        let c1_coeffs = ciphertext.c1.to_coeffs();
-
-        let rescaled_c0: Vec<u64> = c0_coeffs
-            .iter()
-            .map(|&coeff| ((coeff as f64) / scale_factor) as u64)
-            .collect();
-
-        let rescaled_c1: Vec<u64> = c1_coeffs
-            .iter()
-            .map(|&coeff| ((coeff as f64) / scale_factor) as u64)
-            .collect();
-
-        let new_c0 = P::from_coeffs(&rescaled_c0);
-        let new_c1 = P::from_coeffs(&rescaled_c1);
-
-        Ciphertext {
-            c0: new_c0,
-            c1: new_c1,
-            scale: new_scale,
         }
     }
 

@@ -10,6 +10,7 @@ rand_distr = "0.5"
 rustfft = "6.2"
 dhat = "0.3"
 thiserror = "2"
+crypto-bigint = "0.6.1"
 
 [dev-dependencies]
 approx = "0.5"

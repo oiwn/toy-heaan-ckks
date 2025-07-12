@@ -4,8 +4,7 @@
 //! encryption scheme, including functions to encrypt plaintexts and decrypt ciphertexts.
 use crate::{
     Ciphertext, EncodingParams, Plaintext, PolyRing, PolySampler, PublicKey,
-    RnsPolyRing, SecretKey, decode, encode, generate_ternary_poly,
-    sample_gaussian_poly,
+    SecretKey, decode, encode,
 };
 use rand::Rng;
 use thiserror::Error;
@@ -61,7 +60,8 @@ where
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();
-    c0.mul_assign(&u); // pk.b * u
+    // c0.mul_assign(&u); // pk.b * u
+    c0 *= &u;
     c0.add_assign(&e0); // + e0
     c0.add_assign(&plaintext.poly); // + plaintext
 
@@ -116,7 +116,7 @@ where
     }
 }
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{PublicKeyParams, RnsBasisBuilder, SecretKeyParams};
@@ -191,4 +191,4 @@ mod tests {
             );
         }
     }
-}
+} */

@@ -56,7 +56,7 @@ impl<const DEGREE: usize> EncodingParams<DEGREE> {
     }
 
     /// Gets the scaling factor as a float (2^scale_bits)
-    fn delta(&self) -> f64 {
+    pub fn delta(&self) -> f64 {
         (1u64 << self.scale_bits) as f64
     }
 

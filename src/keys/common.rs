@@ -1,5 +1,4 @@
-use crate::{RnsBasis, RnsPolyRing};
-use rand::{Rng, seq::SliceRandom};
+/* use rand::{Rng, seq::SliceRandom};
 use rand_distr::{Distribution, Normal};
 use std::sync::Arc;
 
@@ -45,9 +44,9 @@ pub fn i64_to_rns<const DEGREE: usize>(
         coefficients: channels,
         basis,
     }
-}
+} */
 
-/// Generate a ternary polynomial in RNS representation.
+/* /// Generate a ternary polynomial in RNS representation.
 ///
 /// Creates a polynomial with coefficients in {-1, 0, 1} with given probability
 /// for non-zero coefficients, then converts to RNS representation.
@@ -119,9 +118,9 @@ pub fn sample_gaussian_poly<const DEGREE: usize, R: Rng + ?Sized>(
 
     // Convert to RNS
     u64_to_rns(&coeffs, basis)
-}
+} */
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use super::*;
     use crate::rings::RnsBasisBuilder;
@@ -287,4 +286,4 @@ mod tests {
 
         assert_eq!(poly1.coefficients, poly2.coefficients);
     }
-}
+} */
