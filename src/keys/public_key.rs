@@ -71,15 +71,16 @@ where
         // Validate parameters
         params.validate()?;
 
+        let sampler = P::zero();
+
         // Sample uniformly random polynomial 'a'
-        let a = P::sample_uniform(rng, u64::MAX);
+        let a = sampler.sample_uniform(rng, u64::MAX);
 
         // Sample error polynomial 'e' from Gaussian distribution
-        let e = P::sample_gaussian(rng, params.error_std);
+        let e = sampler.sample_gaussian(rng, params.error_std);
 
         // Compute b = -(a * s) + e
         let mut a_times_s = a.clone();
-        // FIXME: remove clone
         a_times_s *= &secret_key.poly; // a * s
 
         let mut b = -a_times_s; // -(a * s)

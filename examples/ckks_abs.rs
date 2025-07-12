@@ -1,10 +1,11 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    CkksEngine, EncodingParams, PublicKeyParams, SecretKeyParams,
+    CkksEngine, EncodingParams, NaivePolyRing, PublicKeyParams, SecretKeyParams,
 };
 
 const DEGREE: usize = 8;
+type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 CKKS Abstract API Demo");
@@ -12,11 +13,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize RNG with fixed seed for reproducible results
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
 
-    // Use our RNS polynomial backend
-    type Engine = CkksEngine<RnsPoly<DEGREE>, DEGREE>;
-
     // Setup parameters
-    let (sk_params, pk_params, enc_params) = params::small_params();
+    let (sk_params, pk_params, enc_params) = small_params();
     println!("✅ Parameters configured");
 
     // 🔑 Key generation
@@ -38,8 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encode floating-point values to plaintexts
     println!("\n🔢 Encoding values...");
-    let plaintext1 = Engine::encode(&values1, &enc_params)?;
-    let plaintext2 = Engine::encode(&values2, &enc_params)?;
+    let plaintext1 = Engine::encode(&values1, &enc_params);
+    let plaintext2 = Engine::encode(&values2, &enc_params);
     println!("✅ Values encoded to plaintexts");
 
     // Encrypt plaintexts to ciphertexts
@@ -60,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Decode back to floating-point values
     println!("\n🔢 Decoding to floating-point...");
-    let result_values = Engine::decode(&decrypted_plaintext, &enc_params)?;
+    let result_values = Engine::decode(&decrypted_plaintext, &enc_params);
     println!("✅ Result decoded");
 
     // Display results
@@ -93,4 +91,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  • Zero-cost abstractions (no runtime overhead)");
 
     Ok(())
+}
+
+fn small_params() -> (
+    SecretKeyParams<DEGREE>,
+    PublicKeyParams<DEGREE>,
+    EncodingParams<DEGREE>,
+) {
+    let hamming_weight = 3;
+    let modulus = (1u64 << 61) - 1; // large enough to avoid overflow
+    let error_std = 3.0;
+    let scale_bits = 30;
+
+    let sk_params: SecretKeyParams<DEGREE> = SecretKeyParams { hamming_weight };
+
+    let pk_params: PublicKeyParams<DEGREE> = PublicKeyParams { error_std };
+
+    let enc_params = EncodingParams::new(scale_bits).unwrap();
+
+    (sk_params, pk_params, enc_params)
 }

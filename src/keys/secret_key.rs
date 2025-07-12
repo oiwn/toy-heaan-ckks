@@ -63,9 +63,10 @@ where
     ) -> Result<Self, SecretKeyError> {
         // Validate parameters first
         params.validate()?;
+        let sampler = P::zero();
 
         // Use the polynomial backend's ternary sampling
-        let poly = P::sample_tribits(rng, params.hamming_weight);
+        let poly = sampler.sample_tribits(rng, params.hamming_weight);
 
         Ok(SecretKey { poly })
     }

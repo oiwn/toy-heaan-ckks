@@ -1,6 +1,6 @@
 use crate::{
     Ciphertext, EncodingParams, Plaintext, PolyRing, PolySampler, PublicKey,
-    PublicKeyParams, SecretKey, SecretKeyParams,
+    PublicKeyParams, SecretKey, SecretKeyParams, decode, encode,
 };
 use rand::Rng;
 use std::marker::PhantomData;
@@ -21,7 +21,8 @@ where
         params: &SecretKeyParams<DEGREE>,
         rng: &mut R,
     ) -> SecretKey<P, DEGREE> {
-        let poly = P::sample_tribits(rng, params.hamming_weight);
+        let sampler = P::zero();
+        let poly = sampler.sample_tribits(rng, params.hamming_weight);
         SecretKey { poly }
     }
 
@@ -30,12 +31,14 @@ where
         params: &PublicKeyParams<DEGREE>,
         rng: &mut R,
     ) -> PublicKey<P, DEGREE> {
-        let a = P::sample_uniform(rng, u64::MAX);
-        let e = P::sample_gaussian(rng, params.error_std);
+        let sampler = P::zero();
+        let a = sampler.sample_uniform(rng, u64::MAX);
+        let e = sampler.sample_gaussian(rng, params.error_std);
+        // let a = P::sample_uniform(rng, u64::MAX);
+        // let e = P::sample_gaussian(rng, params.error_std);
 
         // b = -(a * s + e)
         let mut b = a.clone();
-        // FIXME: remove clone
         b *= &secret_key.poly;
         b += &e;
         b = -b;
@@ -64,15 +67,15 @@ where
     }
 
     // Encryption/Decryption
-    // FIXME: remove clones
     pub fn encrypt<R: Rng>(
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
-        let u = P::sample_tribits(rng, 2); // Small hamming weight
-        let e0 = P::sample_gaussian(rng, 3.0);
-        let e1 = P::sample_gaussian(rng, 3.0);
+        let sampler = P::zero();
+        let u = sampler.sample_tribits(rng, 2); // Small hamming weight
+        let e0 = sampler.sample_gaussian(rng, 3.0);
+        let e1 = sampler.sample_gaussian(rng, 3.0);
 
         // c0 = b * u + e0 + m
         let mut c0 = public_key.b.clone();
@@ -142,14 +145,21 @@ where
         }
     }
 
-    // Helper functions (to be implemented)
     fn fft_encode(values: &[f64], scale: f64) -> Vec<u64> {
-        // Complex FFT encoding implementation
-        todo!("Implement complex FFT encoding")
+        // recover scale_bits from scale = 2^scale_bits
+        let bits = scale.log2().round() as u32;
+        let params =
+            EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
+        let int_coeffs =
+            encode::<DEGREE>(values, &params).expect("fft encode failed");
+        int_coeffs.iter().map(|&c| c as u64).collect()
     }
 
     fn fft_decode(coeffs: &[u64], scale: f64) -> Vec<f64> {
-        // Complex FFT decoding implementation
-        todo!("Implement complex FFT decoding")
+        let bits = scale.log2().round() as u32;
+        let params =
+            EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
+        let signed: Vec<i64> = coeffs.iter().map(|&c| c as i64).collect();
+        decode::<DEGREE>(&signed, &params).expect("fft decode failed")
     }
 }
