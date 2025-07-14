@@ -1,7 +1,7 @@
+use super::types::{Ciphertext, Plaintext};
 use crate::{
-    Ciphertext, EncodingParams, Plaintext, PolyRing, PolySampler, PublicKey,
-    PublicKeyError, PublicKeyParams, SecretKey, SecretKeyError, SecretKeyParams,
-    decode, encode,
+    EncodingParams, PolyRing, PolySampler, PublicKey, PublicKeyError,
+    PublicKeyParams, SecretKey, SecretKeyError, SecretKeyParams, decode, encode,
 };
 use rand::Rng;
 
@@ -52,7 +52,7 @@ where
     pub fn decode(
         &self,
         plaintext: &Plaintext<P, DEGREE>,
-        params: &EncodingParams<DEGREE>,
+        _params: &EncodingParams<DEGREE>,
     ) -> Vec<f64> {
         let coeffs = plaintext.poly.to_coeffs();
         Self::fft_decode(&coeffs, plaintext.scale)

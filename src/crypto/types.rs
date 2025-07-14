@@ -1,10 +1,13 @@
-//! CKKS Ciphertext operations
-//!
-//! This module implements the basic ciphertext structure and homomorphic operations
-//! for the CKKS scheme, focusing on addition and negation operations.
-
 use crate::PolyRing;
-// use std::ops::{Add, Neg};
+
+#[derive(Debug)]
+pub struct Plaintext<P, const DEGREE: usize>
+where
+    P: PolyRing<DEGREE>,
+{
+    pub poly: P,
+    pub scale: f64,
+}
 
 pub struct Ciphertext<P, const DEGREE: usize>
 where

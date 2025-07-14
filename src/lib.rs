@@ -1,17 +1,15 @@
-pub mod ciphertext;
-pub mod ckks;
+pub mod crypto;
 pub mod encoding;
-pub mod encryption;
 pub mod keys;
 pub mod math;
-pub mod plaintext;
 pub mod rings;
 
-pub use ciphertext::*;
-pub use ckks::*;
-pub use encoding::*;
-pub use encryption::*;
-pub use keys::*;
-pub use math::*;
-pub use plaintext::*;
-pub use rings::*;
+// Re-export only the main types users need
+pub use crypto::CkksEngine;
+pub use encoding::{EncodingParams, decode, encode};
+pub use keys::{
+    PublicKey, PublicKeyError, PublicKeyParams, SecretKey, SecretKeyError,
+    SecretKeyParams,
+};
+pub use rings::backends::NaivePolyRing;
+pub use rings::{PolyRing, PolySampler};
