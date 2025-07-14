@@ -55,29 +55,28 @@ impl<P, const DEGREE: usize> PublicKey<P, DEGREE>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    /// Generate a new RLWE public key from a secret key
+    /// Generate a new RLWE public key from a secret key with context
     ///
     /// # RLWE Public Key Generation
     /// 1. Sample a uniformly random polynomial `a`
-    /// 2. Sample an error polynomial `e` from Gaussian distribution
+    /// 2. Sample an error polynomial `e` from Gaussian distribution  
     /// 3. Compute `b = -(a * s) + e` where `s` is the secret key
     ///
     /// The public key (a, b) satisfies: `b + a * s ≈ 0` (mod small error)
     pub fn generate<R: Rng>(
         secret_key: &SecretKey<P, DEGREE>,
         params: &PublicKeyParams<DEGREE>,
+        context: &P::Context,
         rng: &mut R,
     ) -> Result<Self, PublicKeyError> {
         // Validate parameters
         params.validate()?;
 
-        let sampler = P::zero();
-
         // Sample uniformly random polynomial 'a'
-        let a = sampler.sample_uniform(rng, u64::MAX);
+        let a = P::sample_uniform(rng, context);
 
         // Sample error polynomial 'e' from Gaussian distribution
-        let e = sampler.sample_gaussian(rng, params.error_std);
+        let e = P::sample_gaussian(rng, params.error_std);
 
         // Compute b = -(a * s) + e
         let mut a_times_s = a.clone();

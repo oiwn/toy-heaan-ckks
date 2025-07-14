@@ -1,64 +1,56 @@
 use crate::{
     Ciphertext, EncodingParams, Plaintext, PolyRing, PolySampler, PublicKey,
-    PublicKeyParams, SecretKey, SecretKeyParams, decode, encode,
+    PublicKeyError, PublicKeyParams, SecretKey, SecretKeyError, SecretKeyParams,
+    decode, encode,
 };
 use rand::Rng;
-use std::marker::PhantomData;
 
 pub struct CkksEngine<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    _phantom: PhantomData<P>,
+    pub context: P::Context,
 }
 
 impl<P, const DEGREE: usize> CkksEngine<P, DEGREE>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    // Key generation
+    pub fn new(context: P::Context) -> Self {
+        Self { context }
+    }
+
     pub fn generate_secret_key<R: Rng>(
         params: &SecretKeyParams<DEGREE>,
         rng: &mut R,
-    ) -> SecretKey<P, DEGREE> {
-        let sampler = P::zero();
-        let poly = sampler.sample_tribits(rng, params.hamming_weight);
-        SecretKey { poly }
+    ) -> Result<SecretKey<P, DEGREE>, SecretKeyError> {
+        SecretKey::generate(params, rng)
     }
 
     pub fn generate_public_key<R: Rng>(
+        &self,
         secret_key: &SecretKey<P, DEGREE>,
         params: &PublicKeyParams<DEGREE>,
         rng: &mut R,
-    ) -> PublicKey<P, DEGREE> {
-        let sampler = P::zero();
-        let a = sampler.sample_uniform(rng, u64::MAX);
-        let e = sampler.sample_gaussian(rng, params.error_std);
-        // let a = P::sample_uniform(rng, u64::MAX);
-        // let e = P::sample_gaussian(rng, params.error_std);
-
-        // b = -(a * s + e)
-        let mut b = a.clone();
-        b *= &secret_key.poly;
-        b += &e;
-        b = -b;
-
-        PublicKey { a, b }
+    ) -> Result<PublicKey<P, DEGREE>, PublicKeyError> {
+        PublicKey::generate(secret_key, params, &self.context, rng)
     }
 
     // Encoding/Decoding
     pub fn encode(
+        &self,
         values: &[f64],
         params: &EncodingParams<DEGREE>,
     ) -> Plaintext<P, DEGREE> {
         // Abstract encoding logic
         let scale = params.delta();
         let coeffs = Self::fft_encode(values, scale);
-        let poly = P::from_coeffs(&coeffs);
+        let poly = P::from_coeffs(&coeffs, &self.context);
         Plaintext { poly, scale }
     }
 
     pub fn decode(
+        &self,
         plaintext: &Plaintext<P, DEGREE>,
         params: &EncodingParams<DEGREE>,
     ) -> Vec<f64> {
@@ -68,14 +60,14 @@ where
 
     // Encryption/Decryption
     pub fn encrypt<R: Rng>(
+        &self,
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
-        let sampler = P::zero();
-        let u = sampler.sample_tribits(rng, 2); // Small hamming weight
-        let e0 = sampler.sample_gaussian(rng, 3.0);
-        let e1 = sampler.sample_gaussian(rng, 3.0);
+        let u = P::sample_tribits(rng, DEGREE / 2);
+        let e0 = P::sample_gaussian(rng, 3.0);
+        let e1 = P::sample_gaussian(rng, 3.0);
 
         // c0 = b * u + e0 + m
         let mut c0 = public_key.b.clone();
@@ -145,21 +137,20 @@ where
         }
     }
 
-    fn fft_encode(values: &[f64], scale: f64) -> Vec<u64> {
+    fn fft_encode(values: &[f64], scale: f64) -> Vec<i64> {
         // recover scale_bits from scale = 2^scale_bits
         let bits = scale.log2().round() as u32;
         let params =
             EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
-        let int_coeffs =
-            encode::<DEGREE>(values, &params).expect("fft encode failed");
-        int_coeffs.iter().map(|&c| c as u64).collect()
+        encode::<DEGREE>(values, &params)
+            .expect("fft encode failed")
+            .into()
     }
 
-    fn fft_decode(coeffs: &[u64], scale: f64) -> Vec<f64> {
+    fn fft_decode(coeffs: &[i64], scale: f64) -> Vec<f64> {
         let bits = scale.log2().round() as u32;
         let params =
             EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
-        let signed: Vec<i64> = coeffs.iter().map(|&c| c as i64).collect();
-        decode::<DEGREE>(&signed, &params).expect("fft decode failed")
+        decode::<DEGREE>(coeffs, &params).expect("fft decode failed")
     }
 }

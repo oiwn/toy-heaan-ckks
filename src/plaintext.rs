@@ -1,5 +1,6 @@
 use crate::PolyRing;
 
+#[derive(Debug)]
 pub struct Plaintext<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE>,

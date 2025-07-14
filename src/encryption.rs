@@ -51,20 +51,19 @@ pub fn encrypt<P, const DEGREE: usize, R: Rng>(
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    let sampler = P::zero();
     // Sample ephemeral ternary polynomial with small hamming weight
-    let u = sampler.sample_tribits(rng, 2); // Small hamming weight for security
+    let u = P::sample_tribits(rng, DEGREE / 2);
 
     // Sample error polynomials from Gaussian distribution
-    let e0 = sampler.sample_gaussian(rng, 3.0); // Standard deviation = 3.0
-    let e1 = sampler.sample_gaussian(rng, 3.0);
+    let e0 = P::sample_gaussian(rng, 3.0);
+    let e1 = P::sample_gaussian(rng, 3.0);
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();
     // c0.mul_assign(&u); // pk.b * u
     c0 *= &u;
-    c0.add_assign(&e0); // + e0
-    c0.add_assign(&plaintext.poly); // + plaintext
+    c0 += &e0; // + e0
+    c0 += &plaintext.poly; // + plaintext
 
     // Compute c1 = pk.a * u + e1
     let mut c1 = public_key.a.clone();
@@ -105,7 +104,7 @@ where
 {
     // Compute c1 * secret_key
     let mut c1_times_sk = ciphertext.c1.clone();
-    c1_times_sk.mul_assign(&secret_key.poly);
+    c1_times_sk *= &secret_key.poly;
 
     // Compute result = c0 + c1 * secret_key
     let mut result = ciphertext.c0.clone();

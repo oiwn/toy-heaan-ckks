@@ -56,17 +56,15 @@ impl<P, const DEGREE: usize> SecretKey<P, DEGREE>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    /// Generate a new secret key using the polynomial backend's sampling
     pub fn generate<R: Rng>(
         params: &SecretKeyParams<DEGREE>,
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
         // Validate parameters first
         params.validate()?;
-        let sampler = P::zero();
 
         // Use the polynomial backend's ternary sampling
-        let poly = sampler.sample_tribits(rng, params.hamming_weight);
+        let poly = P::sample_tribits(rng, params.hamming_weight);
 
         Ok(SecretKey { poly })
     }

@@ -8,22 +8,69 @@ const DEGREE: usize = 8;
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Setup context for NaivePolyRing
+    let modulus = (1u64 << 60) - 1; // Large prime-like modulus
+    let context = modulus; // For NaivePolyRing, context is just the modulus
+
     println!("🔐 CKKS Abstract API Demo");
+    // Create CKKS Engine with context
+    let engine: CkksEngine<NaivePolyRing<DEGREE>, DEGREE> =
+        CkksEngine::new(context);
+
+    // Setup encoding parameters
+    let scale_bits = 30;
+    let enc_params = EncodingParams::<DEGREE>::new(scale_bits)?;
 
     // Initialize RNG with fixed seed for reproducible results
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
 
-    // Setup parameters
-    let (sk_params, pk_params, enc_params) = small_params();
-    println!("✅ Parameters configured");
+    // Setup encoding parameters
+    let scale_bits = 30;
+    let enc_params = EncodingParams::<DEGREE>::new(scale_bits)?;
+
+    println!("✅ Engine and parameters configured");
+
+    // Input data (small vector to test)
+    let values = vec![1.5, 2.5, 3.5];
+    println!("\n📊 Input data: {:?}", values);
+
+    // Encode: Vec<f64> → Plaintext
+    println!("\n🔢 Encoding values...");
+    let plaintext = engine.encode(&values, &enc_params);
+    println!("✅ Values encoded to plaintext");
+
+    // Decode: Plaintext → Vec<f64>
+    println!("\n🔢 Decoding back to floating-point...");
+    let decoded_values = engine.decode(&plaintext, &enc_params);
+    println!("✅ Plaintext decoded");
+
+    // Display results
+    println!("\n📊 Results:");
+    println!("  Original: {:?}", values);
+    println!("  Decoded:  {:?}", &decoded_values[..values.len()]);
+
+    // Verify accuracy
+    let max_error = values
+        .iter()
+        .zip(&decoded_values)
+        .map(|(orig, decoded)| (orig - decoded).abs())
+        .fold(0.0, f64::max);
+
+    println!("  Max error: {:.2e}", max_error);
+
+    if max_error < 1e-6 {
+        println!("🎉 Success! Encode/decode round trip works!");
+    } else {
+        println!("⚠️  Warning: Error is higher than expected");
+    }
 
     // 🔑 Key generation
-    println!("\n🔑 Generating keys...");
-    let secret_key = Engine::generate_secret_key(&sk_params, &mut rng);
-    let public_key = Engine::generate_public_key(&secret_key, &pk_params, &mut rng);
-    println!("✅ Secret and public keys generated");
+    // println!("\n🔑 Generating keys...");
+    // let secret_key = Engine::generate_secret_key(&sk_params, &mut rng);
+    // let public_key = Engine::generate_public_key(&secret_key, &pk_params, &mut rng);
+    // println!("✅ Secret and public keys generated");
 
-    // Input data
+    /* // Input data
     let values1 = vec![1.5, 2.5, 3.5, 4.5];
     let values2 = vec![0.5, 1.0, 1.5, 2.0];
     let expected_sum: Vec<f64> =
@@ -39,6 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plaintext1 = Engine::encode(&values1, &enc_params);
     let plaintext2 = Engine::encode(&values2, &enc_params);
     println!("✅ Values encoded to plaintexts");
+    println!("Plaintext 1: {plaintext1:?}");
+    println!("Plaintext 1: {plaintext2:?}");
 
     // Encrypt plaintexts to ciphertexts
     println!("\n🔒 Encrypting plaintexts...");
@@ -47,13 +96,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Plaintexts encrypted to ciphertexts");
 
     // Homomorphic addition
-    println!("\n➕ Performing homomorphic addition...");
-    let ciphertext_sum = Engine::add_ciphertexts(&ciphertext1, &ciphertext2);
-    println!("✅ Ciphertexts added homomorphically");
+    // println!("\n➕ Performing homomorphic addition...");
+    // let ciphertext_sum = Engine::add_ciphertexts(&ciphertext1, &ciphertext2);
+    // println!("✅ Ciphertexts added homomorphically");
 
     // Decrypt the result
     println!("\n🔓 Decrypting result...");
-    let decrypted_plaintext = Engine::decrypt(&ciphertext_sum, &secret_key);
+    let decrypted_plaintext = Engine::decrypt(&ciphertext1, &secret_key);
     println!("✅ Result decrypted");
 
     // Decode back to floating-point values
@@ -89,6 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("  • Type-safe operations (keys match ciphertext types)");
     println!("  • Zero-cost abstractions (no runtime overhead)");
+    */
 
     Ok(())
 }
@@ -99,7 +149,6 @@ fn small_params() -> (
     EncodingParams<DEGREE>,
 ) {
     let hamming_weight = 3;
-    let modulus = (1u64 << 61) - 1; // large enough to avoid overflow
     let error_std = 3.0;
     let scale_bits = 30;
 

@@ -21,17 +21,17 @@ pub trait PolyRing<const DEGREE: usize>:
 {
     type Context;
 
-    fn zero() -> Self;
-    fn from_coeffs(coeffs: &[u64]) -> Self;
+    fn zero(context: &Self::Context) -> Self;
+    fn from_coeffs(coeffs: &[i64], context: &Self::Context) -> Self;
+    fn to_coeffs(&self) -> [i64; DEGREE];
 
-    // Convert to coeffs if possible
-    fn to_coeffs(&self) -> [u64; DEGREE];
+    fn context(&self) -> &Self::Context;
 }
 
 // Sampling trait - provides common sampling operations for polynomials
 pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
-    fn sample_uniform<R: Rng>(&self, rng: &mut R, max_coeff: u64) -> Self;
-    fn sample_gaussian<R: Rng>(&self, rng: &mut R, std_dev: f64) -> Self;
-    fn sample_tribits<R: Rng>(&self, rng: &mut R, hamming_weight: usize) -> Self;
-    fn sample_noise<R: Rng>(&self, rng: &mut R, variance: f64) -> Self;
+    fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self;
+    fn sample_gaussian<R: Rng>(rng: &mut R, std_dev: f64) -> Self;
+    fn sample_tribits<R: Rng>(rng: &mut R, hamming_weight: usize) -> Self;
+    fn sample_noise<R: Rng>(rng: &mut R, variance: f64) -> Self;
 }
