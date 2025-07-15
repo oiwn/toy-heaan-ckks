@@ -1,4 +1,4 @@
-use super::{CkksEngine, CkksError, CkksResult};
+use super::{CkksEngine, CkksResult};
 use crate::crypto::engine::CkksParams;
 use crate::encoding::{Encoder, EncoderType, RustFftEncoder};
 use crate::rings::{BackendType, NaivePolyRing};
@@ -68,10 +68,9 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
                 Ok(CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::new(
                     modulus, encoder, params,
                 ))
-            }
-            _ => Err(CkksError::InvalidParameter {
-                message: "Only Naive backend supported currently".to_string(),
-            }),
+            } // _ => Err(CkksError::InvalidParameter {
+              //     message: "Only Naive backend supported currently".to_string(),
+              // }),
         }
     }
 }

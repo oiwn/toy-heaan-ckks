@@ -115,6 +115,34 @@ where
     }
 }
 
+/// Homomorphic addition of two ciphertexts
+pub fn add_ciphertexts<P, const DEGREE: usize>(
+    ct1: &Ciphertext<P, DEGREE>,
+    ct2: &Ciphertext<P, DEGREE>,
+) -> Result<Ciphertext<P, DEGREE>, EncryptionError>
+where
+    P: PolyRing<DEGREE>,
+{
+    if (ct1.scale - ct2.scale).abs() > f64::EPSILON {
+        return Err(EncryptionError::ScaleMismatch {
+            expected: ct1.scale,
+            actual: ct2.scale,
+        });
+    }
+
+    let mut c0 = ct1.c0.clone();
+    c0 += &ct2.c0;
+
+    let mut c1 = ct1.c1.clone();
+    c1 += &ct2.c1;
+
+    Ok(Ciphertext {
+        c0,
+        c1,
+        scale: ct1.scale,
+    })
+}
+
 /* #[cfg(test)]
 mod tests {
     use super::*;

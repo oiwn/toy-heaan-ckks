@@ -46,7 +46,7 @@ pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
 /// # Examples
 ///
 /// ```
-/// use toy_heaan_ckks::rings::is_prime;
+/// use toy_heaan_ckks::math::is_prime;
 /// assert!(is_prime(7));
 /// assert!(!is_prime(9));
 /// ```
@@ -97,7 +97,7 @@ pub fn is_prime(n: u64) -> bool {
 ///
 /// ```
 /// use toy_heaan_ckks::math::{is_prime, generate_primes};
-/// let primes = generate_primes(32, 3).unwrap();
+/// let primes = generate_primes(32, 3);
 /// assert_eq!(primes.len(), 3);
 /// for p in primes {
 ///     assert!(is_prime(p));
