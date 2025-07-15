@@ -140,7 +140,7 @@ impl<const DEGREE: usize> Neg for NaivePolyRing<DEGREE> {
 impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
     fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self {
         Self {
-            coeffs: uniform_coefficients::<DEGREE, R>(*context, rng), // Use context instead of max_coeff
+            coeffs: uniform_coefficients::<DEGREE, R>(*context, rng),
             context: *context,
         }
     }

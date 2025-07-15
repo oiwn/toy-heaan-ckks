@@ -2,6 +2,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
     CkksEngine, EncodingParams, NaivePolyRing, PublicKeyParams, SecretKeyParams,
+    encoding::EncoderType, rings::BackendType,
 };
 
 const DEGREE: usize = 8;
@@ -9,29 +10,22 @@ type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 CKKS Abstract API Demo with Encryption");
-
-    // Create context (modulus for naive backend)
-    let context = u64::MAX;
-
     // Create CKKS Engine with context
-    let engine: CkksEngine<NaivePolyRing<DEGREE>, DEGREE> =
-        CkksEngine::new(context);
+    let engine = Engine::builder()
+        .encoder(EncoderType::RustFft)
+        .backend(BackendType::Naive)
+        .error_variance(3.2)
+        .hamming_weight(4)
+        .scale_bits(30)
+        .build()?;
+    println!("✅ Engine configured with builder pattern");
 
-    // Setup parameters
-    let scale_bits = 30;
-    let enc_params = EncodingParams::<DEGREE>::new(scale_bits)?;
-
-    // Key generation parameters
-    let sk_params = SecretKeyParams::new(4)?; // hamming weight = 4
-    let pk_params = PublicKeyParams::new(3.0)?; // error std = 3.0
-
-    // Initialize RNG with fixed seed for reproducible results
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
+    let enc_params = EncodingParams::<DEGREE>::new(30)?; // scale_bits = 30
 
-    println!("✅ Engine and parameters configured");
-
-    // 🔑 Key generation
     println!("\n🔑 Generating keys...");
+    let sk_params = SecretKeyParams::new(4)?; // hamming weight = 4  
+    let pk_params = PublicKeyParams::new(3.2)?; // error variance = 3.2
     let secret_key = Engine::generate_secret_key(&sk_params, &mut rng)?;
     let public_key =
         engine.generate_public_key(&secret_key, &pk_params, &mut rng)?;

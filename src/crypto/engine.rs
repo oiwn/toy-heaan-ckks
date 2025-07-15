@@ -1,6 +1,7 @@
+use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    EncodingParams, PolyRing, PolySampler, PublicKey, PublicKeyError,
+    Encoder, EncodingParams, PolyRing, PolySampler, PublicKey, PublicKeyError,
     PublicKeyParams, SecretKey, SecretKeyError, SecretKeyParams, decode, encode,
 };
 use rand::Rng;
@@ -9,15 +10,36 @@ pub struct CkksEngine<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    pub context: P::Context,
+    context: P::Context,
+    encoder: Box<dyn Encoder<DEGREE>>,
+    params: CkksParams<DEGREE>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CkksParams<const DEGREE: usize> {
+    pub error_variance: f64,
+    pub hamming_weight: usize,
+    pub scale_bits: u32,
 }
 
 impl<P, const DEGREE: usize> CkksEngine<P, DEGREE>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
-    pub fn new(context: P::Context) -> Self {
-        Self { context }
+    pub fn builder() -> CkksEngineBuilder<DEGREE> {
+        CkksEngineBuilder::new()
+    }
+
+    pub(crate) fn new(
+        context: P::Context,
+        encoder: Box<dyn Encoder<DEGREE>>,
+        params: CkksParams<DEGREE>,
+    ) -> Self {
+        Self {
+            context,
+            encoder,
+            params,
+        }
     }
 
     pub fn generate_secret_key<R: Rng>(

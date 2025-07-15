@@ -9,27 +9,9 @@
 //! - For n=4, these are e^(2πi/8), e^(6πi/8), e^(10πi/8), e^(14πi/8)
 //! - The encoding maps real values to evaluations at these roots
 //! - We use scaling by 2^scale_bits to handle fixed-point arithmetic
+use crate::encoding::{Encoder, EncodingError, EncodingResult};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex64;
-use thiserror::Error;
-
-/// Errors that can occur during encoding/decoding
-#[derive(Error, Debug)]
-pub enum EncodingError {
-    #[error("Ring degree {degree} is not a power of 2")]
-    InvalidRingDegree { degree: usize },
-
-    #[error("Input vector too long: {input_len} > {max_len} (ring_degree/2)")]
-    InputTooLong { input_len: usize, max_len: usize },
-
-    #[error("FFT processing failed: {message}")]
-    FftError { message: String },
-
-    #[error("Coefficient conversion failed: value {value} out of range")]
-    CoefficientOutOfRange { value: f64 },
-}
-
-pub type EncodingResult<T> = Result<T, EncodingError>;
 
 /// Parameters for the CKKS encoding scheme.
 pub struct EncodingParams<const DEGREE: usize> {
@@ -39,6 +21,36 @@ pub struct EncodingParams<const DEGREE: usize> {
     /// - Larger values give more precision but risk overflow
     /// - Common values are 30-50 bits
     scale_bits: u32,
+}
+
+pub struct RustFftEncoder<const DEGREE: usize> {
+    params: EncodingParams<DEGREE>,
+}
+
+impl<const DEGREE: usize> RustFftEncoder<DEGREE> {
+    pub fn new(scale_bits: u32) -> EncodingResult<Self> {
+        let params = EncodingParams::new(scale_bits)?;
+        Ok(Self { params })
+    }
+
+    pub fn default() -> Self {
+        Self::new(40).expect("Default encoder creation should not fail")
+    }
+}
+
+impl<const DEGREE: usize> Encoder<DEGREE> for RustFftEncoder<DEGREE> {
+    fn encode(&self, values: &[f64]) -> Result<Vec<i64>, EncodingError> {
+        encode(values, &self.params).map(|arr| arr.to_vec())
+    }
+
+    fn decode(&self, coeffs: &[i64]) -> Result<Vec<f64>, EncodingError> {
+        decode(coeffs, &self.params)
+            .map_err(|e| EncodingError::InvalidInput { message: e }) // Convert String to EncodingError
+    }
+
+    fn scale(&self) -> f64 {
+        self.params.delta()
+    }
 }
 
 impl<const DEGREE: usize> EncodingParams<DEGREE> {
@@ -91,8 +103,8 @@ pub fn encode<const DEGREE: usize>(
 
     if values.len() > max_slots {
         return Err(EncodingError::InputTooLong {
-            input_len: values.len(),
-            max_len: max_slots,
+            got: values.len(),
+            max: max_slots,
         });
     }
 
