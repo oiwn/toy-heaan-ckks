@@ -1,8 +1,8 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    Encoder, EncodingParams, PolyRing, PolySampler, PublicKey, PublicKeyError,
-    PublicKeyParams, SecretKey, SecretKeyError, SecretKeyParams, decode, encode,
+    Encoder, EncoderType, PolyRing, PolySampler, PublicKey, PublicKeyError,
+    PublicKeyParams, RustFftEncoder, SecretKey, SecretKeyError, SecretKeyParams,
 };
 use rand::Rng;
 
@@ -12,7 +12,7 @@ where
 {
     context: P::Context,
     encoder: Box<dyn Encoder<DEGREE>>,
-    params: CkksParams<DEGREE>,
+    pub params: CkksParams<DEGREE>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,41 +43,49 @@ where
     }
 
     pub fn generate_secret_key<R: Rng>(
-        params: &SecretKeyParams<DEGREE>,
+        &self,
         rng: &mut R,
     ) -> Result<SecretKey<P, DEGREE>, SecretKeyError> {
-        SecretKey::generate(params, rng)
+        let sk_params = SecretKeyParams::new(self.params.hamming_weight)?;
+        SecretKey::generate(&sk_params, &self.context, rng)
     }
 
     pub fn generate_public_key<R: Rng>(
         &self,
         secret_key: &SecretKey<P, DEGREE>,
-        params: &PublicKeyParams<DEGREE>,
         rng: &mut R,
     ) -> Result<PublicKey<P, DEGREE>, PublicKeyError> {
-        PublicKey::generate(secret_key, params, &self.context, rng)
+        let pk_params = PublicKeyParams::new(3.2)?;
+        PublicKey::generate(secret_key, &pk_params, &self.context, rng)
     }
 
-    // Encoding/Decoding
-    pub fn encode(
-        &self,
-        values: &[f64],
-        params: &EncodingParams<DEGREE>,
-    ) -> Plaintext<P, DEGREE> {
-        // Abstract encoding logic
-        let scale = params.delta();
-        let coeffs = Self::fft_encode(values, scale);
+    pub fn encode(&self, values: &[f64]) -> Plaintext<P, DEGREE> {
+        // Use the configured encoder, not the static fft_encode
+        let coeffs = self
+            .encoder
+            .encode(values)
+            .expect("Encoding should succeed");
+        let scale = self.encoder.scale();
+
         let poly = P::from_coeffs(&coeffs, &self.context);
         Plaintext { poly, scale }
     }
 
     pub fn decode(
-        &self,
+        encoder_type: EncoderType,
         plaintext: &Plaintext<P, DEGREE>,
-        _params: &EncodingParams<DEGREE>,
+        scale_bits: u32,
     ) -> Vec<f64> {
+        let encoder: Box<dyn Encoder<DEGREE>> = match encoder_type {
+            EncoderType::RustFft => Box::new(
+                RustFftEncoder::<DEGREE>::new(scale_bits)
+                    .expect("Valid scale_bits"),
+            ),
+            // Add other encoder types here
+        };
+
         let coeffs = plaintext.poly.to_coeffs();
-        Self::fft_decode(&coeffs, plaintext.scale)
+        encoder.decode(&coeffs).expect("Decoding should succeed")
     }
 
     // Encryption/Decryption
@@ -87,9 +95,9 @@ where
         public_key: &PublicKey<P, DEGREE>,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
-        let u = P::sample_tribits(rng, DEGREE / 2);
-        let e0 = P::sample_gaussian(rng, 3.0);
-        let e1 = P::sample_gaussian(rng, 3.0);
+        let u = P::sample_tribits(rng, DEGREE / 2, &self.context);
+        let e0 = P::sample_gaussian(rng, 3.0, &self.context);
+        let e1 = P::sample_gaussian(rng, 3.0, &self.context);
 
         // c0 = b * u + e0 + m
         let mut c0 = public_key.b.clone();
@@ -143,36 +151,5 @@ where
             c1,
             scale: ct1.scale,
         }
-    }
-
-    pub fn add_plaintext(
-        ciphertext: &Ciphertext<P, DEGREE>,
-        plaintext: &Plaintext<P, DEGREE>,
-    ) -> Ciphertext<P, DEGREE> {
-        let mut c0 = ciphertext.c0.clone();
-        c0.add_assign(&plaintext.poly);
-
-        Ciphertext {
-            c0,
-            c1: ciphertext.c1.clone(),
-            scale: ciphertext.scale,
-        }
-    }
-
-    fn fft_encode(values: &[f64], scale: f64) -> Vec<i64> {
-        // recover scale_bits from scale = 2^scale_bits
-        let bits = scale.log2().round() as u32;
-        let params =
-            EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
-        encode::<DEGREE>(values, &params)
-            .expect("fft encode failed")
-            .into()
-    }
-
-    fn fft_decode(coeffs: &[i64], scale: f64) -> Vec<f64> {
-        let bits = scale.log2().round() as u32;
-        let params =
-            EncodingParams::<DEGREE>::new(bits).expect("invalid encoding params");
-        decode::<DEGREE>(coeffs, &params).expect("fft decode failed")
     }
 }

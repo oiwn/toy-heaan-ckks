@@ -58,13 +58,14 @@ where
 {
     pub fn generate<R: Rng>(
         params: &SecretKeyParams<DEGREE>,
+        context: &P::Context,
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
         // Validate parameters first
         params.validate()?;
 
         // Use the polynomial backend's ternary sampling
-        let poly = P::sample_tribits(rng, params.hamming_weight);
+        let poly = P::sample_tribits(rng, params.hamming_weight, context);
 
         Ok(SecretKey { poly })
     }

@@ -9,6 +9,7 @@ where
     pub scale: f64,
 }
 
+#[derive(Debug)]
 pub struct Ciphertext<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE>,

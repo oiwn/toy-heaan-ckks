@@ -1,35 +1,33 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    CkksEngine, EncodingParams, NaivePolyRing, PublicKeyParams, SecretKeyParams,
-    encoding::EncoderType, rings::BackendType,
+    CkksEngine, NaivePolyRing, encoding::EncoderType, rings::BackendType,
 };
 
 const DEGREE: usize = 8;
+const SCALE_BITS: u32 = 30;
+const MODULUS: u64 = 741507920154517877u64;
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
     println!("🔐 CKKS Abstract API Demo with Encryption");
     // Create CKKS Engine with context
     let engine = Engine::builder()
         .encoder(EncoderType::RustFft)
-        .backend(BackendType::Naive)
+        .backend(BackendType::Naive(MODULUS))
         .error_variance(3.2)
-        .hamming_weight(4)
-        .scale_bits(30)
+        .hamming_weight(DEGREE / 2)
+        .scale_bits(SCALE_BITS)
         .build()?;
     println!("✅ Engine configured with builder pattern");
 
-    let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
-    let enc_params = EncodingParams::<DEGREE>::new(30)?; // scale_bits = 30
-
     println!("\n🔑 Generating keys...");
-    let sk_params = SecretKeyParams::new(4)?; // hamming weight = 4  
-    let pk_params = PublicKeyParams::new(3.2)?; // error variance = 3.2
-    let secret_key = Engine::generate_secret_key(&sk_params, &mut rng)?;
-    let public_key =
-        engine.generate_public_key(&secret_key, &pk_params, &mut rng)?;
-    println!("✅ Secret and public keys generated");
+    let secret_key = engine.generate_secret_key(&mut rng)?;
+    let public_key = engine.generate_public_key(&secret_key, &mut rng)?;
+    println!(
+        "✅ Secret and public keys generated: \n{secret_key:?}\n{public_key:?}"
+    );
 
     // Input data (small vector to test)
     let values = vec![1.5, 2.5, 3.5];
@@ -37,23 +35,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
-    let plaintext = engine.encode(&values, &enc_params);
-    println!("✅ Values encoded to plaintext");
+    let plaintext = engine.encode(&values);
+    println!("✅ Values encoded to plaintext: {:?}", plaintext);
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
     let ciphertext = engine.encrypt(&plaintext, &public_key, &mut rng);
-    println!("✅ Plaintext encrypted to ciphertext");
+    println!("✅ Plaintext encrypted to ciphertext: {:?}", ciphertext);
 
     // Step 3: Decrypt: Ciphertext → Plaintext
     println!("\n🔓 Decrypting ciphertext...");
     let decrypted_plaintext = Engine::decrypt(&ciphertext, &secret_key);
-    println!("✅ Ciphertext decrypted back to plaintext");
+    println!(
+        "✅ Ciphertext decrypted back to plaintext: {:?}",
+        decrypted_plaintext
+    );
 
     // Step 4: Decode: Plaintext → Vec<f64>
     println!("\n🔢 Decoding back to floating-point...");
-    let decoded_values = engine.decode(&decrypted_plaintext, &enc_params);
-    println!("✅ Plaintext decoded");
+    let decoded_values = Engine::decode(
+        EncoderType::RustFft,
+        &decrypted_plaintext,
+        engine.params.scale_bits,
+    );
+    println!("✅ Plaintext decoded: {:?}", decoded_values);
 
     // Display results
     println!("\n📊 Results:");
@@ -81,13 +86,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let values2 = vec![0.5, 1.0, 1.5];
     println!("Second input: {:?}", values2);
 
-    let plaintext2 = engine.encode(&values2, &enc_params);
+    let plaintext2 = engine.encode(&values2);
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
 
     // Homomorphic addition
     let ciphertext_sum = Engine::add_ciphertexts(&ciphertext, &ciphertext2);
     let decrypted_sum = Engine::decrypt(&ciphertext_sum, &secret_key);
-    let decoded_sum = engine.decode(&decrypted_sum, &enc_params);
+    let decoded_sum = Engine::decode(
+        EncoderType::RustFft,
+        &decrypted_sum,
+        engine.params.scale_bits,
+    );
 
     let expected_sum: Vec<f64> =
         values.iter().zip(&values2).map(|(a, b)| a + b).collect();

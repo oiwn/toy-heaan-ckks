@@ -55,19 +55,18 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
             _ => panic!(),
         };
 
-        let backend_type = self.backend_type.unwrap_or(BackendType::Naive);
+        let backend_type = self.backend_type.unwrap_or(BackendType::Naive(23));
 
         match backend_type {
-            BackendType::Naive => {
-                let context = NaivePolyRing::<DEGREE>::default_modulus();
+            BackendType::Naive(modulus) => {
                 let params = CkksParams {
                     error_variance: self.error_variance.unwrap_or(3.2),
-                    hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 4),
+                    hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
                     scale_bits: self.scale_bits.unwrap_or(40),
                 };
 
                 Ok(CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::new(
-                    context, encoder, params,
+                    modulus, encoder, params,
                 ))
             }
             _ => Err(CkksError::InvalidParameter {

@@ -9,13 +9,13 @@ pub use traits::{PolyRing, PolySampler};
 
 #[derive(Debug, Clone, Copy)]
 pub enum BackendType {
-    Naive,
+    Naive(u64),
     // Rns,     // Future
     // BigInt,  // Future
 }
 
 impl Default for BackendType {
     fn default() -> Self {
-        Self::Naive
+        Self::Naive(741507920154517877)
     }
 }

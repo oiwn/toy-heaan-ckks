@@ -45,16 +45,17 @@ pub fn encrypt<P, const DEGREE: usize, R: Rng>(
     plaintext: &Plaintext<P, DEGREE>,
     public_key: &PublicKey<P, DEGREE>,
     rng: &mut R,
+    context: &P::Context,
 ) -> EncryptionResult<Ciphertext<P, DEGREE>>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
     // Sample ephemeral ternary polynomial with small hamming weight
-    let u = P::sample_tribits(rng, DEGREE / 2);
+    let u = P::sample_tribits(rng, DEGREE / 2, context);
 
     // Sample error polynomials from Gaussian distribution
-    let e0 = P::sample_gaussian(rng, 3.0);
-    let e1 = P::sample_gaussian(rng, 3.0);
+    let e0 = P::sample_gaussian(rng, 3.0, context);
+    let e1 = P::sample_gaussian(rng, 3.0, context);
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();

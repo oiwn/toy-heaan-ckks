@@ -76,7 +76,7 @@ where
         let a = P::sample_uniform(rng, context);
 
         // Sample error polynomial 'e' from Gaussian distribution
-        let e = P::sample_gaussian(rng, params.error_std);
+        let e = P::sample_gaussian(rng, params.error_std, context);
 
         // Compute b = -(a * s) + e
         let mut a_times_s = a.clone();

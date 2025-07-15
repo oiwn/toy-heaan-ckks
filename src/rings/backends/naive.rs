@@ -12,10 +12,6 @@ pub struct NaivePolyRing<const DEGREE: usize> {
 }
 
 impl<const DEGREE: usize> NaivePolyRing<DEGREE> {
-    pub fn default_modulus() -> u64 {
-        return 741507920154517877u64;
-    }
-
     pub fn with_modulus(modulus: u64) -> Self {
         Self {
             coeffs: [0; DEGREE],
@@ -145,23 +141,35 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
         }
     }
 
-    fn sample_gaussian<R: Rng>(rng: &mut R, std_dev: f64) -> Self {
-        // Need a default context - this is a problem we need to solve
-        let context = u64::MAX; // Or get from somewhere else
+    fn sample_gaussian<R: Rng>(
+        rng: &mut R,
+        std_dev: f64,
+        context: &Self::Context,
+    ) -> Self {
         Self {
-            coeffs: gaussian_coefficients::<DEGREE, R>(std_dev, context, rng),
-            context,
+            coeffs: gaussian_coefficients::<DEGREE, R>(std_dev, *context, rng),
+            context: *context,
         }
     }
 
-    fn sample_tribits<R: Rng>(rng: &mut R, hamming_weight: usize) -> Self {
-        let context = u64::MAX; // Or get from somewhere else
+    fn sample_tribits<R: Rng>(
+        rng: &mut R,
+        hamming_weight: usize,
+        context: &Self::Context,
+    ) -> Self {
         let ternary = ternary_coefficients::<DEGREE, R>(hamming_weight, rng);
         let coeffs = ternary.map(|x| if x == -1 { context - 1 } else { x as u64 });
-        Self { coeffs, context }
+        Self {
+            coeffs,
+            context: *context,
+        }
     }
 
-    fn sample_noise<R: Rng>(rng: &mut R, variance: f64) -> Self {
-        Self::sample_gaussian(rng, variance.sqrt())
+    fn sample_noise<R: Rng>(
+        rng: &mut R,
+        variance: f64,
+        context: &Self::Context,
+    ) -> Self {
+        Self::sample_gaussian(rng, variance.sqrt(), context)
     }
 }
