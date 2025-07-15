@@ -5,7 +5,7 @@ use toy_heaan_ckks::{
 };
 
 const DEGREE: usize = 8;
-const SCALE_BITS: u32 = 30;
+const SCALE_BITS: u32 = 40;
 const MODULUS: u64 = 741507920154517877u64;
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
