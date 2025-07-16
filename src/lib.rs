@@ -14,4 +14,5 @@ pub use keys::{
     SecretKeyParams,
 };
 pub use rings::backends::NaivePolyRing;
+pub use rings::backends::PolyRingU256;
 pub use rings::{BackendType, PolyRing, PolySampler};

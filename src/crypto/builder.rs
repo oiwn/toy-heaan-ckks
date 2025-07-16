@@ -1,11 +1,16 @@
-use super::{CkksEngine, CkksResult};
+use super::{CkksEngine, CkksError};
 use crate::crypto::engine::CkksParams;
 use crate::encoding::{Encoder, EncoderType, RustFftEncoder};
-use crate::rings::{BackendType, NaivePolyRing};
+use crate::rings::NaivePolyRing;
+use crate::rings::backends::PolyRingU256;
+
+pub enum CkksEngineVariant<const DEGREE: usize> {
+    Naive(CkksEngine<NaivePolyRing<DEGREE>, DEGREE>),
+    BigIntU256(CkksEngine<PolyRingU256<DEGREE>, DEGREE>),
+}
 
 pub struct CkksEngineBuilder<const DEGREE: usize> {
     encoder_type: Option<EncoderType>,
-    backend_type: Option<BackendType>,
     error_variance: Option<f64>,
     hamming_weight: Option<usize>,
     scale_bits: Option<u32>,
@@ -15,7 +20,6 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
     pub fn new() -> Self {
         Self {
             encoder_type: None,
-            backend_type: None,
             error_variance: None,
             hamming_weight: None,
             scale_bits: None,
@@ -24,11 +28,6 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
 
     pub fn encoder(mut self, encoder_type: EncoderType) -> Self {
         self.encoder_type = Some(encoder_type);
-        self
-    }
-
-    pub fn backend(mut self, backend: BackendType) -> Self {
-        self.backend_type = Some(backend);
         self
     }
 
@@ -47,30 +46,47 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
         self
     }
 
-    pub fn build(self) -> CkksResult<CkksEngine<NaivePolyRing<DEGREE>, DEGREE>> {
+    pub fn build_naive(
+        self,
+        modulus: u64,
+    ) -> Result<CkksEngine<NaivePolyRing<DEGREE>, DEGREE>, CkksError> {
         let encoder: Box<dyn Encoder<DEGREE>> = match self.encoder_type {
             Some(EncoderType::RustFft) => Box::new(RustFftEncoder::<DEGREE>::new(
                 self.scale_bits.expect("Use .scale_bits(...)"),
             )?),
-            _ => panic!(),
+            _ => panic!("Only RustFft encoder supported currently"),
         };
 
-        let backend_type = self.backend_type.unwrap_or(BackendType::Naive(23));
+        let params = CkksParams {
+            error_variance: self.error_variance.unwrap_or(3.2),
+            hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
+            scale_bits: self.scale_bits.unwrap_or(40),
+        };
 
-        match backend_type {
-            BackendType::Naive(modulus) => {
-                let params = CkksParams {
-                    error_variance: self.error_variance.unwrap_or(3.2),
-                    hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
-                    scale_bits: self.scale_bits.unwrap_or(40),
-                };
+        Ok(CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::new(
+            modulus, encoder, params,
+        ))
+    }
 
-                Ok(CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::new(
-                    modulus, encoder, params,
-                ))
-            } // _ => Err(CkksError::InvalidParameter {
-              //     message: "Only Naive backend supported currently".to_string(),
-              // }),
-        }
+    pub fn build_bigint_u256(
+        self,
+        modulus: crypto_bigint::NonZero<crypto_bigint::U256>,
+    ) -> Result<CkksEngine<PolyRingU256<DEGREE>, DEGREE>, CkksError> {
+        let encoder: Box<dyn Encoder<DEGREE>> = match self.encoder_type {
+            Some(EncoderType::RustFft) => Box::new(RustFftEncoder::<DEGREE>::new(
+                self.scale_bits.expect("Use .scale_bits(...)"),
+            )?),
+            _ => panic!("Only RustFft encoder supported currently"),
+        };
+
+        let params = CkksParams {
+            error_variance: self.error_variance.unwrap_or(3.2),
+            hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
+            scale_bits: self.scale_bits.unwrap_or(40),
+        };
+
+        Ok(CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::new(
+            modulus, encoder, params,
+        ))
     }
 }

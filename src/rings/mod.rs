@@ -1,8 +1,5 @@
-// mod basis;
-// mod display;
 pub mod backends;
 pub mod traits;
-// mod poly_ring;
 
 pub use backends::NaivePolyRing;
 pub use traits::{PolyRing, PolySampler};
@@ -10,8 +7,9 @@ pub use traits::{PolyRing, PolySampler};
 #[derive(Debug, Clone, Copy)]
 pub enum BackendType {
     Naive(u64),
-    // Rns,     // Future
-    // BigInt,  // Future
+    BigIntU256(crypto_bigint::NonZero<crypto_bigint::U256>),
+    // RNS
+    // RNS-NTT
 }
 
 impl Default for BackendType {

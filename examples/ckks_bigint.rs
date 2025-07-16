@@ -1,52 +1,58 @@
+use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::{CkksEngine, NaivePolyRing, encoding::EncoderType};
+use toy_heaan_ckks::{CkksEngine, PolyRingU256, encoding::EncoderType};
 
 const DEGREE: usize = 8;
-const SCALE_BITS: u32 = 40;
-const MODULUS: u64 = 741507920154517877u64;
-type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
+const SCALE_BITS: u32 = 60; // should be larger than usual
+// Large 256-bit modulus (example: a 256-bit prime)
+const MODULUS_HEX: &str =
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
+
+type Engine = CkksEngine<PolyRingU256<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
-    println!("🔐 CKKS Abstract API Demo with Encryption");
-    // Create CKKS Engine with context
+    println!("🔐 CKKS BigInt U256 Backend Demo");
+
+    // Create U256 modulus from hex string
+    let modulus_u256 = U256::from_be_hex(MODULUS_HEX);
+    let modulus = NonZero::new(modulus_u256).expect("Modulus should not be zero");
+
+    println!("✅ Using 256-bit modulus: 0x{}", MODULUS_HEX);
+
+    // Create CKKS Engine with BigInt U256 backend
     let engine = Engine::builder()
         .encoder(EncoderType::RustFft)
         .error_variance(3.2)
         .hamming_weight(DEGREE / 2)
         .scale_bits(SCALE_BITS)
-        .build_naive(MODULUS)?;
-    println!("✅ Engine configured with builder pattern");
+        .build_bigint_u256(modulus)?;
+    println!("✅ Engine configured with BigInt U256 backend");
 
     println!("\n🔑 Generating keys...");
     let secret_key = engine.generate_secret_key(&mut rng)?;
     let public_key = engine.generate_public_key(&secret_key, &mut rng)?;
-    println!(
-        "✅ Secret and public keys generated: \n{secret_key:?}\n{public_key:?}"
-    );
+    println!("✅ Secret and public keys generated with U256 arithmetic");
 
     // Input data (small vector to test)
-    let values = vec![1.5, 2.5, 3.5];
+    let values = vec![1.5, 2.5, 3.5, 4.5];
     println!("\n📊 Input data: {:?}", values);
 
     // Step 1: Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
     let plaintext = engine.encode(&values);
-    println!("✅ Values encoded to plaintext: {:?}", plaintext);
+    println!("✅ Values encoded to plaintext with BigInt backend");
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
     let ciphertext = engine.encrypt(&plaintext, &public_key, &mut rng);
-    println!("✅ Plaintext encrypted to ciphertext: {:?}", ciphertext);
+    println!("✅ Plaintext encrypted to ciphertext using U256 operations");
 
     // Step 3: Decrypt: Ciphertext → Plaintext
     println!("\n🔓 Decrypting ciphertext...");
     let decrypted_plaintext = Engine::decrypt(&ciphertext, &secret_key);
-    println!(
-        "✅ Ciphertext decrypted back to plaintext: {:?}",
-        decrypted_plaintext
-    );
+    println!("✅ Ciphertext decrypted back to plaintext");
 
     // Step 4: Decode: Plaintext → Vec<f64>
     println!("\n🔢 Decoding back to floating-point...");
@@ -72,15 +78,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Max error: {:.2e}", max_error);
 
     if max_error < 1e-3 {
-        println!("🎉 Success! Full CKKS encrypt/decrypt pipeline works!");
+        println!(
+            "🎉 Success! Full CKKS encrypt/decrypt pipeline works with BigInt U256!"
+        );
     } else {
         println!("⚠️  Warning: Error is higher than expected");
     }
 
-    // Demonstrate homomorphic addition
-    println!("\n➕ Testing homomorphic addition...");
+    // Demonstrate homomorphic addition with BigInt backend
+    println!("\n➕ Testing homomorphic addition with U256 arithmetic...");
 
-    let values2 = vec![0.5, 1.0, 1.5];
+    let values2 = vec![0.5, 1.0, 1.5, 0.0];
     println!("Second input: {:?}", values2);
 
     let plaintext2 = engine.encode(&values2);
@@ -95,31 +103,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.params.scale_bits,
     );
 
+    // Expected result
     let expected_sum: Vec<f64> =
         values.iter().zip(&values2).map(|(a, b)| a + b).collect();
 
-    println!("Expected sum: {:?}", expected_sum);
-    println!("Computed sum: {:?}", &decoded_sum[..values.len()]);
+    println!("\n📊 Homomorphic Addition Results:");
+    println!("  Input 1:    {:?}", values);
+    println!("  Input 2:    {:?}", values2);
+    println!("  Expected:   {:?}", expected_sum);
+    println!("  Computed:   {:?}", &decoded_sum[..expected_sum.len()]);
 
-    let sum_error = expected_sum
+    // Verify homomorphic addition accuracy
+    let add_max_error = expected_sum
         .iter()
         .zip(&decoded_sum)
-        .map(|(exp, act)| (exp - act).abs())
+        .map(|(exp, comp)| (exp - comp).abs())
         .fold(0.0, f64::max);
 
-    println!("Sum error: {:.2e}", sum_error);
+    println!("  Add error:  {:.2e}", add_max_error);
 
-    if sum_error < 1e-3 {
-        println!("🎉 Homomorphic addition works perfectly!");
+    if add_max_error < 1e-3 {
+        println!("🎉 Homomorphic addition successful with BigInt U256 backend!");
+    } else {
+        println!("⚠️  Warning: Addition error higher than expected");
     }
 
-    println!("\n💡 Full CKKS pipeline completed:");
-    println!("  1. ✅ Key generation (secret + public keys)");
-    println!("  2. ✅ Encoding (float → plaintext)");
-    println!("  3. ✅ Encryption (plaintext → ciphertext)");
-    println!("  4. ✅ Homomorphic operations (encrypted addition)");
-    println!("  5. ✅ Decryption (ciphertext → plaintext)");
-    println!("  6. ✅ Decoding (plaintext → float)");
+    println!("\n🔬 BigInt Backend Comparison:");
+    println!("  • Naive backend uses single u64 modulus");
+    println!("  • BigInt backend uses 256-bit modulus");
+    println!("  • Both backends produce equivalent CKKS functionality");
+    println!(
+        "  • BigInt backend supports much larger moduli for enhanced security"
+    );
 
     Ok(())
 }
