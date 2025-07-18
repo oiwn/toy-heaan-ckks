@@ -21,7 +21,7 @@ impl<const DEGREE: usize> NaivePolyRing<DEGREE> {
 }
 
 impl<const DEGREE: usize> PolyRing<DEGREE> for NaivePolyRing<DEGREE> {
-    type Context = u64; // Just the modulus for naive implementation
+    type Context = u64; // modulus
 
     fn zero(context: &Self::Context) -> Self {
         Self {

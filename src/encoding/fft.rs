@@ -45,7 +45,7 @@ impl<const DEGREE: usize> Encoder<DEGREE> for RustFftEncoder<DEGREE> {
 
     fn decode(&self, coeffs: &[i64]) -> Result<Vec<f64>, EncodingError> {
         decode(coeffs, &self.params)
-            .map_err(|e| EncodingError::InvalidInput { message: e }) // Convert String to EncodingError
+            .map_err(|e| EncodingError::InvalidInput { message: e })
     }
 
     fn scale(&self) -> f64 {
@@ -57,7 +57,6 @@ impl<const DEGREE: usize> EncodingParams<DEGREE> {
     /// Creates new encoding parameters.
     ///
     /// # Arguments
-    /// * `n` - Ring degree, must be a power of 2
     /// * `scale_bits` - Number of bits for scaling factor (2^scale_bits)
     pub fn new(scale_bits: u32) -> EncodingResult<Self> {
         // Ring degree must be power of 2 for FFT and CKKS

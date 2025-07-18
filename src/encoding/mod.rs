@@ -1,3 +1,4 @@
+mod bigint;
 mod fft;
 
 pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
@@ -29,4 +30,5 @@ pub trait Encoder<const DEGREE: usize>: Send + Sync {
 #[derive(Debug, Clone)]
 pub enum EncoderType {
     RustFft,
+    BigInt { scale_bits: u32 },
 }

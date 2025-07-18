@@ -22,6 +22,7 @@ pub enum EncryptionError {
 
 pub type EncryptionResult<T> = Result<T, EncryptionError>;
 
+/// FIXME: remove this, now it's method of CkksEngine
 /// Encrypts a plaintext using the CKKS encryption scheme.
 ///
 /// # CKKS Encryption Process
@@ -46,6 +47,7 @@ pub fn encrypt<P, const DEGREE: usize, R: Rng>(
     public_key: &PublicKey<P, DEGREE>,
     rng: &mut R,
     context: &P::Context,
+    error_varaiance: f64,
 ) -> EncryptionResult<Ciphertext<P, DEGREE>>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
@@ -54,12 +56,11 @@ where
     let u = P::sample_tribits(rng, DEGREE / 2, context);
 
     // Sample error polynomials from Gaussian distribution
-    let e0 = P::sample_gaussian(rng, 3.0, context);
-    let e1 = P::sample_gaussian(rng, 3.0, context);
+    let e0 = P::sample_gaussian(rng, error_varaiance, context);
+    let e1 = P::sample_gaussian(rng, error_varaiance, context);
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();
-    // c0.mul_assign(&u); // pk.b * u
     c0 *= &u;
     c0 += &e0; // + e0
     c0 += &plaintext.poly; // + plaintext

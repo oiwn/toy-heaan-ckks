@@ -95,9 +95,9 @@ where
         public_key: &PublicKey<P, DEGREE>,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
-        let u = P::sample_tribits(rng, DEGREE / 2, &self.context);
-        let e0 = P::sample_gaussian(rng, 3.0, &self.context);
-        let e1 = P::sample_gaussian(rng, 3.0, &self.context);
+        let u = P::sample_tribits(rng, self.params.hamming_weight, &self.context);
+        let e0 = P::sample_gaussian(rng, self.params.error_variance, &self.context);
+        let e1 = P::sample_gaussian(rng, self.params.error_variance, &self.context);
 
         // c0 = b * u + e0 + m
         let mut c0 = public_key.b.clone();
