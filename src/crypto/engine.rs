@@ -29,7 +29,7 @@ where
         CkksEngineBuilder::new()
     }
 
-    pub(crate) fn new(context: P::Context, params: CkksParams<DEGREE>) -> Self {
+    pub fn new(context: P::Context, params: CkksParams<DEGREE>) -> Self {
         Self { context, params }
     }
 

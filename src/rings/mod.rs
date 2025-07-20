@@ -1,14 +1,14 @@
 pub mod backends;
 pub mod traits;
 
-pub use backends::NaivePolyRing;
+pub use backends::{NaivePolyRing, PolyRingU256, RnsPolyRing};
 pub use traits::{PolyRing, PolySampler};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum BackendType {
     Naive(u64),
     BigIntU256(crypto_bigint::NonZero<crypto_bigint::U256>),
-    // RNS
+    RNS(std::sync::Arc<backends::rns::RnsBasis>),
     // RNS-NTT
 }
 

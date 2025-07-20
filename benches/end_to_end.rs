@@ -1,10 +1,10 @@
-// benches/ckks_crypto_bench.rs
-
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::hint::black_box;
+use std::sync::Arc;
+use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsPolyRing};
 use toy_heaan_ckks::{
     CkksEngine, NaivePolyRing, Plaintext, PolyRing, PolyRingU256,
 };
@@ -129,6 +129,53 @@ fn bench_u256_cycle<const DEGREE: usize>(c: &mut Criterion) {
     group.finish();
 }
 
+// Benchmark encrypt -> add -> decrypt cycle for RNS backend
+fn bench_rns_cycle<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("rns_cycle_degree_{}", DEGREE));
+
+    // Create RNS basis with multiple primes
+    let rns_basis = Arc::new(
+        RnsBasisBuilder::new(DEGREE)
+            .with_prime_bits(vec![17, 19, 23]) // Three primes of different sizes
+            .build()
+            .unwrap(),
+    );
+
+    let engine = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::builder()
+        .error_variance(3.2)
+        .hamming_weight(DEGREE / 2)
+        .build_rns(rns_basis.clone(), SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
+
+    let mut coeffs = vec![0i64; DEGREE];
+    coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    let plaintext = Plaintext {
+        poly: RnsPolyRing::from_i64_slice(&coeffs, rns_basis.clone()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    group.bench_with_input(BenchmarkId::new("full_cycle", "rns"), &(), |b, _| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct1 = engine.encrypt(black_box(&plaintext), &pk, &mut rng);
+            let ct2 = engine.encrypt(black_box(&plaintext), &pk, &mut rng);
+            let ct_sum = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                &ct1, &ct2,
+            );
+            let result =
+                CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::decrypt(&ct_sum, &sk);
+            black_box(result);
+        });
+    });
+
+    group.finish();
+}
+
 // Individual operation benchmarks for Naive backend
 fn bench_naive_operations<const DEGREE: usize>(c: &mut Criterion) {
     let mut group = c.benchmark_group(format!("naive_ops_degree_{}", DEGREE));
@@ -241,6 +288,71 @@ fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
     group.finish();
 }
 
+// Individual operation benchmarks for RNS backend
+fn bench_rns_operations<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("rns_ops_degree_{}", DEGREE));
+
+    // Create RNS basis with multiple primes
+    let rns_basis = Arc::new(
+        RnsBasisBuilder::new(DEGREE)
+            .with_prime_bits(vec![17, 19, 23])
+            .build()
+            .unwrap(),
+    );
+
+    let engine = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::builder()
+        .error_variance(3.2)
+        .hamming_weight(DEGREE / 2)
+        .build_rns(rns_basis.clone(), SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
+
+    let mut coeffs = vec![0i64; DEGREE];
+    coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+
+    let plaintext = Plaintext {
+        poly: RnsPolyRing::from_i64_slice(&coeffs, rns_basis.clone()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    // Pre-encrypt ciphertext for decrypt benchmark
+    let ciphertext = engine.encrypt(&plaintext, &pk, &mut rng);
+
+    group.bench_function("encrypt_only", |b| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct = engine.encrypt(black_box(&plaintext), &pk, &mut rng);
+            black_box(ct);
+        });
+    });
+
+    group.bench_function("decrypt_only", |b| {
+        b.iter(|| {
+            let result = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::decrypt(
+                black_box(&ciphertext),
+                &sk,
+            );
+            black_box(result);
+        });
+    });
+
+    group.bench_function("homomorphic_add", |b| {
+        b.iter(|| {
+            let ct_sum = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                black_box(&ciphertext),
+                black_box(&ciphertext),
+            );
+            black_box(ct_sum);
+        });
+    });
+
+    group.finish();
+}
+
 // Comparison benchmark - same test for both backends
 fn bench_backend_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("backend_comparison_degree_1024");
@@ -321,6 +433,46 @@ fn bench_backend_comparison(c: &mut Criterion) {
         });
     });
 
+    let rns_basis = Arc::new(
+        RnsBasisBuilder::new(DEGREE)
+            .with_prime_bits(vec![17, 19, 23])
+            .build()
+            .unwrap(),
+    );
+
+    let rns_engine = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::builder()
+        .error_variance(3.2)
+        .hamming_weight(DEGREE / 2)
+        .build_rns(rns_basis.clone(), SCALE_BITS)
+        .unwrap();
+
+    let rns_sk = rns_engine.generate_secret_key(&mut rng).unwrap();
+    let rns_pk = rns_engine.generate_public_key(&rns_sk, &mut rng).unwrap();
+
+    let mut rns_coeffs = vec![0i64; DEGREE];
+    rns_coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    let rns_plaintext = Plaintext {
+        poly: RnsPolyRing::from_i64_slice(&rns_coeffs, rns_basis.clone()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    group.bench_with_input(BenchmarkId::new("full_cycle", "rns"), &(), |b, _| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct1 =
+                rns_engine.encrypt(black_box(&rns_plaintext), &rns_pk, &mut rng);
+            let ct2 =
+                rns_engine.encrypt(black_box(&rns_plaintext), &rns_pk, &mut rng);
+            let ct_sum = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                &ct1, &ct2,
+            );
+            let result = CkksEngine::<RnsPolyRing<DEGREE>, DEGREE>::decrypt(
+                &ct_sum, &rns_sk,
+            );
+            black_box(result);
+        });
+    });
+
     group.finish();
 }
 
@@ -343,6 +495,8 @@ bench_all_degrees!(bench_naive_cycle, 256, 512, 1024, 2048);
 bench_all_degrees!(bench_u256_cycle, 256, 512, 1024, 2048);
 bench_all_degrees!(bench_naive_operations, 256, 512, 1024, 2048);
 bench_all_degrees!(bench_u256_operations, 256, 512, 1024, 2048);
+bench_all_degrees!(bench_rns_cycle, 256, 512, 1024, 2048);
+bench_all_degrees!(bench_rns_operations, 256, 512, 1024, 2048);
 
 criterion_group!(
     benches,
@@ -356,6 +510,11 @@ criterion_group!(
     bench_u256_cycle_512,
     // bench_u256_cycle_1024,
     // bench_u256_cycle_2048,
+    // Full cycle benchmarks for RNS
+    bench_rns_cycle_256,
+    bench_rns_cycle_512,
+    bench_rns_cycle_1024,
+    bench_rns_cycle_2048,
     // Individual operation benchmarks for Naive
     bench_naive_operations_256,
     bench_naive_operations_512,
@@ -366,6 +525,11 @@ criterion_group!(
     bench_u256_operations_512,
     // bench_u256_operations_1024,
     // bench_u256_operations_2048,
+    // Individual operation benchmarks for RNS
+    bench_rns_operations_256,
+    bench_rns_operations_512,
+    bench_rns_operations_1024,
+    bench_rns_operations_2048,
     // Comparison benchmark
     bench_backend_comparison
 );
