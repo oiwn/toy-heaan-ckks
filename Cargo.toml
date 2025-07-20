@@ -10,11 +10,12 @@ rand_distr = "0.5"
 rustfft = "6.2"
 dhat = "0.3"
 thiserror = "2"
-crypto-bigint = "0.6.1"
+crypto-bigint = "0.6"
 
 [dev-dependencies]
 approx = "0.5"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.6", features = ["html_reports"] }
+paste = "1.0"
 proptest = "1.6"
 
 [profile.release]
@@ -28,6 +29,6 @@ dhat-ad-hoc = []  # if you are doing ad hoc profiling
 # name = "basic"
 # harness = false
 
-# [[bench]]
-# name = "end_to_end"
-# harness = false
+[[bench]]
+name = "end_to_end"
+harness = false

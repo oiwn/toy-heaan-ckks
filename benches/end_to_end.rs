@@ -1,91 +1,373 @@
-/* use criterion::{Criterion, black_box, criterion_group, criterion_main};
+// benches/ckks_crypto_bench.rs
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
+use rand_chacha::ChaCha8Rng;
+use std::hint::black_box;
 use toy_heaan_ckks::{
-    PolyRing, PublicKey, PublicKeyParams, SecretKey, SecretKeyParams, decode,
-    decrypt, encode, encoding, encrypt,
+    CkksEngine, NaivePolyRing, Plaintext, PolyRing, PolyRingU256,
 };
 
-fn bench_ckks_pipeline(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ckks_pipeline");
+// Benchmark parameters
+// const DEGREES: &[usize] = &[256, 512, 1024, 2048];
+const SCALE_BITS: u32 = 40;
 
-    // Parameters
-    let ring_dim = 8192; // Ensure this is large enough for our data
-    let scale_bits = 40;
-    let modulus = (1u64 << 60) - 1;
+// Test moduli
+const NAIVE_MODULUS: u64 = 741507920154517877; // ~60 bits
+const U256_MODULUS_WORDS: [u64; 4] = [0x1, 0x0, 0x0, 0x8000000000000000]; // Large prime for U256
 
-    // Benchmark with different data sizes
-    for &size in &[1000, 5000, 10000] {
-        group.bench_function(format!("full_pipeline_{}_elements", size), |b| {
-            // Setup
-            let mut rng = ChaCha20Rng::seed_from_u64(123);
+fn get_u256_modulus() -> NonZero<U256> {
+    NonZero::new(U256::from_words(U256_MODULUS_WORDS)).unwrap()
+}
 
-            // Create keys
-            let sk_params = SecretKeyParams {
-                ring_dim,
-                modulus,
-                hamming_weight: 100,
-            };
-            let secret_key = SecretKey::generate(&sk_params, &mut rng);
+// Benchmark encrypt -> add -> decrypt cycle for Naive backend
+fn bench_naive_cycle<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("naive_cycle_degree_{}", DEGREE));
 
-            let pk_params = PublicKeyParams {
-                ring_dim,
-                modulus,
-                error_variance: 3.0,
-            };
-            let public_key =
-                PublicKey::from_secret_key(&secret_key, &pk_params, &mut rng);
+    let engine = CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::builder()
+        .build_naive(NAIVE_MODULUS, SCALE_BITS)
+        .unwrap();
 
-            // Generate test data
-            let values: Vec<f64> = (0..size).map(|i| (i as f64) * 0.01).collect();
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
 
-            let encoding_params =
-                encoding::EncodingParams::new(ring_dim, scale_bits)
-                    .expect("Failed to create encoding parameters");
+    // Generate keys once
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
 
-            // Measure the complete pipeline
-            b.iter(|| {
-                // 1. Encode
-                let coeffs = encode(black_box(&values), &encoding_params)
-                    .expect("Encoding failed");
+    // Create test plaintexts with proper coefficient arrays
+    let mut coeffs1 = vec![0i64; DEGREE];
+    let mut coeffs2 = vec![0i64; DEGREE];
+    coeffs1[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    coeffs2[0..4].copy_from_slice(&[5, 6, 7, 8]);
 
-                // 2. Create polynomial and encrypt
-                let poly = PolyRing::from_coeffs(&coeffs, modulus, ring_dim);
-                let scale = (1u64 << scale_bits) as f64;
-                let ciphertext = encrypt(&poly, &public_key, scale, &mut rng);
+    let plaintext1 = Plaintext {
+        poly: NaivePolyRing::from_coeffs(&coeffs1, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+    let plaintext2 = Plaintext {
+        poly: NaivePolyRing::from_coeffs(&coeffs2, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
 
-                // 3. Decrypt
-                let decrypted_poly = decrypt(&ciphertext, &secret_key);
+    group.bench_function("encrypt_add_decrypt", |b| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
 
-                // 4. Convert to coefficients and decode
-                let decrypted_coeffs = poly_to_coeffs(&decrypted_poly);
-                let result = decode(&decrypted_coeffs, &encoding_params)
-                    .expect("Decoding failed");
+            // Encrypt
+            let ct1 = engine.encrypt(black_box(&plaintext1), &pk, &mut rng);
+            let ct2 = engine.encrypt(black_box(&plaintext2), &pk, &mut rng);
 
-                // Return the result to prevent the compiler from optimizing it away
-                black_box(result)
-            });
+            // Homomorphic addition
+            let ct_sum =
+                CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                    &ct1, &ct2,
+                );
+
+            // Decrypt
+            let result =
+                CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::decrypt(&ct_sum, &sk);
+
+            black_box(result);
         });
-    }
+    });
 
     group.finish();
 }
 
-// Helper function to convert polynomial to signed coefficients
-fn poly_to_coeffs(poly: &PolyRing) -> Vec<i64> {
-    let modulus = poly.modulus();
-    let half_modulus = modulus / 2;
+// Benchmark encrypt -> add -> decrypt cycle for U256 backend
+fn bench_u256_cycle<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("u256_cycle_degree_{}", DEGREE));
 
-    poly.into_iter()
-        .map(|&c| {
-            if c > half_modulus {
-                -((modulus - c) as i64)
-            } else {
-                c as i64
-            }
-        })
-        .collect()
+    let engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+        .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+    // Generate keys once
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
+
+    // Create test plaintexts with proper coefficient arrays
+    let mut coeffs1 = vec![0i64; DEGREE];
+    let mut coeffs2 = vec![0i64; DEGREE];
+    coeffs1[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    coeffs2[0..4].copy_from_slice(&[5, 6, 7, 8]);
+
+    let plaintext1 = Plaintext {
+        poly: PolyRingU256::from_coeffs(&coeffs1, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+    let plaintext2 = Plaintext {
+        poly: PolyRingU256::from_coeffs(&coeffs2, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    group.bench_function("encrypt_add_decrypt", |b| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+            // Encrypt
+            let ct1 = engine.encrypt(black_box(&plaintext1), &pk, &mut rng);
+            let ct2 = engine.encrypt(black_box(&plaintext2), &pk, &mut rng);
+
+            // Homomorphic addition
+            let ct_sum =
+                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                    &ct1, &ct2,
+                );
+
+            // Decrypt
+            let result =
+                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(&ct_sum, &sk);
+
+            black_box(result);
+        });
+    });
+
+    group.finish();
 }
 
-criterion_group!(benches, bench_ckks_pipeline);
-criterion_main!(benches); */
+// Individual operation benchmarks for Naive backend
+fn bench_naive_operations<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("naive_ops_degree_{}", DEGREE));
+
+    let engine = CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::builder()
+        .build_naive(NAIVE_MODULUS, SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
+
+    let mut coeffs = vec![0i64; DEGREE];
+    coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+
+    let plaintext = Plaintext {
+        poly: NaivePolyRing::from_coeffs(&coeffs, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    // Pre-encrypt ciphertext for decrypt benchmark
+    let ciphertext = engine.encrypt(&plaintext, &pk, &mut rng);
+
+    group.bench_function("encrypt_only", |b| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct = engine.encrypt(black_box(&plaintext), &pk, &mut rng);
+            black_box(ct);
+        });
+    });
+
+    group.bench_function("decrypt_only", |b| {
+        b.iter(|| {
+            let result = CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::decrypt(
+                black_box(&ciphertext),
+                &sk,
+            );
+            black_box(result);
+        });
+    });
+
+    group.bench_function("homomorphic_add", |b| {
+        b.iter(|| {
+            let ct_sum =
+                CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                    black_box(&ciphertext),
+                    black_box(&ciphertext),
+                );
+            black_box(ct_sum);
+        });
+    });
+
+    group.finish();
+}
+
+// Individual operation benchmarks for U256 backend
+fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
+    let mut group = c.benchmark_group(format!("u256_ops_degree_{}", DEGREE));
+
+    let engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+        .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+    let sk = engine.generate_secret_key(&mut rng).unwrap();
+    let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
+
+    let mut coeffs = vec![0i64; DEGREE];
+    coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+
+    let plaintext = Plaintext {
+        poly: PolyRingU256::from_coeffs(&coeffs, engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    // Pre-encrypt ciphertext for decrypt benchmark
+    let ciphertext = engine.encrypt(&plaintext, &pk, &mut rng);
+
+    group.bench_function("encrypt_only", |b| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct = engine.encrypt(black_box(&plaintext), &pk, &mut rng);
+            black_box(ct);
+        });
+    });
+
+    group.bench_function("decrypt_only", |b| {
+        b.iter(|| {
+            let result = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(
+                black_box(&ciphertext),
+                &sk,
+            );
+            black_box(result);
+        });
+    });
+
+    group.bench_function("homomorphic_add", |b| {
+        b.iter(|| {
+            let ct_sum =
+                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                    black_box(&ciphertext),
+                    black_box(&ciphertext),
+                );
+            black_box(ct_sum);
+        });
+    });
+
+    group.finish();
+}
+
+// Comparison benchmark - same test for both backends
+fn bench_backend_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("backend_comparison_degree_1024");
+
+    const DEGREE: usize = 1024;
+
+    // Setup Naive
+    let naive_engine = CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::builder()
+        .build_naive(NAIVE_MODULUS, SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+    let naive_sk = naive_engine.generate_secret_key(&mut rng).unwrap();
+    let naive_pk = naive_engine
+        .generate_public_key(&naive_sk, &mut rng)
+        .unwrap();
+    let mut naive_coeffs = vec![0i64; DEGREE];
+    naive_coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    let naive_plaintext = Plaintext {
+        poly: NaivePolyRing::from_coeffs(&naive_coeffs, naive_engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    // Setup U256
+    let u256_engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+        .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
+        .unwrap();
+
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+    let u256_sk = u256_engine.generate_secret_key(&mut rng).unwrap();
+    let u256_pk = u256_engine.generate_public_key(&u256_sk, &mut rng).unwrap();
+    let mut u256_coeffs = vec![0i64; DEGREE];
+    u256_coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    let u256_plaintext = Plaintext {
+        poly: PolyRingU256::from_coeffs(&u256_coeffs, u256_engine.context()),
+        scale: 2.0_f64.powi(SCALE_BITS as i32),
+    };
+
+    group.bench_with_input(BenchmarkId::new("full_cycle", "naive"), &(), |b, _| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct1 = naive_engine.encrypt(
+                black_box(&naive_plaintext),
+                &naive_pk,
+                &mut rng,
+            );
+            let ct2 = naive_engine.encrypt(
+                black_box(&naive_plaintext),
+                &naive_pk,
+                &mut rng,
+            );
+            let ct_sum =
+                CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::add_ciphertexts(
+                    &ct1, &ct2,
+                );
+            let result = CkksEngine::<NaivePolyRing<DEGREE>, DEGREE>::decrypt(
+                &ct_sum, &naive_sk,
+            );
+            black_box(result);
+        });
+    });
+
+    group.bench_with_input(BenchmarkId::new("full_cycle", "u256"), &(), |b, _| {
+        b.iter(|| {
+            let mut rng = ChaCha8Rng::seed_from_u64(42);
+            let ct1 =
+                u256_engine.encrypt(black_box(&u256_plaintext), &u256_pk, &mut rng);
+            let ct2 =
+                u256_engine.encrypt(black_box(&u256_plaintext), &u256_pk, &mut rng);
+            let ct_sum =
+                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                    &ct1, &ct2,
+                );
+            let result = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(
+                &ct_sum, &u256_sk,
+            );
+            black_box(result);
+        });
+    });
+
+    group.finish();
+}
+
+// Macro to generate benchmark functions for all degrees
+macro_rules! bench_all_degrees {
+    ($bench_fn:ident, $($degree:expr),+) => {
+        $(
+            paste::paste! {
+                #[allow(dead_code)]
+                fn [<$bench_fn _ $degree>](c: &mut Criterion) {
+                    $bench_fn::<$degree>(c);
+                }
+            }
+        )+
+    };
+}
+
+// Generate benchmark functions for all degrees
+bench_all_degrees!(bench_naive_cycle, 256, 512, 1024, 2048);
+bench_all_degrees!(bench_u256_cycle, 256, 512, 1024, 2048);
+bench_all_degrees!(bench_naive_operations, 256, 512, 1024, 2048);
+bench_all_degrees!(bench_u256_operations, 256, 512, 1024, 2048);
+
+criterion_group!(
+    benches,
+    // Full cycle benchmarks for Naive
+    bench_naive_cycle_256,
+    bench_naive_cycle_512,
+    bench_naive_cycle_1024,
+    bench_naive_cycle_2048,
+    // Full cycle benchmarks for U256
+    bench_u256_cycle_256,
+    bench_u256_cycle_512,
+    // bench_u256_cycle_1024,
+    // bench_u256_cycle_2048,
+    // Individual operation benchmarks for Naive
+    bench_naive_operations_256,
+    bench_naive_operations_512,
+    bench_naive_operations_1024,
+    bench_naive_operations_2048,
+    // Individual operation benchmarks for U256
+    bench_u256_operations_256,
+    bench_u256_operations_512,
+    // bench_u256_operations_1024,
+    // bench_u256_operations_2048,
+    // Comparison benchmark
+    bench_backend_comparison
+);
+
+criterion_main!(benches);
