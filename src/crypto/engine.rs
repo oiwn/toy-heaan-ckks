@@ -1,8 +1,8 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    Encoder, EncoderType, PolyRing, PolySampler, PublicKey, PublicKeyError,
-    PublicKeyParams, RustFftEncoder, SecretKey, SecretKeyError, SecretKeyParams,
+    PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams, SecretKey,
+    SecretKeyError, SecretKeyParams,
 };
 use rand::Rng;
 
@@ -11,7 +11,6 @@ where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
     context: P::Context,
-    encoder: Box<dyn Encoder<DEGREE>>,
     pub params: CkksParams<DEGREE>,
 }
 
@@ -30,16 +29,12 @@ where
         CkksEngineBuilder::new()
     }
 
-    pub(crate) fn new(
-        context: P::Context,
-        encoder: Box<dyn Encoder<DEGREE>>,
-        params: CkksParams<DEGREE>,
-    ) -> Self {
-        Self {
-            context,
-            encoder,
-            params,
-        }
+    pub(crate) fn new(context: P::Context, params: CkksParams<DEGREE>) -> Self {
+        Self { context, params }
+    }
+
+    pub fn context(&self) -> &P::Context {
+        &self.context
     }
 
     pub fn generate_secret_key<R: Rng>(
@@ -57,35 +52,6 @@ where
     ) -> Result<PublicKey<P, DEGREE>, PublicKeyError> {
         let pk_params = PublicKeyParams::new(3.2)?;
         PublicKey::generate(secret_key, &pk_params, &self.context, rng)
-    }
-
-    pub fn encode(&self, values: &[f64]) -> Plaintext<P, DEGREE> {
-        // Use the configured encoder, not the static fft_encode
-        let coeffs = self
-            .encoder
-            .encode(values)
-            .expect("Encoding should succeed");
-        let scale = self.encoder.scale();
-
-        let poly = P::from_coeffs(&coeffs, &self.context);
-        Plaintext { poly, scale }
-    }
-
-    pub fn decode(
-        encoder_type: EncoderType,
-        plaintext: &Plaintext<P, DEGREE>,
-        scale_bits: u32,
-    ) -> Vec<f64> {
-        let encoder: Box<dyn Encoder<DEGREE>> = match encoder_type {
-            EncoderType::RustFft => Box::new(
-                RustFftEncoder::<DEGREE>::new(scale_bits)
-                    .expect("Valid scale_bits"),
-            ),
-            // Add other encoder types here
-        };
-
-        let coeffs = plaintext.poly.to_coeffs();
-        encoder.decode(&coeffs).expect("Decoding should succeed")
     }
 
     // Encryption/Decryption

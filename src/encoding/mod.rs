@@ -1,6 +1,8 @@
 mod bigint;
 mod fft;
 
+use crate::{Plaintext, PolyRing};
+pub use bigint::BigIntEncoder;
 pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
 use thiserror::Error;
 
@@ -21,14 +23,7 @@ pub enum EncodingError {
     CoefficientOutOfRange { value: f64 },
 }
 
-pub trait Encoder<const DEGREE: usize>: Send + Sync {
-    fn encode(&self, values: &[f64]) -> EncodingResult<Vec<i64>>;
-    fn decode(&self, coeffs: &[i64]) -> EncodingResult<Vec<f64>>;
-    fn scale(&self) -> f64;
-}
-
-#[derive(Debug, Clone)]
-pub enum EncoderType {
-    RustFft,
-    BigInt { scale_bits: u32 },
+pub trait Encoder<P: PolyRing<DEGREE>, const DEGREE: usize>: Send + Sync {
+    fn encode(&self, values: &[f64], context: &P::Context) -> Plaintext<P, DEGREE>;
+    fn decode(&self, plaintext: &Plaintext<P, DEGREE>) -> Vec<f64>;
 }

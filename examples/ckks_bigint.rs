@@ -1,7 +1,7 @@
 use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::{CkksEngine, PolyRingU256, encoding::EncoderType};
+use toy_heaan_ckks::{CkksEngine, Encoder, PolyRingU256, encoding::BigIntEncoder};
 
 const DEGREE: usize = 8;
 const SCALE_BITS: u32 = 60; // should be larger than usual
@@ -18,16 +18,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create U256 modulus from hex string
     let modulus_u256 = U256::from_be_hex(MODULUS_HEX);
     let modulus = NonZero::new(modulus_u256).expect("Modulus should not be zero");
+    let encoder = BigIntEncoder::new(SCALE_BITS)?;
 
     println!("✅ Using 256-bit modulus: 0x{}", MODULUS_HEX);
 
     // Create CKKS Engine with BigInt U256 backend
     let engine = Engine::builder()
-        .encoder(EncoderType::RustFft)
         .error_variance(3.2)
         .hamming_weight(DEGREE / 2)
-        .scale_bits(SCALE_BITS)
-        .build_bigint_u256(modulus)?;
+        .build_bigint_u256(modulus, SCALE_BITS)?;
     println!("✅ Engine configured with BigInt U256 backend");
 
     println!("\n🔑 Generating keys...");
@@ -41,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
-    let plaintext = engine.encode(&values);
+    let plaintext = encoder.encode(&values, engine.context());
     println!("✅ Values encoded to plaintext with BigInt backend");
 
     // Step 2: Encrypt: Plaintext → Ciphertext
@@ -56,11 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 4: Decode: Plaintext → Vec<f64>
     println!("\n🔢 Decoding back to floating-point...");
-    let decoded_values = Engine::decode(
-        EncoderType::RustFft,
-        &decrypted_plaintext,
-        engine.params.scale_bits,
-    );
+    let decoded_values = encoder.decode(&decrypted_plaintext);
     println!("✅ Plaintext decoded: {:?}", decoded_values);
 
     // Display results
@@ -91,17 +86,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let values2 = vec![0.5, 1.0, 1.5, 0.0];
     println!("Second input: {:?}", values2);
 
-    let plaintext2 = engine.encode(&values2);
+    let plaintext2 = encoder.encode(&values2, engine.context());
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
 
     // Homomorphic addition
     let ciphertext_sum = Engine::add_ciphertexts(&ciphertext, &ciphertext2);
     let decrypted_sum = Engine::decrypt(&ciphertext_sum, &secret_key);
-    let decoded_sum = Engine::decode(
-        EncoderType::RustFft,
-        &decrypted_sum,
-        engine.params.scale_bits,
-    );
+    let decoded_sum = encoder.decode(&decrypted_sum);
 
     // Expected result
     let expected_sum: Vec<f64> =
