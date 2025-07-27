@@ -9,7 +9,7 @@ use std::ops::{AddAssign, MulAssign, Neg};
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolyRingU256<const DEGREE: usize> {
     pub coeffs: [U256; DEGREE],
-    pub modulus: NonZero<U256>,
+    modulus: NonZero<U256>,
 }
 
 impl<const DEGREE: usize> PolyRingU256<DEGREE> {
@@ -17,6 +17,27 @@ impl<const DEGREE: usize> PolyRingU256<DEGREE> {
         Self {
             coeffs: [U256::ZERO; DEGREE],
             modulus,
+        }
+    }
+
+    pub fn coefficients(&self) -> [U256; DEGREE] {
+        self.coeffs
+    }
+
+    pub fn modulus(&self) -> NonZero<U256> {
+        self.modulus
+    }
+
+    /// Create polynomial from U256 coefficients directly
+    pub fn from_u256_coeffs(coeffs: &[U256], context: &NonZero<U256>) -> Self {
+        let mut result_coeffs = [U256::ZERO; DEGREE];
+        for (i, &coeff) in coeffs.iter().enumerate().take(DEGREE) {
+            result_coeffs[i] = coeff % context.get(); // Ensure coefficient is in range
+        }
+
+        Self {
+            coeffs: result_coeffs,
+            modulus: *context,
         }
     }
 }

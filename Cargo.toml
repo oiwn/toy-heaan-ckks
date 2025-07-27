@@ -11,6 +11,7 @@ rustfft = "6.2"
 dhat = "0.3"
 thiserror = "2"
 crypto-bigint = "0.6"
+num-complex = "0.4.6"
 
 [dev-dependencies]
 approx = "0.5"

@@ -1,8 +1,9 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams, SecretKey,
-    SecretKeyError, SecretKeyParams,
+    PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
+    RelinearizationKey, RelinearizationKeyError, RelinearizationKeyParams,
+    SecretKey, SecretKeyError, SecretKeyParams,
 };
 use rand::Rng;
 
@@ -52,6 +53,28 @@ where
     ) -> Result<PublicKey<P, DEGREE>, PublicKeyError> {
         let pk_params = PublicKeyParams::new(3.2)?;
         PublicKey::generate(secret_key, &pk_params, &self.context, rng)
+    }
+
+    /// Generate a relinearization key for ciphertext multiplication
+    ///
+    /// The relinearization key enables converting degree-2 ciphertexts (produced by multiplication)
+    /// back to degree-1 ciphertexts while preserving the encrypted plaintext.
+    ///
+    /// # Arguments
+    /// * `secret_key` - The secret key used to generate the relinearization key
+    /// * `rng` - Random number generator for sampling
+    ///
+    /// # Returns
+    /// * `Result<RelinearizationKey<P, DEGREE>, RelinearizationKeyError>` - The generated key or error
+    pub fn generate_relinearization_key<R: Rng>(
+        &self,
+        secret_key: &SecretKey<P, DEGREE>,
+        rng: &mut R,
+    ) -> Result<RelinearizationKey<P, DEGREE>, RelinearizationKeyError> {
+        // Use same error variance as for other key generation
+        let relin_params =
+            RelinearizationKeyParams::new(self.params.error_variance.sqrt())?;
+        RelinearizationKey::generate(secret_key, &relin_params, &self.context, rng)
     }
 
     // Encryption/Decryption

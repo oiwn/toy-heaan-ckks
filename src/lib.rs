@@ -8,7 +8,8 @@ pub mod rings;
 pub use crypto::{Ciphertext, CkksEngine, CkksError, CkksResult, Plaintext};
 pub use encoding::{Encoder, EncodingParams, RustFftEncoder, decode, encode};
 pub use keys::{
-    PublicKey, PublicKeyError, PublicKeyParams, SecretKey, SecretKeyError,
+    PublicKey, PublicKeyError, PublicKeyParams, RelinearizationKey,
+    RelinearizationKeyError, RelinearizationKeyParams, SecretKey, SecretKeyError,
     SecretKeyParams,
 };
 pub use rings::backends::NaivePolyRing;
