@@ -4,10 +4,11 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{CkksEngine, Encoder, PolyRingU256, encoding::BigIntEncoder};
 
 const DEGREE: usize = 8;
-const SCALE_BITS: u32 = 60; // should be larger than usual
-// Large 256-bit modulus (example: a 256-bit prime)
-const MODULUS_HEX: &str =
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
+// const SCALE_BITS: u32 = 60; // should be larger than usual
+const SCALE_BITS: u32 = 40;
+const Q50: u64 = (1u64 << 50) - 27;
+// const Q50_U256: U256 = U256::from_u64((1u64 << 50) - 27);
+// const Q128: u128 = (1u128 << 100) - 3;
 
 type Engine = CkksEngine<PolyRingU256<DEGREE>, DEGREE>;
 
@@ -16,11 +17,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 CKKS BigInt U256 Backend Demo");
 
     // Create U256 modulus from hex string
-    let modulus_u256 = U256::from_be_hex(MODULUS_HEX);
+    // let modulus_u256 = U256::from_be_hex(MODULUS_HEX);
+    let modulus_u256 = U256::from_u128(Q50 as u128);
     let modulus = NonZero::new(modulus_u256).expect("Modulus should not be zero");
     let encoder = BigIntEncoder::new(SCALE_BITS)?;
 
-    println!("✅ Using 256-bit modulus: 0x{}", MODULUS_HEX);
+    println!("✅ Using 256-bit modulus: {}", modulus_u256);
 
     // Create CKKS Engine with BigInt U256 backend
     let engine = Engine::builder()
@@ -42,6 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔢 Encoding values...");
     let plaintext = encoder.encode(&values, engine.context());
     println!("✅ Values encoded to plaintext with BigInt backend");
+
+    // sanity: encode -> decode without encryption
+    let decoded_plain = encoder.decode(&plaintext);
+    println!("Plain roundtrip: {:?}", &decoded_plain[..values.len()]);
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
