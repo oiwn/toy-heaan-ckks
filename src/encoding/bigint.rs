@@ -2,6 +2,7 @@ use crate::encoding::{Encoder, EncodingError, EncodingResult};
 use crate::{Plaintext, PolyRing, PolyRingU256};
 use crypto_bigint::{NonZero, U256};
 use num_complex::Complex64;
+use rand::Rng;
 use std::f64::consts::PI;
 
 pub struct BigIntEncodingParams<const DEGREE: usize> {
@@ -23,12 +24,13 @@ impl<const DEGREE: usize> BigIntEncodingParams<DEGREE> {
         if !DEGREE.is_power_of_two() {
             return Err(EncodingError::InvalidRingDegree { degree: DEGREE });
         }
+        assert!(scale_bits <= 52, "scale_bits must be ≤ 52 with f64 backend");
         Ok(Self { scale_bits })
     }
 
     #[inline]
     pub fn delta(&self) -> f64 {
-        (1u128 << self.scale_bits) as f64
+        (1u64 << self.scale_bits) as f64
     }
 }
 
@@ -38,6 +40,58 @@ impl<const DEGREE: usize> BigIntEncoder<DEGREE> {
             params: BigIntEncodingParams::new(scale_bits)?,
         })
     }
+
+    /// π^{-1}: Expand C^{N/2} to Hermitian space H
+    fn pi_inverse(&self, z: &[f64]) -> Vec<Complex64> {
+        let n = z.len();
+        let mut result = Vec::with_capacity(2 * n);
+
+        // First N/2 elements: convert real to complex
+        for &val in z {
+            result.push(Complex64::new(val, 0.0));
+        }
+
+        // Second N/2 elements: complex conjugates in reverse order
+        for &val in z.iter().rev() {
+            result.push(Complex64::new(val, 0.0)); // Since input is real, conjugate is same
+        }
+
+        result
+    }
+
+    /// Create the σ(R) lattice basis
+    fn create_sigma_r_basis(&self) -> Vec<Vec<Complex64>> {
+        let n = DEGREE / 2;
+        let xi = primitive_root(n as u32);
+
+        // Vandermonde matrix: sigma(1), sigma(X), ..., sigma(X^{N-1})
+        (0..DEGREE)
+            .map(|j| {
+                (0..n)
+                    .map(|i| xi.powu(((2 * i + 1) * j) as u32))
+                    .chain((0..n).map(|i| xi.powu(((2 * i + 1) * j) as u32).conj()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Reconstruct vector from lattice basis coordinates
+    fn reconstruct_from_basis(
+        &self,
+        coords: &[i64],
+        basis: &[Vec<Complex64>],
+    ) -> Vec<Complex64> {
+        let mut result = vec![Complex64::new(0.0, 0.0); basis[0].len()];
+
+        for (coord, basis_vec) in coords.iter().zip(basis.iter()) {
+            let weight = *coord as f64;
+            for (i, &basis_val) in basis_vec.iter().enumerate() {
+                result[i] += basis_val * weight;
+            }
+        }
+
+        result
+    }
 }
 
 impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
@@ -46,21 +100,18 @@ impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
     fn encode(
         &self,
         values: &[f64],
-        context: &<PolyRingU256<DEGREE> as PolyRing<DEGREE>>::Context, // NonZero<U256>
+        context: &NonZero<U256>,
     ) -> Plaintext<PolyRingU256<DEGREE>, DEGREE> {
         let n = DEGREE / 2;
-
-        // pad
         let mut padded = values.to_vec();
         padded.resize(n, 0.0);
 
-        // sigma^{-1}
+        // For now, use the original vanilla implementation
+        // TODO: Add full lattice projection in separate commit
         let complex_coeffs = sigma_inv(&padded, n as u32);
-
-        // quantize -> (re, im) as U256
         let qp = quantize_u256(&complex_coeffs, context, self.params.delta());
 
-        // pack re | im в poly coeffs
+        // Pack into polynomial coefficients
         let mut coeffs = [U256::ZERO; DEGREE];
         for i in 0..n {
             coeffs[i] = qp.re[i];
@@ -68,7 +119,6 @@ impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
         }
 
         let poly = PolyRingU256::<DEGREE>::from_u256_coeffs(&coeffs, context);
-
         Plaintext {
             poly,
             scale: self.params.delta(),
@@ -179,6 +229,36 @@ fn dequantize_u256(
             let re = from_mod_u256_centered(qp.re[i], q.get()) as f64 / scale;
             let im = from_mod_u256_centered(qp.im[i], q.get()) as f64 / scale;
             Complex64::new(re, im)
+        })
+        .collect()
+}
+
+fn compute_basis_coordinates(
+    z: &[Complex64],
+    basis: &[Vec<Complex64>],
+) -> Vec<f64> {
+    basis
+        .iter()
+        .map(|b| {
+            let dot_product: Complex64 =
+                z.iter().zip(b.iter()).map(|(zi, bi)| zi * bi.conj()).sum();
+            let norm_squared: f64 = b.iter().map(|bi| bi.norm_sqr()).sum();
+            dot_product.re / norm_squared
+        })
+        .collect()
+}
+
+fn coordinate_wise_random_rounding(coords: &[f64], rng: &mut impl Rng) -> Vec<i64> {
+    coords
+        .iter()
+        .map(|&c| {
+            let floor_c = c.floor();
+            let frac = c - floor_c;
+            if rng.random::<f64>() < frac {
+                floor_c as i64 + 1
+            } else {
+                floor_c as i64
+            }
         })
         .collect()
 }
