@@ -125,7 +125,7 @@ where
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
         // Use the polynomial backend's ternary sampling
-        let poly = P::sample_tribits(rng, params.hamming_weight, context);
+        let poly = P::sample_tribits(params.hamming_weight, context, rng);
 
         Ok(SecretKey { poly })
     }
@@ -171,14 +171,12 @@ mod tests {
 
     #[test]
     fn test_secret_key_params_validation() {
-        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
-        assert!(params.validate().is_ok());
+        let _ = SecretKeyParams::<TEST_DEGREE>::new(8).is_ok();
 
         // Test with manually created invalid params (bypassing constructor)
-        let invalid_params: SecretKeyParams<TEST_DEGREE> = SecretKeyParams {
-            hamming_weight: TEST_DEGREE + 5,
-        };
-        assert!(invalid_params.validate().is_err());
+        let invalid_params: Result<SecretKeyParams<TEST_DEGREE>, SecretKeyError> =
+            SecretKeyParams::<TEST_DEGREE>::new(TEST_DEGREE + 5);
+        assert!(invalid_params.is_err());
     }
 
     #[test]

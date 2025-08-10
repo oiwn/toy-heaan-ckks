@@ -29,7 +29,7 @@ pub type EncryptionResult<T> = Result<T, EncryptionError>;
 /// 1. Sample a small random polynomial `u` (ternary with small hamming weight)
 /// 2. Sample error polynomials `e0` and `e1` from Gaussian distribution
 /// 3. Compute:
-///    - `c0 = pk.b * u + e0 + plaintext.poly`  
+///    - `c0 = pk.b * u + e0 + plaintext.poly`
 ///    - `c1 = pk.a * u + e1`
 ///
 /// The resulting ciphertext satisfies: `c0 + c1 * sk ≈ plaintext` (mod noise)
@@ -53,11 +53,11 @@ where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
     // Sample ephemeral ternary polynomial with small hamming weight
-    let u = P::sample_tribits(rng, DEGREE / 2, context);
+    let u = P::sample_tribits(DEGREE / 2, context, rng);
 
     // Sample error polynomials from Gaussian distribution
-    let e0 = P::sample_gaussian(rng, error_varaiance, context);
-    let e1 = P::sample_gaussian(rng, error_varaiance, context);
+    let e0 = P::sample_gaussian(error_varaiance, context, rng);
+    let e1 = P::sample_gaussian(error_varaiance, context, rng);
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();
@@ -84,7 +84,7 @@ where
 ///
 /// This works because during encryption we have:
 /// - `c0 = pk.b * u + e0 + plaintext`
-/// - `c1 = pk.a * u + e1`  
+/// - `c1 = pk.a * u + e1`
 /// - `pk.b = -(pk.a * sk + e_pk)`
 ///
 /// So: `c0 + c1 * sk = plaintext + error_terms`

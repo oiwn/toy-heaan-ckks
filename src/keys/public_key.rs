@@ -59,7 +59,7 @@ where
     ///
     /// # RLWE Public Key Generation
     /// 1. Sample a uniformly random polynomial `a`
-    /// 2. Sample an error polynomial `e` from Gaussian distribution  
+    /// 2. Sample an error polynomial `e` from Gaussian distribution
     /// 3. Compute `b = -(a * s) + e` where `s` is the secret key
     ///
     /// The public key (a, b) satisfies: `b + a * s ≈ 0` (mod small error)
@@ -73,10 +73,10 @@ where
         params.validate()?;
 
         // Sample uniformly random polynomial 'a'
-        let a = P::sample_uniform(rng, context);
+        let a = P::sample_uniform(context, rng);
 
         // Sample error polynomial 'e' from Gaussian distribution
-        let e = P::sample_gaussian(rng, params.error_std, context);
+        let e = P::sample_gaussian(params.error_std, context, rng);
 
         // Compute b = -(a * s) + e
         let mut a_times_s = a.clone();

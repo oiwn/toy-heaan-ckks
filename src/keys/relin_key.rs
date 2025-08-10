@@ -82,10 +82,10 @@ where
         s_squared *= &secret_key.poly; // s^2
 
         // Step 2: Sample uniformly random polynomial 'a'
-        let a = P::sample_uniform(rng, context);
+        let a = P::sample_uniform(context, rng);
 
         // Step 3: Sample error polynomial 'e' from Gaussian distribution
-        let e = P::sample_gaussian(rng, params.error_std, context);
+        let e = P::sample_gaussian(params.error_std, context, rng);
 
         // Step 4: Compute b = -(a * s) + e + s^2
         let mut a_times_s = a.clone();

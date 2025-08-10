@@ -19,21 +19,21 @@ pub trait PolyRing<const DEGREE: usize>:
 
 // Sampling trait - provides common sampling operations for polynomials
 pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
-    fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self;
+    fn sample_uniform<R: Rng>(context: &Self::Context, rng: &mut R) -> Self;
     fn sample_gaussian<R: Rng>(
-        rng: &mut R,
         std_dev: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self;
     fn sample_tribits<R: Rng>(
-        rng: &mut R,
         hamming_weight: usize,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self;
     fn sample_noise<R: Rng>(
-        rng: &mut R,
         variance: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self;
 }
 

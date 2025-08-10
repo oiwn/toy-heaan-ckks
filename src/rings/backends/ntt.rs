@@ -436,7 +436,7 @@ impl<const DEGREE: usize> Add<&RnsNttPolyRing<DEGREE>> for &RnsNttPolyRing<DEGRE
 // ============================================================================
 
 impl<const DEGREE: usize> PolySampler<DEGREE> for RnsNttPolyRing<DEGREE> {
-    fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self {
+    fn sample_uniform<R: Rng>(context: &Self::Context, rng: &mut R) -> Self {
         // Find the largest prime in the basis to use as max_value
         let max_prime = *context.primes().iter().max().unwrap_or(&1);
 
@@ -449,9 +449,9 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for RnsNttPolyRing<DEGREE> {
     }
 
     fn sample_gaussian<R: Rng>(
-        rng: &mut R,
         std_dev: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         // Use the product of all primes as the working modulus for Gaussian sampling
         let modulus_product: u64 = context.primes().iter().product();
@@ -466,20 +466,20 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for RnsNttPolyRing<DEGREE> {
     }
 
     fn sample_tribits<R: Rng>(
-        rng: &mut R,
         hamming_weight: usize,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         let ternary = ternary_coefficients::<DEGREE, _>(hamming_weight, rng);
         Self::from_i64_slice(&ternary, context.clone())
     }
 
     fn sample_noise<R: Rng>(
-        rng: &mut R,
         variance: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
-        Self::sample_gaussian(rng, variance.sqrt(), context)
+        Self::sample_gaussian(variance.sqrt(), context, rng)
     }
 }
 
