@@ -13,6 +13,7 @@ pub enum SecretKeyError {
 }
 
 /// Parameters for secret key generation
+#[derive(Debug)]
 pub struct SecretKeyParams<const DEGREE: usize> {
     /// Number of non-zero coefficients in the secret polynomial
     pub hamming_weight: usize,
@@ -71,293 +72,278 @@ where
     }
 }
 
-/* #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rings::RnsBasisBuilder;
+    use crate::rings::backends::NaivePolyRing;
     use rand::SeedableRng;
-    use rand::rngs::StdRng;
-    use std::sync::Arc;
+    use rand_chacha::ChaCha20Rng;
 
-    /// Helper to create a test RNS basis with small primes
-    fn create_test_basis<const DEGREE: usize>() -> Arc<RnsBasis> {
-        Arc::new(
-            RnsBasisBuilder::new(DEGREE)
-                .with_custom_primes(vec![17, 19, 23]) // Small test primes
-                .build()
-                .unwrap(),
-        )
+    const TEST_DEGREE: usize = 16;
+    const TEST_MODULUS: u64 = 97; // Small prime for testing
+
+    type TestSecretKey = SecretKey<NaivePolyRing<TEST_DEGREE>, TEST_DEGREE>;
+
+    #[test]
+    fn test_secret_key_params_creation() {
+        // Valid hamming weight
+        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
+        assert_eq!(params.hamming_weight, 8);
+
+        // Hamming weight equal to degree should be valid
+        let params = SecretKeyParams::<TEST_DEGREE>::new(TEST_DEGREE).unwrap();
+        assert_eq!(params.hamming_weight, TEST_DEGREE);
+    }
+
+    #[test]
+    fn test_secret_key_params_invalid_hamming_weight() {
+        // Hamming weight exceeding degree should fail
+        let result = SecretKeyParams::<TEST_DEGREE>::new(TEST_DEGREE + 1);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            SecretKeyError::InvalidHammingWeight(hw, deg) => {
+                assert_eq!(hw, TEST_DEGREE + 1);
+                assert_eq!(deg, TEST_DEGREE);
+            }
+            _ => panic!("Expected InvalidHammingWeight error"),
+        }
+    }
+
+    #[test]
+    fn test_secret_key_params_validation() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
+        assert!(params.validate().is_ok());
+
+        // Test with manually created invalid params (bypassing constructor)
+        let invalid_params: SecretKeyParams<TEST_DEGREE> = SecretKeyParams {
+            hamming_weight: TEST_DEGREE + 5,
+        };
+        assert!(invalid_params.validate().is_err());
+    }
+
+    #[test]
+    fn test_secret_key_generation() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        let secret_key = TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng);
+        assert!(secret_key.is_ok());
     }
 
     #[test]
     fn test_secret_key_hamming_weight() {
-        const DEGREE: usize = 128;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 40,
-        };
+        let hamming_weight = 6;
+        let params = SecretKeyParams::<TEST_DEGREE>::new(hamming_weight).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(123);
 
-        let mut rng = StdRng::seed_from_u64(0);
-        let sk = SecretKey::generate(&params, &mut rng).unwrap();
+        let secret_key =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
 
-        // Count non-zero coefficients by reconstructing to integers
-        let mut non_zero_count = 0;
-        for i in 0..DEGREE {
-            let coeff = sk.s.coefficient_to_u64(i);
-            if coeff != 0 {
-                non_zero_count += 1;
-            }
-        }
+        // Check that the polynomial has exactly the requested hamming weight
+        let coeffs = secret_key.poly.to_coeffs();
+        let actual_hamming_weight = coeffs.iter().filter(|&&c| c != 0).count();
 
-        assert_eq!(non_zero_count, params.hamming_weight);
+        assert_eq!(
+            actual_hamming_weight, hamming_weight,
+            "Expected hamming weight {}, got {}",
+            hamming_weight, actual_hamming_weight
+        );
     }
 
     #[test]
-    fn test_coefficient_values() {
-        const DEGREE: usize = 64;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 20,
-        };
+    fn test_secret_key_ternary_coefficients() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(789);
 
-        let mut rng = StdRng::seed_from_u64(0);
-        let sk = SecretKey::generate(&params, &mut rng).unwrap();
+        let secret_key =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let coeffs = secret_key.poly.to_coeffs();
 
-        // Calculate modulus product for the test basis
-        let modulus_product: u64 = basis.primes().iter().product();
-
-        for i in 0..DEGREE {
-            let coeff = sk.s.coefficient_to_u64(i);
-            // In RNS, coefficients should be 0, 1, or modulus_product-1 (representing -1)
+        // All coefficients should be in {-1, 0, 1}
+        for &coeff in &coeffs {
             assert!(
-                coeff == 0 || coeff == 1 || coeff == modulus_product - 1,
-                "Coefficient {} at position {} should be 0, 1, or {} (representing -1), got {}",
-                i,
-                i,
-                modulus_product - 1,
+                coeff == -1 || coeff == 0 || coeff == 1,
+                "Coefficient {} is not ternary",
                 coeff
             );
         }
     }
 
     #[test]
-    fn test_value_distribution() {
-        const DEGREE: usize = 1024;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 500,
-        };
-
-        let modulus_product: u64 = basis.primes().iter().product();
-        let mut ones_count = 0;
-        let mut neg_ones_count = 0;
-
-        for seed in 0..10 {
-            // Generate 10 keys
-            let mut rng = StdRng::seed_from_u64(seed);
-            let sk = SecretKey::generate(&params, &mut rng).unwrap();
-
-            for i in 0..DEGREE {
-                let coeff = sk.s.coefficient_to_u64(i);
-                if coeff == 1 {
-                    ones_count += 1;
-                } else if coeff == modulus_product - 1 {
-                    neg_ones_count += 1;
-                }
-            }
-        }
-
-        // We expect roughly equal numbers of 1 and -1
-        let ratio = ones_count as f64 / (ones_count + neg_ones_count) as f64;
-        assert!(
-            (ratio - 0.5).abs() < 0.1,
-            "1 and -1 should be equally distributed, got ratio: {}, ones: {}, neg_ones: {}",
-            ratio,
-            ones_count,
-            neg_ones_count
-        );
-    }
-
-    #[test]
-    fn test_secret_key_reproducible() {
-        const DEGREE: usize = 32;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 16,
-        };
-
-        // Generate two keys with same seed
-        let mut rng1 = StdRng::seed_from_u64(42);
-        let mut rng2 = StdRng::seed_from_u64(42);
-
-        let sk1 = SecretKey::generate(&params, &mut rng1).unwrap();
-        let sk2 = SecretKey::generate(&params, &mut rng2).unwrap();
-
-        // Should be identical
-        for i in 0..DEGREE {
-            assert_eq!(
-                sk1.s.coefficient_to_u64(i),
-                sk2.s.coefficient_to_u64(i),
-                "Coefficients should be identical with same seed"
-            );
-        }
-    }
-
-    #[test]
-    fn test_secret_key_params_validation() {
-        const DEGREE: usize = 8;
-        let basis = create_test_basis::<DEGREE>();
-
-        // Test valid params
-        let valid_params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 4,
-        };
-        assert!(valid_params.validate().is_ok());
-
-        // Test invalid params (hamming weight > degree)
-        let invalid_params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 10, // > DEGREE
-        };
-
-        let result = invalid_params.validate();
-        assert!(result.is_err());
-
-        if let Err(SecretKeyError::InvalidHammingWeight(weight, degree)) = result {
-            assert_eq!(weight, 10);
-            assert_eq!(degree, DEGREE);
-        } else {
-            panic!("Expected InvalidHammingWeight error");
-        }
-    }
-
-    #[test]
-    fn test_secret_key_generation_fails_invalid_params() {
-        const DEGREE: usize = 8;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 10, // > DEGREE
-        };
-
-        let mut rng = StdRng::seed_from_u64(0);
-        let result = SecretKey::generate(&params, &mut rng);
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SecretKeyError::InvalidHammingWeight(10, 8)
-        ));
-    }
-
-    #[test]
     fn test_secret_key_zero_hamming_weight() {
-        const DEGREE: usize = 16;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: 0,
-        };
+        let params = SecretKeyParams::<TEST_DEGREE>::new(0).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(999);
 
-        let mut rng = StdRng::seed_from_u64(0);
-        let sk = SecretKey::generate(&params, &mut rng).unwrap();
+        let secret_key =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let coeffs = secret_key.poly.to_coeffs();
 
         // All coefficients should be zero
-        for i in 0..DEGREE {
-            assert_eq!(
-                sk.s.coefficient_to_u64(i),
-                0,
-                "All coefficients should be zero"
-            );
+        for &coeff in &coeffs {
+            assert_eq!(coeff, 0, "Expected zero coefficient, got {}", coeff);
         }
     }
 
     #[test]
     fn test_secret_key_full_hamming_weight() {
-        const DEGREE: usize = 8;
-        let basis = create_test_basis::<DEGREE>();
-        let params: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis.clone(),
-            hamming_weight: DEGREE, // All coefficients non-zero
-        };
+        let params = SecretKeyParams::<TEST_DEGREE>::new(TEST_DEGREE).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(555);
 
-        let mut rng = StdRng::seed_from_u64(0);
-        let sk = SecretKey::generate(&params, &mut rng).unwrap();
+        let secret_key =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let coeffs = secret_key.poly.to_coeffs();
 
-        let modulus_product: u64 = basis.primes().iter().product();
-        let mut zero_count = 0;
-
-        for i in 0..DEGREE {
-            let coeff = sk.s.coefficient_to_u64(i);
-            if coeff == 0 {
-                zero_count += 1;
-            } else {
-                // Should be ±1
-                assert!(
-                    coeff == 1 || coeff == modulus_product - 1,
-                    "Non-zero coefficient should be ±1, got {}",
-                    coeff
-                );
-            }
+        // All coefficients should be non-zero (±1)
+        for &coeff in &coeffs {
+            assert!(
+                coeff == -1 || coeff == 1,
+                "Expected ±1 coefficient, got {}",
+                coeff
+            );
         }
+    }
+
+    #[test]
+    fn test_secret_key_deterministic_generation() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(6).unwrap();
+
+        // Same seed should produce same secret key
+        let mut rng1 = ChaCha20Rng::seed_from_u64(12345);
+        let mut rng2 = ChaCha20Rng::seed_from_u64(12345);
+
+        let sk1 =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng1).unwrap();
+        let sk2 =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng2).unwrap();
+
+        let coeffs1 = sk1.poly.to_coeffs();
+        let coeffs2 = sk2.poly.to_coeffs();
 
         assert_eq!(
-            zero_count, 0,
-            "No coefficients should be zero with full hamming weight"
+            coeffs1, coeffs2,
+            "Same seed should produce identical secret keys"
         );
     }
 
     #[test]
-    fn test_secret_key_with_different_bases() {
-        const DEGREE: usize = 16;
+    fn test_secret_key_different_seeds() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
 
-        // Create two different bases
-        let basis1 = Arc::new(
-            RnsBasisBuilder::new(DEGREE)
-                .with_custom_primes(vec![17, 19])
-                .build()
-                .unwrap(),
+        // Different seeds should produce different secret keys (with high probability)
+        let mut rng1 = ChaCha20Rng::seed_from_u64(11111);
+        let mut rng2 = ChaCha20Rng::seed_from_u64(22222);
+
+        let sk1 =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng1).unwrap();
+        let sk2 =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng2).unwrap();
+
+        let coeffs1 = sk1.poly.to_coeffs();
+        let coeffs2 = sk2.poly.to_coeffs();
+
+        assert_ne!(
+            coeffs1, coeffs2,
+            "Different seeds should produce different secret keys"
         );
-
-        let basis2 = Arc::new(
-            RnsBasisBuilder::new(DEGREE)
-                .with_custom_primes(vec![23, 29, 31])
-                .build()
-                .unwrap(),
-        );
-
-        let params1: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis1.clone(),
-            hamming_weight: 8,
-        };
-
-        let params2: SecretKeyParams<DEGREE> = SecretKeyParams {
-            basis: basis2.clone(),
-            hamming_weight: 8,
-        };
-
-        let mut rng = StdRng::seed_from_u64(123);
-
-        let sk1 = SecretKey::generate(&params1, &mut rng).unwrap();
-        let sk2 = SecretKey::generate(&params2, &mut rng).unwrap();
-
-        // Verify they have different bases
-        assert_ne!(sk1.s.basis.primes(), sk2.s.basis.primes());
-
-        // But same hamming weight
-        let count1 = (0..DEGREE)
-            .filter(|&i| sk1.s.coefficient_to_u64(i) != 0)
-            .count();
-        let count2 = (0..DEGREE)
-            .filter(|&i| sk2.s.coefficient_to_u64(i) != 0)
-            .count();
-
-        assert_eq!(count1, 8);
-        assert_eq!(count2, 8);
     }
-} */
+
+    #[test]
+    fn test_secret_key_coefficient_distribution() {
+        let hamming_weight = 10;
+        let params = SecretKeyParams::<TEST_DEGREE>::new(hamming_weight).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(777);
+
+        // Generate multiple secret keys to test distribution
+        let num_samples = 100;
+        let mut plus_one_count = 0;
+        let mut minus_one_count = 0;
+        let mut zero_count = 0;
+
+        for _ in 0..num_samples {
+            let secret_key =
+                TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+            let coeffs = secret_key.poly.to_coeffs();
+
+            for &coeff in &coeffs {
+                match coeff {
+                    1 => plus_one_count += 1,
+                    -1 => minus_one_count += 1,
+                    0 => zero_count += 1,
+                    _ => panic!("Invalid coefficient: {}", coeff),
+                }
+            }
+        }
+
+        let total_coeffs = num_samples * TEST_DEGREE;
+        let expected_nonzero = num_samples * hamming_weight;
+        let expected_zero = total_coeffs - expected_nonzero;
+
+        // Check that we have the expected number of zeros
+        assert_eq!(zero_count, expected_zero);
+
+        // Check that ±1 are roughly balanced (allow some variance)
+        let nonzero_total = plus_one_count + minus_one_count;
+        assert_eq!(nonzero_total, expected_nonzero);
+
+        // Both should be > 0 and within reasonable bounds
+        let min_expected = expected_nonzero / 3; // Allow significant variance for small sample
+        assert!(plus_one_count > min_expected, "Too few +1 coefficients");
+        assert!(minus_one_count > min_expected, "Too few -1 coefficients");
+    }
+
+    #[test]
+    fn test_error_display() {
+        let error = SecretKeyError::InvalidHammingWeight(100, 64);
+        let display = format!("{}", error);
+        assert!(display.contains("100"));
+        assert!(display.contains("64"));
+        assert!(display.contains("exceeds"));
+
+        let error = SecretKeyError::InvalidContext("test error".to_string());
+        let display = format!("{}", error);
+        assert!(display.contains("test error"));
+    }
+
+    #[test]
+    fn test_secret_key_clone() {
+        let params = SecretKeyParams::<TEST_DEGREE>::new(4).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(333);
+
+        let original =
+            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let cloned = original.clone();
+
+        let orig_coeffs = original.poly.to_coeffs();
+        let clone_coeffs = cloned.poly.to_coeffs();
+
+        assert_eq!(orig_coeffs, clone_coeffs);
+    }
+
+    // Integration test with different ring degrees
+    #[test]
+    fn test_different_ring_degrees() {
+        // Test with power-of-2 degrees
+        test_degree_helper::<8>();
+        test_degree_helper::<32>();
+        test_degree_helper::<128>();
+    }
+
+    fn test_degree_helper<const DEGREE: usize>() {
+        let hamming_weight = DEGREE / 4;
+        let params = SecretKeyParams::<DEGREE>::new(hamming_weight).unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+
+        let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
+            SecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+
+        let coeffs = secret_key.poly.to_coeffs();
+        let actual_hw = coeffs.iter().filter(|&&c| c != 0).count();
+
+        assert_eq!(actual_hw, hamming_weight);
+
+        for &coeff in &coeffs {
+            assert!(coeff >= -1 && coeff <= 1);
+        }
+    }
+}
