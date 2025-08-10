@@ -159,7 +159,7 @@ impl<const DEGREE: usize> Neg for PolyRingU256<DEGREE> {
 }
 
 impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
-    fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self {
+    fn sample_uniform<R: Rng>(context: &Self::Context, rng: &mut R) -> Self {
         // Generate uniform coefficients as u64, then convert to U256
         let mut coeffs = [U256::ZERO; DEGREE];
 
@@ -177,9 +177,9 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
     }
 
     fn sample_gaussian<R: Rng>(
-        rng: &mut R,
         std_dev: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         // Use existing gaussian sampling for u64, then convert
         let gaussian_u64 =
@@ -197,9 +197,9 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
     }
 
     fn sample_tribits<R: Rng>(
-        rng: &mut R,
         hamming_weight: usize,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         let ternary = ternary_coefficients::<DEGREE, R>(hamming_weight, rng);
         let mut coeffs = [U256::ZERO; DEGREE];
@@ -219,11 +219,11 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
     }
 
     fn sample_noise<R: Rng>(
-        rng: &mut R,
         variance: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
-        Self::sample_gaussian(rng, variance.sqrt(), context)
+        Self::sample_gaussian(variance.sqrt(), context, rng)
     }
 }
 

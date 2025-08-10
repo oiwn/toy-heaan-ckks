@@ -134,7 +134,7 @@ impl<const DEGREE: usize> Neg for NaivePolyRing<DEGREE> {
 }
 
 impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
-    fn sample_uniform<R: Rng>(rng: &mut R, context: &Self::Context) -> Self {
+    fn sample_uniform<R: Rng>(context: &Self::Context, rng: &mut R) -> Self {
         Self {
             coeffs: uniform_coefficients::<DEGREE, R>(*context, rng),
             context: *context,
@@ -142,9 +142,9 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
     }
 
     fn sample_gaussian<R: Rng>(
-        rng: &mut R,
         std_dev: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         Self {
             coeffs: gaussian_coefficients::<DEGREE, R>(std_dev, *context, rng),
@@ -153,9 +153,9 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
     }
 
     fn sample_tribits<R: Rng>(
-        rng: &mut R,
         hamming_weight: usize,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
         let ternary = ternary_coefficients::<DEGREE, R>(hamming_weight, rng);
         let coeffs = ternary.map(|x| if x == -1 { context - 1 } else { x as u64 });
@@ -166,10 +166,259 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
     }
 
     fn sample_noise<R: Rng>(
-        rng: &mut R,
         variance: f64,
         context: &Self::Context,
+        rng: &mut R,
     ) -> Self {
-        Self::sample_gaussian(rng, variance.sqrt(), context)
+        Self::sample_gaussian(variance.sqrt(), context, rng)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_MODULUS: u64 = (1u64 << 50) - 27; // Same as your example
+
+    #[test]
+    fn test_basic_polynomial_multiplication() {
+        println!("\n🧪 Testing basic polynomial multiplication in NaivePolyRing");
+
+        // Test simple constant multiplication: 2048 * 3072 = 6291456
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[2048, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[3072, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+
+        println!("   poly1 coeffs: {:?}", &poly1.coeffs);
+        println!("   poly2 coeffs: {:?}", &poly2.coeffs);
+
+        let mut result = poly1.clone();
+        result *= &poly2;
+
+        println!("   result coeffs: {:?}", &result.coeffs);
+        println!("   result[0]: {}", result.coeffs[0]);
+
+        let expected = 2048u64 * 3072u64; // = 6291456
+        println!("   expected[0]: {}", expected);
+
+        // Check if it's correct
+        assert_eq!(
+            result.coeffs[0], expected,
+            "Polynomial multiplication failed: got {}, expected {}",
+            result.coeffs[0], expected
+        );
+
+        // Other coefficients should be zero for this simple case
+        for i in 1..8 {
+            assert_eq!(
+                result.coeffs[i], 0,
+                "Coefficient {} should be 0, got {}",
+                i, result.coeffs[i]
+            );
+        }
+
+        println!("   ✅ Basic constant multiplication works!");
+    }
+
+    #[test]
+    fn test_polynomial_multiplication_with_higher_terms() {
+        println!("\n🧪 Testing polynomial multiplication with higher degree terms");
+
+        // Test: (1 + 2x) * (3 + 4x) = 3 + 10x + 8x²
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[1, 2, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[3, 4, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+
+        let mut result = poly1.clone();
+        result *= &poly2;
+
+        println!("   (1 + 2x) * (3 + 4x) = {:?}", &result.coeffs[0..3]);
+
+        // Expected: 3 + 10x + 8x²
+        assert_eq!(result.coeffs[0], 3, "Constant term should be 3");
+        assert_eq!(result.coeffs[1], 10, "x term should be 10");
+        assert_eq!(result.coeffs[2], 8, "x² term should be 8");
+
+        println!("   ✅ Higher degree multiplication works!");
+    }
+
+    #[test]
+    fn test_polynomial_multiplication_modular_reduction() {
+        println!("\n🧪 Testing polynomial multiplication with modular reduction");
+
+        // Test large coefficients that might overflow
+        let large_val1 = TEST_MODULUS / 2;
+        let large_val2 = 3;
+
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[large_val1 as i64, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[large_val2 as i64, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+
+        let mut result = poly1.clone();
+        result *= &poly2;
+
+        let expected = (large_val1 * large_val2) % TEST_MODULUS;
+
+        println!("   large_val1: {}", large_val1);
+        println!("   large_val2: {}", large_val2);
+        println!("   result[0]: {}", result.coeffs[0]);
+        println!("   expected: {}", expected);
+
+        assert_eq!(result.coeffs[0], expected, "Modular multiplication failed");
+
+        println!("   ✅ Modular reduction works!");
+    }
+
+    #[test]
+    fn test_cyclic_polynomial_multiplication() {
+        println!(
+            "\n🧪 Testing cyclic polynomial multiplication (X^n + 1 reduction)"
+        );
+
+        // Test if high-degree terms wrap around correctly
+        // In ring R = Z[X]/(X^8 + 1), we have X^8 = -1
+        // So X^7 * X = X^8 = -1
+
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[0, 0, 0, 0, 0, 0, 0, 1], // X^7
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[0, 1, 0, 0, 0, 0, 0, 0], // X
+            &TEST_MODULUS,
+        );
+
+        let mut result = poly1.clone();
+        result *= &poly2;
+
+        println!("   X^7 * X = {:?}", &result.coeffs);
+
+        // X^7 * X = X^8 = -1 in Z[X]/(X^8 + 1)
+        // So result should be [-1, 0, 0, 0, 0, 0, 0, 0]
+        // In modular arithmetic: -1 ≡ modulus - 1
+        let expected_neg_one = TEST_MODULUS - 1;
+
+        assert_eq!(
+            result.coeffs[0], expected_neg_one,
+            "X^8 reduction failed: got {}, expected {}",
+            result.coeffs[0], expected_neg_one
+        );
+
+        for i in 1..8 {
+            assert_eq!(
+                result.coeffs[i], 0,
+                "Higher terms should be 0 after X^8 reduction"
+            );
+        }
+
+        println!("   ✅ Cyclic reduction X^8 = -1 works!");
+    }
+
+    #[test]
+    fn test_multiplication_associativity() {
+        println!("\n🧪 Testing multiplication associativity");
+
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[1, 1, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[2, 1, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly3 = NaivePolyRing::<8>::from_coeffs(
+            &[1, 2, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+
+        // Test (poly1 * poly2) * poly3 = poly1 * (poly2 * poly3)
+        let mut left = poly1.clone();
+        left *= &poly2;
+        left *= &poly3;
+
+        let mut temp = poly2.clone();
+        temp *= &poly3;
+        let mut right = poly1.clone();
+        right *= &temp;
+
+        println!("   (p1 * p2) * p3 = {:?}", &left.coeffs[0..4]);
+        println!("   p1 * (p2 * p3) = {:?}", &right.coeffs[0..4]);
+
+        for i in 0..8 {
+            assert_eq!(
+                left.coeffs[i], right.coeffs[i],
+                "Associativity failed at coefficient {}",
+                i
+            );
+        }
+
+        println!("   ✅ Multiplication is associative!");
+    }
+
+    #[test]
+    fn test_ckks_realistic_multiplication() {
+        println!("\n🧪 Testing CKKS-realistic polynomial multiplication");
+
+        // Simulate what happens in your CKKS example
+        // Two polynomials representing scaled constants
+        let scale = 1024.0;
+        let val1 = 2.0;
+        let val2 = 3.0;
+
+        let coeff1 = (val1 * scale) as i64; // 2048
+        let coeff2 = (val2 * scale) as i64; // 3072
+
+        let poly1 = NaivePolyRing::<8>::from_coeffs(
+            &[coeff1, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+        let poly2 = NaivePolyRing::<8>::from_coeffs(
+            &[coeff2, 0, 0, 0, 0, 0, 0, 0],
+            &TEST_MODULUS,
+        );
+
+        println!("   Input poly1[0]: {} (represents {:.1})", coeff1, val1);
+        println!("   Input poly2[0]: {} (represents {:.1})", coeff2, val2);
+
+        let mut result = poly1.clone();
+        result *= &poly2;
+
+        println!("   Raw result[0]: {}", result.coeffs[0]);
+
+        let expected_raw = coeff1 as u64 * coeff2 as u64; // 2048 * 3072 = 6291456
+        let expected_value = (result.coeffs[0] as f64) / (scale * scale); // Should be ~6.0
+
+        println!("   Expected raw: {}", expected_raw);
+        println!("   Computed value: {:.6}", expected_value);
+        println!("   Expected value: {:.1}", val1 * val2);
+
+        assert_eq!(
+            result.coeffs[0], expected_raw,
+            "CKKS polynomial multiplication failed"
+        );
+
+        let error = (expected_value - (val1 * val2)).abs();
+        assert!(
+            error < 0.001,
+            "CKKS value computation failed: error {:.6}",
+            error
+        );
+
+        println!("   ✅ CKKS-style polynomial multiplication works perfectly!");
     }
 }
