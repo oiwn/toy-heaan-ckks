@@ -1,12 +1,8 @@
-use crypto_bigint::{NonZero, U256, Zero};
+use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::rings::backends::bigint::rescale_ciphertext_u256_inplace;
-use toy_heaan_ckks::{
-    CkksEngine, Encoder, PolyRing, PolyRingU256, PublicKey, PublicKeyParams,
-    RelinearizationKey, RelinearizationKeyParams, SecretKey, SecretKeyParams,
-    encoding,
-};
+use toy_heaan_ckks::{CkksEngine, Encoder, PolyRingU256, encoding};
 
 const DEGREE: usize = 8;
 // const SCALE_BITS: u32 = 60; // should be larger than usual
@@ -64,12 +60,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut ciphertext_mul =
         Engine::mul_ciphertexts(&ciphertext1, &ciphertext2, &relin_key);
+
+    println!("Before rescale:");
+    println!("  ct1.scale: {}", ciphertext1.scale);
+    println!("  ct2.scale: {}", ciphertext2.scale);
+    println!("  mul.scale: {}", ciphertext_mul.scale);
+    println!(
+        "  Expected Δ²: {}",
+        (1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64
+    );
+
     rescale_ciphertext_u256_inplace(&mut ciphertext_mul, SCALE_BITS);
+
+    println!("After rescale:");
+    println!("  mul.scale: {}", ciphertext_mul.scale);
+    println!("  Expected Δ: {}", (1u64 << SCALE_BITS) as f64);
 
     // Step 3: Decrypt: Ciphertext → Plaintext
     println!("\n🔓 Decrypting ciphertext...");
     let decrypted_plaintext = Engine::decrypt(&ciphertext_mul, &secret_key);
     println!("✅ Ciphertext decrypted back to plaintext");
+
+    println!("Debug scales:");
+    println!("  encoder.delta(): {}", (1u64 << SCALE_BITS) as f64);
+    println!("  decrypted_plaintext.scale: {}", decrypted_plaintext.scale);
+
+    let coeffs = decrypted_plaintext.poly.coefficients();
+    println!("  First few coeffs: {:?}", &coeffs[0..4]);
 
     // Step 4: Decode: Plaintext → Vec<f64>
     println!("\n🔢 Decoding back to floating-point...");

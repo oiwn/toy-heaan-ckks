@@ -1,3 +1,6 @@
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::manual_memcpy)]
 pub mod crypto;
 pub mod encoding;
 pub mod keys;

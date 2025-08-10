@@ -118,7 +118,7 @@ impl<const DEGREE: usize> MulAssign<&Self> for NaivePolyRing<DEGREE> {
             }
         }
 
-        self.coeffs = result.map(|x| x as u64);
+        self.coeffs = result.map(|x| x);
     }
 }
 

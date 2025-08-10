@@ -675,7 +675,7 @@ impl<const DEGREE: usize> fmt::Display for RnsPolyRing<DEGREE> {
         let channels = self.basis.channel_count();
         let num = 3; // Number of terms to show at start/end
 
-        write!(f, "RnsPoly<{}>[", deg)?;
+        write!(f, "RnsPoly<{deg}>[")?;
 
         if deg <= num * 2 {
             // Show all coefficients
@@ -692,7 +692,7 @@ impl<const DEGREE: usize> fmt::Display for RnsPolyRing<DEGREE> {
                 }
                 write!(f, "]")?;
                 if i > 0 {
-                    write!(f, "*x^{}", i)?;
+                    write!(f, "*x^{i}")?;
                 }
             }
         } else {
@@ -708,7 +708,7 @@ impl<const DEGREE: usize> fmt::Display for RnsPolyRing<DEGREE> {
                     }
                     write!(f, "{}", self.coefficients[c][i])?;
                 }
-                write!(f, "]*x^{}", i)?;
+                write!(f, "]*x^{i}")?;
             }
             write!(f, ", …")?;
             // Show last `num` terms
@@ -720,7 +720,7 @@ impl<const DEGREE: usize> fmt::Display for RnsPolyRing<DEGREE> {
                     }
                     write!(f, "{}", self.coefficients[c][i])?;
                 }
-                write!(f, "]*x^{}", i)?;
+                write!(f, "]*x^{i}")?;
             }
         }
 
