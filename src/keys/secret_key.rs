@@ -16,18 +16,18 @@
 //!
 //! ```rust
 //! use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing};
-//! use rand::thread_rng;
+//! use rand::rng;
 //!
 //! const DEGREE: usize = 1024;
 //!
 //! // Create parameters with half the coefficients non-zero
-//! let params = SecretKeyParams::<DEGREE>::new(DEGREE)?;
+//! let params = SecretKeyParams::<DEGREE>::new(DEGREE).unwrap();
 //! let modulus = 1125899906842679u64; // Example prime
 //!
 //! // Generate secret key
-//! let mut rng = thread_rng();
+//! let mut rng = rng();
 //! let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
-//!     SecretKey::generate(&params, &modulus, &mut rng)?;
+//!     SecretKey::generate(&params, &modulus, &mut rng).unwrap();
 //! ```
 use crate::{PolyRing, PolySampler};
 use rand::Rng;
@@ -102,7 +102,7 @@ where
     ///
     /// # Example
     /// ```rust
-    /// # use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing};
+    /// # use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing, PolyRing};
     /// # use rand::SeedableRng;
     /// # use rand_chacha::ChaCha20Rng;
     /// # const DEGREE: usize = 16;

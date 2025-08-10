@@ -4,7 +4,6 @@ use toy_heaan_ckks::{CkksEngine, Encoder, NaivePolyRing, encoding::NaiveEncoder}
 
 const DEGREE: usize = 8;
 const SCALE_BITS: u32 = 30;
-// Modulus similar to your working example
 const MODULUS: u64 = (1u64 << 50) - 27;
 
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
@@ -119,11 +118,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("⚠️  Warning: Addition error higher than expected");
     }
-
-    println!("\n🔬 Naive Encoder Comparison:");
-    println!("  • Uses direct DFT-like computation (sigma/sigma_inv)");
-    println!("  • Should produce results similar to your working vanilla CKKS");
-    println!("  • Expected precision: ~1e-10 for simple operations");
 
     Ok(())
 }
