@@ -1,5 +1,34 @@
-//! Secret Key (sk): Sample a "small" polynomial s(X) from R.
-//! "Small" means its coefficients are small (e.g., chosen from {-1, 0, 1})
+//! Secret Key Generation for CKKS Scheme
+//!
+//! This module implements secret key generation for the CKKS homomorphic encryption scheme.
+//! Secret keys are "small" polynomials where coefficients are sampled from the ternary
+//! distribution {-1, 0, 1} with controlled sparsity (hamming weight).
+//!
+//! # Security Properties
+//!
+//! The secret key polynomial `s(X) ∈ R` satisfies:
+//! - Coefficients are from `{-1, 0, 1}` (ternary distribution)
+//! - Exactly `hamming_weight` coefficients are non-zero
+//! - Non-zero positions are uniformly random
+//! - +1/-1 values are uniformly distributed among non-zero coefficients
+//!
+//! # Example
+//!
+//! ```rust
+//! use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing};
+//! use rand::thread_rng;
+//!
+//! const DEGREE: usize = 1024;
+//!
+//! // Create parameters with half the coefficients non-zero
+//! let params = SecretKeyParams::<DEGREE>::new(DEGREE)?;
+//! let modulus = 1125899906842679u64; // Example prime
+//!
+//! // Generate secret key
+//! let mut rng = thread_rng();
+//! let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
+//!     SecretKey::generate(&params, &modulus, &mut rng)?;
+//! ```
 use crate::{PolyRing, PolySampler};
 use rand::Rng;
 use thiserror::Error;
@@ -16,11 +45,18 @@ pub enum SecretKeyError {
 #[derive(Debug)]
 pub struct SecretKeyParams<const DEGREE: usize> {
     /// Number of non-zero coefficients in the secret polynomial
+    ///
+    /// Must satisfy: 0 ≤ hamming_weight ≤ DEGREE
+    ///
+    /// # Security vs Performance Trade-off
+    /// - Lower values: Potentially less secure but faster operations
+    /// - Higher values: More secure but slower homomorphic operations
+    /// - Sane choice: DEGREE/2 for balanced security/performance
     pub hamming_weight: usize,
 }
 
 impl<const DEGREE: usize> SecretKeyParams<DEGREE> {
-    /// Create new secret key parameters
+    // Create new secret key parameters with validation
     pub fn new(hamming_weight: usize) -> Result<Self, SecretKeyError> {
         if hamming_weight > DEGREE {
             return Err(SecretKeyError::InvalidHammingWeight(
@@ -29,18 +65,6 @@ impl<const DEGREE: usize> SecretKeyParams<DEGREE> {
             ));
         }
         Ok(Self { hamming_weight })
-    }
-
-    /// Validate parameters
-    pub fn validate(&self) -> Result<(), SecretKeyError> {
-        if self.hamming_weight > DEGREE {
-            Err(SecretKeyError::InvalidHammingWeight(
-                self.hamming_weight,
-                DEGREE,
-            ))
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -57,14 +81,49 @@ impl<P, const DEGREE: usize> SecretKey<P, DEGREE>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
 {
+    /// Generate a new secret key using ternary sampling
+    ///
+    /// Creates a polynomial with exactly `params.hamming_weight` non-zero coefficients,
+    /// where each non-zero coefficient is ±1 with equal probability.
+    ///
+    /// # Arguments
+    /// * `params` - Secret key parameters (validated automatically)
+    /// * `context` - Polynomial ring context (modulus for naive, basis for RNS, etc.)
+    /// * `rng` - Cryptographically secure random number generator
+    ///
+    /// # Returns
+    /// * `Ok(SecretKey)` containing the generated polynomial
+    /// * `Err(SecretKeyError)` if parameters are invalid
+    ///
+    /// # Security Requirements
+    /// * Use a cryptographically secure RNG (e.g., `ChaCha20Rng`)
+    /// * Keep the secret key confidential and secure
+    /// * Use appropriate hamming weight for security level
+    ///
+    /// # Example
+    /// ```rust
+    /// # use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing};
+    /// # use rand::SeedableRng;
+    /// # use rand_chacha::ChaCha20Rng;
+    /// # const DEGREE: usize = 16;
+    /// let params = SecretKeyParams::<DEGREE>::new(8)?;
+    /// let modulus = 97u64;
+    /// let mut rng = ChaCha20Rng::seed_from_u64(42);
+    ///
+    /// let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
+    ///     SecretKey::generate(&params, &modulus, &mut rng)?;
+    ///
+    /// // Verify hamming weight
+    /// let coeffs = secret_key.poly.to_coeffs();
+    /// let nonzero_count = coeffs.iter().filter(|&&c| c != 0).count();
+    /// assert_eq!(nonzero_count, 8);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn generate<R: Rng>(
         params: &SecretKeyParams<DEGREE>,
         context: &P::Context,
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
-        // Validate parameters first
-        params.validate()?;
-
         // Use the polynomial backend's ternary sampling
         let poly = P::sample_tribits(rng, params.hamming_weight, context);
 
