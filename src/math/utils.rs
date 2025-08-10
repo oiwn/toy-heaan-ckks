@@ -17,7 +17,7 @@ pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
     let product: u64 = primes.iter().product();
 
     let mut result = 0u64;
-    for (_i, (&residue, &prime)) in residues.iter().zip(primes.iter()).enumerate() {
+    for (&residue, &prime) in residues.iter().zip(primes.iter()) {
         let partial_product = product / prime;
         let inverse = mod_inverse(partial_product, prime);
         result = (result + residue * partial_product * inverse) % product;
@@ -105,7 +105,7 @@ pub fn is_prime(n: u64) -> bool {
 /// }
 /// ```
 pub fn generate_primes(bit_size: usize, count: usize) -> Vec<u64> {
-    assert!(bit_size <= 63 && bit_size >= 4);
+    assert!((4..=63).contains(&bit_size));
 
     let mut primes = Vec::with_capacity(count);
     let max_val = (1u64 << bit_size) - 1;

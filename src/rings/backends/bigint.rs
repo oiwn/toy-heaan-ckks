@@ -279,5 +279,5 @@ pub fn rescale_ciphertext_u256_inplace<const DEGREE: usize>(
         ct.c1.coeffs[i] = r1;
     }
 
-    ct.scale = ct.scale / (1u64 << k) as f64;
+    ct.scale /= (1u64 << k) as f64;
 }

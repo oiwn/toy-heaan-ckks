@@ -672,7 +672,7 @@ pub fn create_ntt_engine<const DEGREE: usize>(
 impl<const DEGREE: usize> fmt::Display for RnsNttPolyRing<DEGREE> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let domain = if self.ntt_form { "NTT" } else { "COEFF" };
-        write!(f, "RnsNttPolyRing[{}][{}] = [", DEGREE, domain)?;
+        write!(f, "RnsNttPolyRing[{DEGREE}][{domain}] = [")?;
 
         // Show coefficient reconstruction only if in coefficient form and small degree
         if !self.ntt_form && DEGREE <= 8 {
@@ -681,7 +681,7 @@ impl<const DEGREE: usize> fmt::Display for RnsNttPolyRing<DEGREE> {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}", coeff)?;
+                write!(f, "{coeff}")?;
             }
         } else {
             write!(f, "..{} channels..", self.channels())?;

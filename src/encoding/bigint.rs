@@ -143,8 +143,8 @@ impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
         let deq = dequantize_u256(&qp, modulus, n as u32, plaintext.scale);
 
         // let deq = dequantize_u256(&qp, modulus, n as u32, self.params.delta());
-        let restored = sigma(&deq, n as u32);
-        restored
+        
+        sigma(&deq, n as u32)
     }
 }
 
@@ -157,7 +157,7 @@ fn primitive_root(n: u32) -> Complex64 {
 // r_i = xi^{2i+1}, i = 0..N-1
 fn odd_roots(n: u32) -> Vec<Complex64> {
     let xi = primitive_root(n);
-    (0..n).map(|i| xi.powu((2 * i + 1) as u32)).collect()
+    (0..n).map(|i| xi.powu(((2 * i + 1)))).collect()
 }
 
 /// sigma^{-1}: b (len N, real) -> coeffs (len N, complex)

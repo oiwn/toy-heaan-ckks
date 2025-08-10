@@ -17,6 +17,12 @@ pub struct CkksEngineBuilder<const DEGREE: usize> {
     scale_bits: Option<u32>,
 }
 
+impl<const DEGREE: usize> Default for CkksEngineBuilder<DEGREE> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
     pub fn new() -> Self {
         Self {
