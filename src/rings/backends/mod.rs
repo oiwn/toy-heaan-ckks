@@ -1,5 +1,6 @@
 pub mod bigint;
 pub mod naive;
+pub mod ntt;
 pub mod rns;
 
 pub use bigint::PolyRingU256;
