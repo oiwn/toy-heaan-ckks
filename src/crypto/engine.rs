@@ -1,7 +1,7 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    PolyRescale, PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
+    PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
     RelinearizationKey, RelinearizationKeyError, RelinearizationKeyParams,
     SecretKey, SecretKeyError, SecretKeyParams,
 };

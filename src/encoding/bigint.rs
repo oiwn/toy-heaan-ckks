@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::encoding::{Encoder, EncodingError, EncodingResult};
 use crate::{Plaintext, PolyRingU256};
 use crypto_bigint::{NonZero, U256};
@@ -139,7 +140,9 @@ impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
             im: coeffs[n..2 * n].to_vec(),
         };
 
-        let deq = dequantize_u256(&qp, modulus, n as u32, self.params.delta());
+        let deq = dequantize_u256(&qp, modulus, n as u32, plaintext.scale);
+
+        // let deq = dequantize_u256(&qp, modulus, n as u32, self.params.delta());
         let restored = sigma(&deq, n as u32);
         restored
     }

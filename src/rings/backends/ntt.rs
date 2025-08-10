@@ -16,7 +16,7 @@ use std::{
 use thiserror::Error;
 
 // Re-use existing RNS infrastructure
-use super::rns::{RnsBasis, RnsResult, crt_reconstruct, mod_inverse};
+use super::rns::{RnsBasis, crt_reconstruct, mod_inverse};
 
 // ============================================================================
 // NTT Error Types

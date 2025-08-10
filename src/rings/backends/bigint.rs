@@ -1,5 +1,5 @@
 use crate::{
-    PolyRescale, PolyRing, PolySampler,
+    Ciphertext, PolyRescale, PolyRing, PolySampler,
     math::{gaussian_coefficients, ternary_coefficients},
 };
 use crypto_bigint::{NonZero, U256, Zero};
@@ -236,39 +236,48 @@ impl<const DEGREE: usize> PolyRescale<DEGREE> for PolyRingU256<DEGREE> {
     }
 }
 
-fn rescale_coeff_pow2_u256(c: U256, q: U256, k: u32, q_new: U256) -> U256 {
+/// Round-to-nearest division by 2^k in Z_q, sign-aware, mapping back to [0, q).
+fn rescale_coeff_pow2_u256(c: U256, q: U256, k: u32) -> U256 {
     let half = q >> 1;
+    // centered lift to Z: x in (-(q/2), q/2]
     let (neg, x_abs) = if c > half {
         (true, q.wrapping_sub(&c))
     } else {
         (false, c)
     };
+
+    // y = round(x_abs / 2^k) = (x_abs + 2^(k-1)) >> k
     let round = U256::ONE << (k - 1);
     let y = x_abs.saturating_add(&round) >> k;
+
+    // map back to [0, q)
     if neg {
         if y.is_zero().into() {
             U256::ZERO
         } else {
-            q_new.wrapping_sub(&y)
+            q.wrapping_sub(&y)
         }
     } else {
-        y % q_new
+        y
     }
 }
 
 pub fn rescale_ciphertext_u256_inplace<const DEGREE: usize>(
-    ct: &mut crate::Ciphertext<crate::PolyRingU256<DEGREE>, DEGREE>,
+    ct: &mut Ciphertext<PolyRingU256<DEGREE>, DEGREE>,
     k: u32,
 ) {
     let q = ct.c0.modulus().get();
-    let q_new = q;
+
     for i in 0..DEGREE {
         let c0 = ct.c0.coeffs[i];
         let c1 = ct.c1.coeffs[i];
-        let r0 = rescale_coeff_pow2_u256(c0, q, k, q_new);
-        let r1 = rescale_coeff_pow2_u256(c1, q, k, q_new);
+
+        let r0 = rescale_coeff_pow2_u256(c0, q, k);
+        let r1 = rescale_coeff_pow2_u256(c1, q, k);
+
         ct.c0.coeffs[i] = r0;
         ct.c1.coeffs[i] = r1;
     }
-    ct.scale = ct.scale / (2.0f64).powi(k as i32); // or simply set back to Δ if you track it
+
+    ct.scale = ct.scale / (1u64 << k) as f64;
 }

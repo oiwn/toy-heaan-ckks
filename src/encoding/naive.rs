@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::encoding::{Encoder, EncodingError, EncodingResult};
 use crate::{NaivePolyRing, Plaintext, PolyRing};
 use num_complex::Complex64;
