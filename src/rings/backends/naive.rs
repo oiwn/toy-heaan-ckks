@@ -177,8 +177,6 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
 
     const TEST_MODULUS: u64 = (1u64 << 50) - 27; // Same as your example
 

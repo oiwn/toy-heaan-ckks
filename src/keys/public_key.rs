@@ -1,3 +1,49 @@
+//! Public Key Generation for CKKS Scheme
+//!
+//! This module implements public key generation for the CKKS homomorphic encryption scheme.
+//! Public keys in CKKS are generated using the Ring Learning With Errors (RLWE) problem,
+//! which provides security for the encryption scheme.
+//!
+//! # RLWE Public Key Structure
+//!
+//! A public key consists of two polynomials `(a, b)` where:
+//! - `a` is uniformly random over the polynomial ring
+//! - `b = -(a × s) + e` where `s` is the secret key and `e` is small error
+//!
+//! The security relies on the difficulty of finding `s` given `(a, b)`.
+//!
+//! # Security Properties
+//!
+//! The public key satisfies the RLWE relation:
+//! ```text
+//! b + a × s ≈ e (mod q)
+//! ```
+//! where `e` is a small error polynomial sampled from a Gaussian distribution.
+//!
+//! # Example
+//!
+//! ```rust
+//! use toy_heaan_ckks::{PublicKey, PublicKeyParams, SecretKey, NaivePolyRing, SecretKeyParams};
+//! use rand::rng;
+//!
+//! const DEGREE: usize = 1024;
+//!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut rng = rng();
+//! let modulus = 1125899906842679u64; // Example prime
+//!
+//! // Generate secret key first
+//! let sk_params = SecretKeyParams::<DEGREE>::new(DEGREE / 2)?;
+//! let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
+//!     SecretKey::generate(&sk_params, &modulus, &mut rng)?;
+//!
+//! // Generate public key from secret key
+//! let pk_params = PublicKeyParams::<DEGREE>::new(3.2)?;
+//! let public_key: PublicKey<NaivePolyRing<DEGREE>, DEGREE> =
+//!     PublicKey::generate(&secret_key, &pk_params, &modulus, &mut rng)?;
+//! # Ok(())
+//! # }
+//! ```
 use crate::{PolyRing, PolySampler, SecretKey};
 use rand::Rng;
 use thiserror::Error;
@@ -27,15 +73,6 @@ impl<const DEGREE: usize> PublicKeyParams<DEGREE> {
             return Err(PublicKeyError::InvalidErrorStd(error_std));
         }
         Ok(Self { error_std })
-    }
-
-    /// Validate parameters
-    pub fn validate(&self) -> Result<(), PublicKeyError> {
-        if self.error_std <= 0.0 {
-            Err(PublicKeyError::InvalidErrorStd(self.error_std))
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -69,9 +106,6 @@ where
         context: &P::Context,
         rng: &mut R,
     ) -> Result<Self, PublicKeyError> {
-        // Validate parameters
-        params.validate()?;
-
         // Sample uniformly random polynomial 'a'
         let a = P::sample_uniform(context, rng);
 
