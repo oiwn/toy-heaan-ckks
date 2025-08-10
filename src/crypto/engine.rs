@@ -1,7 +1,7 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::{
-    PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
+    PolyRescale, PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
     RelinearizationKey, RelinearizationKeyError, RelinearizationKeyParams,
     SecretKey, SecretKeyError, SecretKeyParams,
 };
@@ -139,6 +139,54 @@ where
             c0,
             c1,
             scale: ct1.scale,
+        }
+    }
+
+    pub fn mul_ciphertexts(
+        ct1: &Ciphertext<P, DEGREE>,
+        ct2: &Ciphertext<P, DEGREE>,
+        relin_key: &RelinearizationKey<P, DEGREE>,
+    ) -> Ciphertext<P, DEGREE> {
+        // Step 1: Raw multiplication
+        // (c0 + c1 * s) * (c0' + c1's) = d0 + d1*s + d2*s^2
+
+        // d0 = c0 * c0'
+        let mut d0 = ct1.c0.clone();
+        d0 *= &ct2.c0;
+
+        // d1 = c0*c1' + c1*c0'
+        let mut d1_part1 = ct1.c0.clone();
+        d1_part1 *= &ct2.c1;
+        let mut d1_part2 = ct1.c1.clone();
+        d1_part2 *= &ct2.c0;
+        let mut d1 = d1_part1;
+        d1 += &d1_part2;
+
+        // d2 = c1 * c1'
+        let mut d2 = ct1.c1.clone();
+        d2 *= &ct2.c1;
+
+        // Step 2: Relinearization (internal)
+        // Transform (d0, d1, d2) → (d0', d1') using relin_key
+        // c0_new = d0 + rk.b * d2
+        let mut rk_b_times_d2 = relin_key.b.clone();
+        rk_b_times_d2 *= &d2;
+        let mut c0_new = d0;
+        c0_new += &rk_b_times_d2;
+
+        // c1_new = d1 + rk.a * d2
+        let mut rk_a_times_d2 = relin_key.a.clone();
+        rk_a_times_d2 *= &d2;
+        let mut c1_new = d1;
+        c1_new += &rk_a_times_d2;
+
+        // Step 3: Scale calculation
+        let new_scale = ct1.scale * ct2.scale;
+
+        Ciphertext {
+            c0: c0_new,
+            c1: c1_new,
+            scale: new_scale,
         }
     }
 }

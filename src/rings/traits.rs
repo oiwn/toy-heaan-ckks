@@ -36,3 +36,8 @@ pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
         context: &Self::Context,
     ) -> Self;
 }
+
+// How to rescale polynomail.
+pub trait PolyRescale<const DEGREE: usize> {
+    fn rescale_assign(&mut self, scale_factor: f64);
+}

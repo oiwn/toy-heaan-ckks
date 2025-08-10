@@ -42,7 +42,7 @@ impl<const DEGREE: usize> RelinearizationKeyParams<DEGREE> {
 /// The relinearization key allows converting a degree-2 ciphertext (c0, c1, c2)
 /// back to a degree-1 ciphertext (c0', c1') while preserving the encrypted plaintext.
 ///
-/// The key satisfies: b + a * s = s^2 (mod small error)
+/// The key satisfies: `b + a * s = s^2`
 #[derive(Debug, Clone)]
 pub struct RelinearizationKey<P, const DEGREE: usize>
 where
@@ -77,7 +77,7 @@ where
         // Validate parameters
         params.validate()?;
 
-        // Step 1: Compute s² = secret_key * secret_key
+        // Step 1: Compute s^2 = secret_key * secret_key
         let mut s_squared = secret_key.poly.clone();
         s_squared *= &secret_key.poly; // s^2
 
@@ -154,6 +154,7 @@ mod tests {
         verification += &neg_s_squared;
 
         // If we get here without panicking, the key generation worked properly
+        // TODO: need to test result is small
         assert!(
             true,
             "Relinearization key generation completed successfully"

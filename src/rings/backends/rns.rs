@@ -92,7 +92,7 @@ pub fn generate_primes(
 }
 
 /// Chinese Remainder Theorem reconstruction
-fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
+pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
     if residues.len() != primes.len() {
         panic!("Residues and primes length mismatch");
     }
@@ -111,7 +111,7 @@ fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
 }
 
 /// Modular inverse using extended Euclidean algorithm
-fn mod_inverse(a: u64, m: u64) -> u64 {
+pub fn mod_inverse(a: u64, m: u64) -> u64 {
     fn extended_gcd(a: i64, b: i64) -> (i64, i64, i64) {
         if a == 0 {
             (b, 0, 1)

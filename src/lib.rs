@@ -14,4 +14,5 @@ pub use keys::{
 };
 pub use rings::backends::NaivePolyRing;
 pub use rings::backends::PolyRingU256;
-pub use rings::{BackendType, PolyRing, PolySampler};
+pub use rings::backends::RnsPolyRing;
+pub use rings::{PolyRescale, PolyRing, PolySampler};

@@ -1,5 +1,5 @@
 use crate::encoding::{Encoder, EncodingError, EncodingResult};
-use crate::{Plaintext, PolyRing, PolyRingU256};
+use crate::{Plaintext, PolyRingU256};
 use crypto_bigint::{NonZero, U256};
 use num_complex::Complex64;
 use rand::Rng;
