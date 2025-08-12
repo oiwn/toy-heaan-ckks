@@ -1,85 +1,171 @@
 # Toy HEAAN-CKKS
 
-A Rust toy implementation of the CKKS (Cheon-Kim-Kim-Song) homomorphic
+A Rust educational implementation of the CKKS (Cheon-Kim-Kim-Song) homomorphic
 encryption scheme, also known as HEAAN (Homomorphic Encryption for Arithmetic
-of Approximate Numbers). This project is meant for educational and experimental
-purposes, focusing on the internal mechanics of approximate homomorphic
-encryption.
+of Approximate Numbers). This project focuses on demonstrating the internal
+mechanics of approximate homomorphic encryption through multiple backend
+implementations.
 
+**⚠️ Educational Purpose Only**: This is a minimal, non-optimized implementation
+designed for learning and experimentation. It should not be used in production
+systems.
+
+## Quick Start
 
 ```bash
-> cargo run --example ckks_sum
+# Run the main working example
+cargo run --example ckks_sum
 
-Values 1: [1.5, 2.5, 3.5, 4.5]
-Values 2: [0.5, 1.0, 1.5, 2.0]
-Encoded coeffs 1: [3019898880, -178298470, -738197504, 580951654, -738197504, 580951654, -738197504, -178298470]
-Encoded coeffs 2: [1275068416, -122703667, -335544320, 256921395, -335544320, 256921395, -335544320, -122703667]
-Poly 1: RnsPoly<8>[[3052, 3576, 1486]*x^0, [7005, 2622, 597]*x^1, [6735, 2281, 2420]*x^2, …, [709, 5968, 3776]*x^5, [6735, 2281, 2420]*x^6, [7005, 2622, 597]*x^7]
-Poly 2: RnsPoly<8>[[6160, 4665, 1513]*x^0, [250, 1722, 3255]*x^1, [6620, 4110, 1100]*x^2, …, [4931, 3395, 1998]*x^5, [6620, 4110, 1100]*x^6, [250, 1722, 3255]*x^7]
-Encoded to polynomials successfully
-Encrypted both values successfully
-Performed homomorphic addition
-Decrypted the sum successfully
-
-=== CKKS Sum Results ===
-Expected sum: [2.0, 3.5, 5.0, 6.5]
-Computed sum: [1.9999999767169356, 3.4999999777574473, 5.00000000372529, 6.500000027830488]
-Maximum error: 2.78e-8
-✅ Success! Error within acceptable bounds
+# Try different backends
+cargo run --example ckks_naive
+cargo run --example ckks_rns
+cargo run --example ckks_bigint
 ```
 
-## Overview
+## Architecture Overview
 
-CKKS is a homomorphic encryption scheme for approximate arithmetic over
-encrypted real (floating-point) numbers. It’s designed for privacy-preserving
-computations in applications such as machine learning and signal processing.
+This implementation provides **multiple polynomial arithmetic backends** to
+explore different approaches to CKKS operations:
 
-This crate provides a minimal, step-by-step Rust implementation using schoolbook
-methods and native u64 arithmetic with an RNS (Residue Number System) basis.
+### Backend Options
 
-Key features of this implementation:
-- [x] Encoding/decoding of real numbers
-- [x] Keys generation (secret and public)
-- [x] Polynomial ring operations (Add, Mul, Negate)
-- [x] Basic homomorphic operation - Addition
-- [ ] Relinearization and rescale
-- [ ] NTT-based polynomial multiplication
-- [ ] Basic homomorphic operation - Multiplication
-- [ ] Bootstrapping / Modulus switching
+- **`NaivePolyRing`** - Simple single-modulus arithmetic using native `u64`
+- **`RnsPolyRing`** - Multi-prime RNS (Residue Number System) for improved precision
+- **`PolyRingU256`** - Large modulus support using `crypto-bigint::U256`
+- **`RnsNttPolyRing`** - NTT-optimized RNS backend (experimental)
+
+### Key Features by Backend
+
+| Feature | Naive | RNS | U256 | NTT |
+|---------|-------|-----|------|-----|
+| Basic operations (Add, Mul) | ✅ | ✅ | ✅ | ✅ |
+| Schoolbook multiplication | ✅ | ✅ | ✅ | ✅ |
+| Multi-prime arithmetic | ❌ | ✅ | ❌ | ✅ |
+| Large modulus support | ❌ | ✅ | ✅ | ✅ |
+| NTT optimization | ❌ | ❌ | ❌ | 🔄 |
+
+### CKKS Operations Status
+
+- [x] **Encoding/Decoding** - Float arrays ↔ polynomial coefficients
+- [x] **Key Generation** - Secret keys, public keys, relinearization keys
+- [x] **Encryption/Decryption** - Full CKKS encryption scheme
+- [x] **Homomorphic Addition** - Encrypted addition with all backends
+- [ ] **Homomorphic Multiplication** - Partial implementation, needs relinearization
+- [ ] **Rescaling** - Noise management after multiplication
+- [ ] **Bootstrapping** - Ciphertext refresh (advanced feature)
 
 ## Examples
 
-Only ckks_sum is currently functional:
+### Basic Encryption/Decryption with RNS Backend
 
 ```bash
-cargo run --example ckks_sum
+cargo run --example ckks_naive
 ```
 
-This demonstrates:
-- encoding two real-valued vectors into polynomials
-- encrypting them with CKKS
-- performing ciphertext addition
-- decrypting and decoding the result
+**Output:**
+```
+❯ cargo run --example ckks_naive                                                                                                                                          12:03:04 [5/4925]
 
-## Implementation Notes
+   Compiling toy-heaan-ckks v0.1.0 (/Users/alexch/code/toy-heaan-ckks)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running `target/debug/examples/ckks_naive`
+🔐 CKKS Abstract API Demo with Encryption                                                    
+✅ Engine configured with builder pattern
 
-- Polynomials are stored in RNS format: `Vec<[u64; DEGREE]>` where each
-  `[u64; DEGREE]` represents coefficients mod a prime.
-- No BigInts are used — all computation remains in native u64.
-- Polynomial multiplication is currently schoolbook, no NTT optimizations yet.
-- The ciphertext format includes an optional c2 component for future
-  multiplication support but is unused.
+🔑 Generating keys...
+✅ Secret and public keys generated: 
+SecretKey { poly: NaivePolyRing { coeffs: [1, 0, 1, 0, 0, 1, 0, 741507920154517876], context: 741507920154517877 } }
+PublicKey { a: NaivePolyRing { coeffs: [693672716415451047, 302556833492949680, 602596531573667421, 252165852101715923, 147456709156760292, 160315845728327181, 23828265504687498, 17872185
+407316598], context: 741507920154517877 }, b: NaivePolyRing { coeffs: [21272487852520571, 1683449651977668, 94896585946528545, 63156790907779483, 590518939257597456, 353033160558854108, 2
+49793926592803811, 654396073860657723], context: 741507920154517877 } }
 
-## Limitations
+📊 Input data: [1.5, 2.5, 3.5]
 
-This is not a secure or production-ready library. It is a research prototype
-with the following constraints:
+🔢 Encoding values...
+✅ Values encoded to plaintext: Plaintext { poly: NaivePolyRing { coeffs: [1855425871872, 692078510204, 741507164240273781, 741507640392868089, 481036337152, 741507640392868089, 741507164
+240273781, 692078510204], context: 741507920154517877 }, scale: 1099511627776.0 }
 
-- No NTT or FFT-based polynomial multiplication
-- No modulus switching, relinearization, or noise tracking
-- No ciphertext multiplication yet
-- No parameter validation or error estimation
-- No SIMD-style ciphertext rotations or packing operations
+🔒 Encrypting plaintext...
+✅ Plaintext encrypted to ciphertext: Ciphertext { c0: NaivePolyRing { coeffs: [11589659624651541, 32966279333054012, 246331520150206956, 321734295273184328, 620973310206268142, 411192794
+789119066, 439181144981773282, 694361773217369658], context: 741507920154517877 }, c1: NaivePolyRing { coeffs: [418437777927414003, 141321956329697559, 528580068367660287, 371703167324472
+070, 106392592596933299, 82037449374961662, 199644371131419166, 596475019354968358], context: 741507920154517877 }, scale: 1099511627776.0 }
+
+🔓 Decrypting ciphertext...
+✅ Ciphertext decrypted back to plaintext: Plaintext { poly: NaivePolyRing { coeffs: [1855425871867, 692078510201, 741507164240273777, 741507640392868090, 481036337155, 741507640392868090
+, 741507164240273787, 692078510208], context: 741507920154517877 }, scale: 1099511627776.0 }
+
+🔢 Decoding back to floating-point...
+✅ Plaintext decoded: [1.5000000000027285, 2.499999999991649, 3.499999999996362, -6.200817637136424e-12]
+
+📊 Results:
+  Original: [1.5, 2.5, 3.5]
+  Decoded:  [1.5000000000027285, 2.499999999991649, 3.499999999996362]
+  Max error: 8.35e-12
+🎉 Success! Full CKKS encrypt/decrypt pipeline works!
+
+➕ Testing homomorphic addition...
+Second input: [0.5, 1.0, 1.5]
+Expected sum: [2.0, 3.5, 5.0]
+Computed sum: [2.000000000032742, 3.4999999999793583, 4.999999999994543]
+Sum error: 3.27e-11
+🎉 Homomorphic addition works perfectly!
+
+💡 Full CKKS pipeline completed:
+  1. ✅ Key generation (secret + public keys)
+  2. ✅ Encoding (float → plaintext)
+  3. ✅ Encryption (plaintext → ciphertext)
+  4. ✅ Homomorphic operations (encrypted addition)
+  5. ✅ Decryption (ciphertext → plaintext)
+  6. ✅ Decoding (plaintext → float)
+```
+
+### Creating Different Backends
+
+```rust
+// Naive backend - simple single modulus
+let engine = CkksEngine::<NaivePolyRing<8>, 8>::builder()
+    .error_variance(3.2)
+    .hamming_weight(4)
+    .build_naive(modulus, scale_bits)?;
+
+// RNS backend - multiple primes for better precision  
+let rns_basis = Arc::new(RnsBasisBuilder::new(8)
+    .with_prime_bits(vec![17, 19, 23])
+    .build()?);
+let engine = CkksEngine::<RnsPolyRing<8>, 8>::builder()
+    .build_rns(rns_basis, scale_bits)?;
+
+// BigInt backend - large modulus support
+let modulus = NonZero::new(U256::from_u128(large_prime))?;
+let engine = CkksEngine::<PolyRingU256<8>, 8>::builder()
+    .build_bigint_u256(modulus, scale_bits)?;
+```
+
+## Implementation Details
+
+### RNS (Residue Number System)
+
+The RNS backend splits large integers across multiple smaller prime moduli:
+
+```
+Coefficient: 12345678901234567890
+         ↓
+RNS form: [coeff mod p1, coeff mod p2, coeff mod p3, ...]
+```
+
+**Benefits:**
+- Native `u64` arithmetic throughout
+- Better precision with multiple primes
+- Parallelizable operations
+- Foundation for NTT optimizations
+
+### Error Management
+
+CKKS is an **approximate** scheme - small errors are expected:
+
+```rust
+// Typical error bounds
+assert!(error < 1e-6);  // Good pre
 
 ## Mathematical Background
 
