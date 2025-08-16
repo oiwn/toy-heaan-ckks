@@ -1,13 +1,13 @@
 use super::{CkksEngine, CkksError};
 use crate::crypto::engine::CkksParams;
 use crate::rings::NaivePolyRing;
-use crate::rings::backends::PolyRingU256;
+use crate::rings::backends::BigIntPolyRing;
 use crate::rings::backends::{RnsPolyRing, rns::RnsBasis};
 use std::sync::Arc;
 
 pub enum CkksEngineVariant<const DEGREE: usize> {
     Naive(CkksEngine<NaivePolyRing<DEGREE>, DEGREE>),
-    BigIntU256(CkksEngine<PolyRingU256<DEGREE>, DEGREE>),
+    BigIntU256(CkksEngine<BigIntPolyRing<DEGREE>, DEGREE>),
     RNS(CkksEngine<RnsPolyRing<DEGREE>, DEGREE>),
 }
 
@@ -67,14 +67,14 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
         self,
         modulus: crypto_bigint::NonZero<crypto_bigint::U256>,
         scale_bits: u32,
-    ) -> Result<CkksEngine<PolyRingU256<DEGREE>, DEGREE>, CkksError> {
+    ) -> Result<CkksEngine<BigIntPolyRing<DEGREE>, DEGREE>, CkksError> {
         let params = CkksParams {
             error_variance: self.error_variance.unwrap_or(3.2),
             hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
             scale_bits,
         };
 
-        Ok(CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::new(
+        Ok(CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::new(
             modulus, params,
         ))
     }

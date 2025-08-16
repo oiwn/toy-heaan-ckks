@@ -6,7 +6,7 @@ use toy_heaan_ckks::{
 
 const DEGREE: usize = 8;
 const MODULUS: u64 = (1u64 << 50) - 27; // Large modulus for headroom
-const SCALE: f64 = 1024.0;
+const SCALE_BITS: u32 = 10; // 2^10 = 1024
 
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Engine::builder()
         .error_variance(3.2)
         .hamming_weight(DEGREE / 2)
-        .build_naive(MODULUS, 10)?;
+        .build_naive(MODULUS, SCALE_BITS)?;
 
     // Generate ALL required keys
     println!("\n🔑 Generating keys...");
@@ -52,8 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify encryption works
     let check1 = Engine::decrypt(&ciphertext1, &secret_key);
     let check2 = Engine::decrypt(&ciphertext2, &secret_key);
-    let val1 = check1.poly.coeffs[0] as f64 / SCALE;
-    let val2 = check2.poly.coeffs[0] as f64 / SCALE;
+    let val1 = check1.poly.coeffs[0] as f64 / (1u64 << SCALE_BITS) as f64;
+    let val2 = check2.poly.coeffs[0] as f64 / (1u64 << SCALE_BITS) as f64;
 
     println!("   Verification - CT1 decrypts to: {:.3}", val1);
     println!("   Verification - CT2 decrypts to: {:.3}", val2);
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         multiply_with_relinearization(&ciphertext1, &ciphertext2, &relin_key);
 
     println!("   ✅ Multiplication completed");
-    println!("   Product scale: {:.0}", ciphertext_product.scale);
+    println!("   Product scale_bits: {}", ciphertext_product.scale_bits);
 
     // Decrypt result
     println!("\n🔓 Decrypting result...");
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Extract the result
     let result_scaled = decrypted_product.poly.coeffs[0] as f64;
-    let expected_scale = SCALE * SCALE;
+    let expected_scale = (1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64;
     let result = result_scaled / expected_scale;
 
     println!(
@@ -179,7 +179,7 @@ fn multiply_with_relinearization(
     Ciphertext {
         c0: d0,
         c1: d1,
-        scale: ct1.scale * ct2.scale,
+        scale_bits: ct1.scale_bits + ct2.scale_bits,
     }
 }
 
@@ -206,7 +206,7 @@ fn multiply_without_relinearization(
     Ciphertext {
         c0: d0,
         c1: d1,
-        scale: ct1.scale * ct2.scale,
+        scale_bits: ct1.scale_bits + ct2.scale_bits,
     }
 }
 
@@ -216,11 +216,11 @@ fn create_constant_plaintext(
     engine: &Engine,
 ) -> Plaintext<NaivePolyRing<DEGREE>, DEGREE> {
     let mut coeffs = [0i64; DEGREE];
-    coeffs[0] = (value * SCALE) as i64;
+    coeffs[0] = (value * (1u64 << SCALE_BITS) as f64) as i64;
 
     Plaintext {
         poly: NaivePolyRing::from_coeffs(&coeffs, engine.context()),
-        scale: SCALE,
+        scale_bits: SCALE_BITS,
     }
 }
 
@@ -254,7 +254,7 @@ mod tests {
         let ct_product = multiply_with_relinearization(&ct1, &ct2, &relin_key);
         let decrypted = Engine::decrypt(&ct_product, &secret_key);
 
-        let result = decrypted.poly.coeffs[0] as f64 / (SCALE * SCALE);
+        let result = decrypted.poly.coeffs[0] as f64 / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
         let expected = 8.0;
 
         // With proper relinearization, error should be much smaller

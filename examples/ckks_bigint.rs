@@ -1,28 +1,30 @@
 use crypto_bigint::{NonZero, U256};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::{CkksEngine, Encoder, PolyRingU256, encoding::BigIntEncoder};
+use toy_heaan_ckks::{
+    BigIntPolyRing, CkksEngine, Encoder, encoding::BigIntEncoder,
+};
 
-const DEGREE: usize = 8;
-// const SCALE_BITS: u32 = 60; // should be larger than usual
-const SCALE_BITS: u32 = 40;
-const Q50: u64 = (1u64 << 50) - 27;
-// const Q50_U256: U256 = U256::from_u64((1u64 << 50) - 27);
-// const Q128: u128 = (1u128 << 100) - 3;
+const DEGREE: usize = 32;
+const SCALE_BITS: u32 = 50;
+// 2^128 - 159 (a well-known 128-bit prime)
+const _Q128_PRIME: U256 = U256::from_words([
+    0xffffffffffffff61, // 2^64 - 159
+    0xffffffffffffffff, // 2^64 - 1
+    0x0000000000000000, // 0
+    0x0000000000000000, // 0
+]);
+const Q60_PRIME: U256 = U256::from_u128((1u128 << 60) - 3);
 
-type Engine = CkksEngine<PolyRingU256<DEGREE>, DEGREE>;
+type Engine = CkksEngine<BigIntPolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
-    println!("🔐 CKKS BigInt U256 Backend Demo");
+    println!("🔐 CKKS BigInt U256 Backend Demo\n");
 
-    // Create U256 modulus from hex string
-    // let modulus_u256 = U256::from_be_hex(MODULUS_HEX);
-    let modulus_u256 = U256::from_u128(Q50 as u128);
-    let modulus = NonZero::new(modulus_u256).expect("Modulus should not be zero");
+    let modulus = NonZero::new(Q60_PRIME).expect("Modulus should not be zero");
     let encoder = BigIntEncoder::new(SCALE_BITS)?;
-
-    println!("✅ Using 256-bit modulus: {}", modulus_u256);
+    println!("✅ Using 128-bit modulus: {}", modulus.get());
 
     // Create CKKS Engine with BigInt U256 backend
     let engine = Engine::builder()
@@ -31,14 +33,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_bigint_u256(modulus, SCALE_BITS)?;
     println!("✅ Engine configured with BigInt U256 backend");
 
-    println!("\n🔑 Generating keys...");
+    println!("\n🔑 Generating keys...\n");
     let secret_key = engine.generate_secret_key(&mut rng)?;
     let public_key = engine.generate_public_key(&secret_key, &mut rng)?;
     println!("✅ Secret and public keys generated with U256 arithmetic");
+    println!("SecretKey: {:?}", secret_key);
+    println!("PublicKey: {:?}", public_key);
 
-    // Input data (small vector to test)
-    let values = vec![1.5, 2.5, 3.5, 4.5];
-    println!("\n📊 Input data: {:?}", values);
+    // Input data - pad to use all 16 available slots (DEGREE/2)
+    let mut values = vec![1.5, 2.5, 3.5, 4.5];
+    let slots = DEGREE / 2;
+    println!("\n📊 Available slots: {}", slots);
+
+    // Pad with zeros to fill all slots
+    values.resize(slots, 0.0);
+    println!("📊 Padded input data: {:?}", values);
 
     // Step 1: Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
@@ -47,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // sanity: encode -> decode without encryption
     let decoded_plain = encoder.decode(&plaintext);
-    println!("Plain roundtrip: {:?}", &decoded_plain[..values.len()]);
+    println!("Plain roundtrip: {:?}", &decoded_plain);
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
@@ -66,8 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Display results
     println!("\n📊 Results:");
-    println!("  Original: {:?}", values);
-    println!("  Decoded:  {:?}", &decoded_values[..values.len()]);
+    println!("  Original: {:?}", &values[..4]); // Show original 4 values
+    println!("  Decoded:  {:?}", &decoded_values[..4]); // Show first 4 decoded values
+    println!("  Full decoded (all {} slots): {:?}", slots, decoded_values);
 
     // Verify accuracy
     let max_error = values
@@ -89,8 +99,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate homomorphic addition with BigInt backend
     println!("\n➕ Testing homomorphic addition with U256 arithmetic...");
 
-    let values2 = vec![0.5, 1.0, 1.5, 0.0];
-    println!("Second input: {:?}", values2);
+    let mut values2 = vec![0.5, 1.0, 1.5, 0.0];
+    values2.resize(slots, 0.0); // Pad second input too
+    println!("Second input (padded): {:?}", values2);
 
     let plaintext2 = encoder.encode(&values2, engine.context());
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
@@ -105,10 +116,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         values.iter().zip(&values2).map(|(a, b)| a + b).collect();
 
     println!("\n📊 Homomorphic Addition Results:");
-    println!("  Input 1:    {:?}", values);
-    println!("  Input 2:    {:?}", values2);
+    println!("  Input 1:    {:?}", &values[..4]);
+    println!("  Input 2:    {:?}", &values2[..4]);
     println!("  Expected:   {:?}", expected_sum);
     println!("  Computed:   {:?}", &decoded_sum[..expected_sum.len()]);
+    println!(
+        "  Full sum (all {} slots): {:?}",
+        slots,
+        &decoded_sum[..slots]
+    );
 
     // Verify homomorphic addition accuracy
     let add_max_error = expected_sum

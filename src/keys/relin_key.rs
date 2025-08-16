@@ -102,7 +102,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{PolyRingU256, SecretKeyParams};
+    use crate::{BigIntPolyRing, SecretKeyParams};
     use crypto_bigint::{NonZero, U256};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
@@ -120,7 +120,7 @@ mod tests {
 
         // Generate secret key
         let sk_params = SecretKeyParams::new(DEGREE / 2).unwrap();
-        let secret_key = SecretKey::<PolyRingU256<DEGREE>, DEGREE>::generate(
+        let secret_key = SecretKey::<BigIntPolyRing<DEGREE>, DEGREE>::generate(
             &sk_params, &context, &mut rng,
         )
         .unwrap();

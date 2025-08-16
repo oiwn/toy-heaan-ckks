@@ -6,7 +6,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsPolyRing};
 use toy_heaan_ckks::{
-    CkksEngine, NaivePolyRing, Plaintext, PolyRing, PolyRingU256,
+    BigIntPolyRing, CkksEngine, NaivePolyRing, Plaintext, PolyRing,
 };
 
 // Benchmark parameters
@@ -79,7 +79,7 @@ fn bench_naive_cycle<const DEGREE: usize>(c: &mut Criterion) {
 fn bench_u256_cycle<const DEGREE: usize>(c: &mut Criterion) {
     let mut group = c.benchmark_group(format!("u256_cycle_degree_{}", DEGREE));
 
-    let engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+    let engine = CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::builder()
         .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
         .unwrap();
 
@@ -96,11 +96,11 @@ fn bench_u256_cycle<const DEGREE: usize>(c: &mut Criterion) {
     coeffs2[0..4].copy_from_slice(&[5, 6, 7, 8]);
 
     let plaintext1 = Plaintext {
-        poly: PolyRingU256::from_coeffs(&coeffs1, engine.context()),
+        poly: BigIntPolyRing::from_coeffs(&coeffs1, engine.context()),
         scale: 2.0_f64.powi(SCALE_BITS as i32),
     };
     let plaintext2 = Plaintext {
-        poly: PolyRingU256::from_coeffs(&coeffs2, engine.context()),
+        poly: BigIntPolyRing::from_coeffs(&coeffs2, engine.context()),
         scale: 2.0_f64.powi(SCALE_BITS as i32),
     };
 
@@ -114,13 +114,13 @@ fn bench_u256_cycle<const DEGREE: usize>(c: &mut Criterion) {
 
             // Homomorphic addition
             let ct_sum =
-                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
                     &ct1, &ct2,
                 );
 
             // Decrypt
             let result =
-                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(&ct_sum, &sk);
+                CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::decrypt(&ct_sum, &sk);
 
             black_box(result);
         });
@@ -236,7 +236,7 @@ fn bench_naive_operations<const DEGREE: usize>(c: &mut Criterion) {
 fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
     let mut group = c.benchmark_group(format!("u256_ops_degree_{}", DEGREE));
 
-    let engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+    let engine = CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::builder()
         .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
         .unwrap();
 
@@ -249,7 +249,7 @@ fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
     coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
 
     let plaintext = Plaintext {
-        poly: PolyRingU256::from_coeffs(&coeffs, engine.context()),
+        poly: BigIntPolyRing::from_coeffs(&coeffs, engine.context()),
         scale: 2.0_f64.powi(SCALE_BITS as i32),
     };
 
@@ -266,7 +266,7 @@ fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
 
     group.bench_function("decrypt_only", |b| {
         b.iter(|| {
-            let result = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(
+            let result = CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::decrypt(
                 black_box(&ciphertext),
                 &sk,
             );
@@ -277,7 +277,7 @@ fn bench_u256_operations<const DEGREE: usize>(c: &mut Criterion) {
     group.bench_function("homomorphic_add", |b| {
         b.iter(|| {
             let ct_sum =
-                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
                     black_box(&ciphertext),
                     black_box(&ciphertext),
                 );
@@ -377,7 +377,7 @@ fn bench_backend_comparison(c: &mut Criterion) {
     };
 
     // Setup U256
-    let u256_engine = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::builder()
+    let u256_engine = CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::builder()
         .build_bigint_u256(get_u256_modulus(), SCALE_BITS)
         .unwrap();
 
@@ -387,7 +387,7 @@ fn bench_backend_comparison(c: &mut Criterion) {
     let mut u256_coeffs = vec![0i64; DEGREE];
     u256_coeffs[0..4].copy_from_slice(&[1, 2, 3, 4]);
     let u256_plaintext = Plaintext {
-        poly: PolyRingU256::from_coeffs(&u256_coeffs, u256_engine.context()),
+        poly: BigIntPolyRing::from_coeffs(&u256_coeffs, u256_engine.context()),
         scale: 2.0_f64.powi(SCALE_BITS as i32),
     };
 
@@ -423,10 +423,10 @@ fn bench_backend_comparison(c: &mut Criterion) {
             let ct2 =
                 u256_engine.encrypt(black_box(&u256_plaintext), &u256_pk, &mut rng);
             let ct_sum =
-                CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::add_ciphertexts(
+                CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::add_ciphertexts(
                     &ct1, &ct2,
                 );
-            let result = CkksEngine::<PolyRingU256<DEGREE>, DEGREE>::decrypt(
+            let result = CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::decrypt(
                 &ct_sum, &u256_sk,
             );
             black_box(result);

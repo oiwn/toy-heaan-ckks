@@ -123,7 +123,7 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
 
         Plaintext {
             poly,
-            scale: self.params.delta(),
+            scale_bits: self.params.scale_bits,
         }
     }
 
@@ -411,7 +411,7 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
 
         Plaintext {
             poly,
-            scale: self.params.delta(),
+            scale_bits: self.params.scale_bits,
         }
     }
 

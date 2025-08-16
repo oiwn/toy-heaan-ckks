@@ -1,17 +1,150 @@
-use crypto_bigint::{NonZero, U256};
+use crypto_bigint::{NonZero, U256, Zero};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::rings::backends::bigint::rescale_ciphertext_u256_inplace;
-use toy_heaan_ckks::{CkksEngine, Encoder, PolyRingU256, encoding};
+use toy_heaan_ckks::{
+    BigIntPolyRing, Ciphertext, CkksEngine, Encoder, RelinearizationKey, encoding,
+};
 
 const DEGREE: usize = 8;
-// const SCALE_BITS: u32 = 60; // should be larger than usual
 const SCALE_BITS: u32 = 40;
 const Q50: u64 = (1u64 << 50) - 27;
-// const Q50_U256: U256 = U256::from_u64((1u64 << 50) - 27);
-// const Q128: u128 = (1u128 << 100) - 3;
 
-type Engine = CkksEngine<PolyRingU256<DEGREE>, DEGREE>;
+type Engine = CkksEngine<BigIntPolyRing<DEGREE>, DEGREE>;
+
+/// Rescale ciphertext by dividing coefficients by 2^k (Kim's approach)
+/// This follows Kim's HEAAN implementation pattern of coefficient rescaling
+fn rescale_ciphertext(ct: &mut Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>, k: u32) {
+    let divisor = U256::ONE << k; // 2^k
+    let modulus = ct.c0.modulus().get();
+
+    println!("Rescaling by 2^{} = {}", k, divisor);
+    println!("Scale before rescaling: {}", ct.scale_bits);
+
+    for i in 0..DEGREE {
+        // For c0 coefficient
+        let c0 = ct.c0.coeffs[i];
+        ct.c0.coeffs[i] = rescale_coefficient(c0, modulus, divisor);
+
+        // For c1 coefficient
+        let c1 = ct.c1.coeffs[i];
+        ct.c1.coeffs[i] = rescale_coefficient(c1, modulus, divisor);
+    }
+
+    // Update scale
+    println!(
+        "Scale after rescaling: {} - {} = {}",
+        ct.scale_bits,
+        k,
+        ct.scale_bits - k
+    );
+    ct.scale_bits -= k;
+}
+
+/// Rescale a single coefficient: divide by divisor with proper modular arithmetic
+/// Similar to Kim's scaleDownToReal but for modular integers
+fn rescale_coefficient(coeff: U256, modulus: U256, divisor: U256) -> U256 {
+    // Handle signed representation: map to centered interval
+    let half_mod = modulus >> 1;
+
+    let (is_negative, abs_val) = if coeff > half_mod {
+        // Negative number in modular representation
+        (true, modulus.wrapping_sub(&coeff))
+    } else {
+        // Positive number
+        (false, coeff)
+    };
+
+    // Perform division with rounding (Kim's approach with RoundToZZ equivalent)
+    let half_divisor = divisor >> 1;
+    let rounded_div = abs_val.saturating_add(&half_divisor) / divisor;
+
+    // Map back to modular representation
+    if is_negative && !bool::from(rounded_div.is_zero()) {
+        modulus.wrapping_sub(&rounded_div)
+    } else {
+        rounded_div % modulus
+    }
+}
+
+// Debug multiplication to see intermediate coefficients
+pub fn debug_mul_ciphertexts(
+    ct1: &Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>,
+    ct2: &Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>,
+    relin_key: &RelinearizationKey<BigIntPolyRing<DEGREE>, DEGREE>,
+) -> Ciphertext<BigIntPolyRing<DEGREE>, DEGREE> {
+    println!("=== MULTIPLICATION DEBUG ===");
+
+    // Show input coefficients
+    println!("Input ct1.c0[0]: {:x}", ct1.c0.coeffs[0].to_words()[0]);
+    println!("Input ct1.c1[0]: {:x}", ct1.c1.coeffs[0].to_words()[0]);
+    println!("Input ct2.c0[0]: {:x}", ct2.c0.coeffs[0].to_words()[0]);
+    println!("Input ct2.c1[0]: {:x}", ct2.c1.coeffs[0].to_words()[0]);
+
+    // Step 1: Raw multiplication
+    // d0 = c0 * c0'
+    let mut d0 = ct1.c0.clone();
+    d0 *= &ct2.c0;
+    println!("d0 = c0*c0' [0]: {:x}", d0.coeffs[0].to_words()[0]);
+
+    // d1 = c0*c1' + c1*c0'
+    let mut d1_part1 = ct1.c0.clone();
+    d1_part1 *= &ct2.c1;
+    let mut d1_part2 = ct1.c1.clone();
+    d1_part2 *= &ct2.c0;
+    let mut d1 = d1_part1;
+    d1 += &d1_part2;
+    println!("d1 = c0*c1' + c1*c0' [0]: {:x}", d1.coeffs[0].to_words()[0]);
+
+    // d2 = c1 * c1'
+    let mut d2 = ct1.c1.clone();
+    d2 *= &ct2.c1;
+    println!("d2 = c1*c1' [0]: {:x}", d2.coeffs[0].to_words()[0]);
+
+    // Step 2: Relinearization
+    println!("Relin key a[0]: {:x}", relin_key.a.coeffs[0].to_words()[0]);
+    println!("Relin key b[0]: {:x}", relin_key.b.coeffs[0].to_words()[0]);
+
+    // c0_new = d0 + rk.b * d2
+    let mut rk_b_times_d2 = relin_key.b.clone();
+    rk_b_times_d2 *= &d2;
+    println!("rk.b * d2 [0]: {:x}", rk_b_times_d2.coeffs[0].to_words()[0]);
+
+    let mut c0_new = d0;
+    c0_new += &rk_b_times_d2;
+    println!(
+        "c0_new = d0 + rk.b*d2 [0]: {:x}",
+        c0_new.coeffs[0].to_words()[0]
+    );
+
+    // c1_new = d1 + rk.a * d2
+    let mut rk_a_times_d2 = relin_key.a.clone();
+    rk_a_times_d2 *= &d2;
+    println!("rk.a * d2 [0]: {:x}", rk_a_times_d2.coeffs[0].to_words()[0]);
+
+    let mut c1_new = d1;
+    c1_new += &rk_a_times_d2;
+    println!(
+        "c1_new = d1 + rk.a*d2 [0]: {:x}",
+        c1_new.coeffs[0].to_words()[0]
+    );
+
+    // Scale calculation
+    println!("Scale bits before multiplication:");
+    println!("  ct1.scale_bits: {}", ct1.scale_bits);
+    println!("  ct2.scale_bits: {}", ct2.scale_bits);
+    let new_scale_bits = ct1.scale_bits + ct2.scale_bits;
+    println!(
+        "  After multiplication: {} + {} = {}",
+        ct1.scale_bits, ct2.scale_bits, new_scale_bits
+    );
+    println!("=== END MULTIPLICATION DEBUG ===");
+
+    Ciphertext {
+        c0: c0_new,
+        c1: c1_new,
+        scale_bits: new_scale_bits,
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
@@ -37,12 +170,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Secret and public keys generated with U256 arithmetic");
 
     // Input data
-    let values1 = vec![1.0, 2.0, 3.0, 4.0];
-    let values2 = vec![5.0, 6.0, 7.0, 0.0];
-    println!("\n📊 Input data1: {values1:?}");
-    println!("\n📊 Input data2: {values2:?}");
+    let values1 = vec![1.0, 0.0, 0.0, 0.0]; // Simple case
+    let values2 = vec![2.0, 0.0, 0.0, 0.0]; // Should give [2.0, 0, 0, 0] right?
+    println!("📊 Input data1: {values1:?}");
+    println!("📊 Input data2: {values2:?}");
 
-    // Step 1: Encode: Vec<f64> → Plaintext
+    // Step 1: Encode: Vec<f64> -> Plaintext
     println!("\n🔢 Encoding values...");
     let plaintext1 = encoder.encode(&values1, engine.context());
     let plaintext2 = encoder.encode(&values2, engine.context());
@@ -50,7 +183,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // sanity: encode -> decode without encryption
     let decoded_plain = encoder.decode(&plaintext1);
-    println!("Plain roundtrip: {:?}", &decoded_plain[..values1.len()]);
+    println!("Plain roundtrip: {:?}", &decoded_plain);
+    println!(
+        "  First few coeffs for plaintext1: {:?}",
+        &plaintext1.poly.coeffs[0..4]
+    );
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
@@ -58,23 +195,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
     println!("✅ Plaintext encrypted to ciphertext using U256 operations");
 
+    println!("Multiplying civphertexts...");
     let mut ciphertext_mul =
-        Engine::mul_ciphertexts(&ciphertext1, &ciphertext2, &relin_key);
+        debug_mul_ciphertexts(&ciphertext1, &ciphertext2, &relin_key);
 
-    println!("Before rescale:");
-    println!("  ct1.scale: {}", ciphertext1.scale);
-    println!("  ct2.scale: {}", ciphertext2.scale);
-    println!("  mul.scale: {}", ciphertext_mul.scale);
-    println!(
-        "  Expected Δ²: {}",
-        (1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64
-    );
+    println!("\nBefore rescale - first few coeffs:");
+    println!("  c0[0]: {:x}", ciphertext_mul.c0.coeffs[0].to_words()[0]);
+    println!("  c1[0]: {:x}", ciphertext_mul.c1.coeffs[0].to_words()[0]);
 
-    rescale_ciphertext_u256_inplace(&mut ciphertext_mul, SCALE_BITS);
+    // rescale using Kim's approach
+    rescale_ciphertext(&mut ciphertext_mul, SCALE_BITS);
 
-    println!("After rescale:");
-    println!("  mul.scale: {}", ciphertext_mul.scale);
-    println!("  Expected Δ: {}", (1u64 << SCALE_BITS) as f64);
+    println!("\nAfter rescale - first few coeffs:");
+    println!("  c0[0]: {:x}", ciphertext_mul.c0.coeffs[0].to_words()[0]);
+    println!("  c1[0]: {:x}", ciphertext_mul.c1.coeffs[0].to_words()[0]);
 
     // Step 3: Decrypt: Ciphertext → Plaintext
     println!("\n🔓 Decrypting ciphertext...");
@@ -82,8 +216,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Ciphertext decrypted back to plaintext");
 
     println!("Debug scales:");
-    println!("  encoder.delta(): {}", (1u64 << SCALE_BITS) as f64);
-    println!("  decrypted_plaintext.scale: {}", decrypted_plaintext.scale);
+    println!(
+        "  decrypted_plaintext.scale_bits: {}",
+        decrypted_plaintext.scale_bits
+    );
 
     let coeffs = decrypted_plaintext.poly.coefficients();
     println!("  First few coeffs: {:?}", &coeffs[0..4]);
@@ -92,28 +228,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔢 Decoding back to floating-point...");
     let decoded_values = encoder.decode(&decrypted_plaintext);
     println!("✅ Plaintext1 decoded: {:?}", decoded_values);
-
-    /* // Display results
-    println!("\n📊 Results:");
-    println!("  Original: {:?}", values);
-    println!("  Decoded:  {:?}", &decoded_values[..values.len()]);
-
-    // Verify accuracy
-    let max_error = values
-        .iter()
-        .zip(&decoded_values)
-        .map(|(orig, decoded)| (orig - decoded).abs())
-        .fold(0.0, f64::max);
-
-    println!("  Max error: {:.2e}", max_error);
-
-    if max_error < 1e-3 {
-        println!(
-            "🎉 Success! Full CKKS encrypt/decrypt pipeline works with BigInt U256!"
-        );
-    } else {
-        println!("⚠️  Warning: Error is higher than expected");
-    } */
 
     Ok(())
 }
