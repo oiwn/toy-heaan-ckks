@@ -102,7 +102,7 @@ where
         Ciphertext {
             c0,
             c1,
-            scale: plaintext.scale,
+            scale_bits: plaintext.scale_bits,
         }
     }
 
@@ -117,7 +117,7 @@ where
 
         Plaintext {
             poly: result,
-            scale: ciphertext.scale,
+            scale_bits: ciphertext.scale_bits,
         }
     }
 
@@ -132,13 +132,13 @@ where
         let mut c1 = ct1.c1.clone();
         c1 += &ct2.c1;
 
-        // Scale should be the same for both
-        assert_eq!(ct1.scale, ct2.scale);
+        // Scale_bits should be the same for both
+        assert_eq!(ct1.scale_bits, ct2.scale_bits);
 
         Ciphertext {
             c0,
             c1,
-            scale: ct1.scale,
+            scale_bits: ct1.scale_bits,
         }
     }
 
@@ -180,13 +180,13 @@ where
         let mut c1_new = d1;
         c1_new += &rk_a_times_d2;
 
-        // Step 3: Scale calculation
-        let new_scale = ct1.scale * ct2.scale;
+        // Step 3: Scale calculation - add scale_bits
+        let new_scale_bits = ct1.scale_bits + ct2.scale_bits;
 
         Ciphertext {
             c0: c0_new,
             c1: c1_new,
-            scale: new_scale,
+            scale_bits: new_scale_bits,
         }
     }
 }

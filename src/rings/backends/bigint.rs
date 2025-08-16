@@ -7,12 +7,12 @@ use rand::Rng;
 use std::ops::{AddAssign, MulAssign, Neg};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PolyRingU256<const DEGREE: usize> {
+pub struct BigIntPolyRing<const DEGREE: usize> {
     pub coeffs: [U256; DEGREE],
     modulus: NonZero<U256>,
 }
 
-impl<const DEGREE: usize> PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> BigIntPolyRing<DEGREE> {
     pub fn with_modulus(modulus: NonZero<U256>) -> Self {
         Self {
             coeffs: [U256::ZERO; DEGREE],
@@ -42,7 +42,7 @@ impl<const DEGREE: usize> PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> PolyRing<DEGREE> for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> PolyRing<DEGREE> for BigIntPolyRing<DEGREE> {
     type Context = crypto_bigint::NonZero<U256>;
 
     fn zero(context: &Self::Context) -> Self {
@@ -101,7 +101,7 @@ impl<const DEGREE: usize> PolyRing<DEGREE> for PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> AddAssign<&Self> for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> AddAssign<&Self> for BigIntPolyRing<DEGREE> {
     fn add_assign(&mut self, rhs: &Self) {
         assert_eq!(
             self.modulus, rhs.modulus,
@@ -115,7 +115,7 @@ impl<const DEGREE: usize> AddAssign<&Self> for PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> MulAssign<&Self> for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> MulAssign<&Self> for BigIntPolyRing<DEGREE> {
     fn mul_assign(&mut self, rhs: &Self) {
         assert_eq!(
             self.modulus, rhs.modulus,
@@ -147,7 +147,7 @@ impl<const DEGREE: usize> MulAssign<&Self> for PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> Neg for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> Neg for BigIntPolyRing<DEGREE> {
     type Output = Self;
 
     fn neg(mut self) -> Self::Output {
@@ -158,15 +158,20 @@ impl<const DEGREE: usize> Neg for PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> PolySampler<DEGREE> for BigIntPolyRing<DEGREE> {
     fn sample_uniform<R: Rng>(context: &Self::Context, rng: &mut R) -> Self {
-        // Generate uniform coefficients as u64, then convert to U256
+        // Generate uniform coefficients using full U256 range
         let mut coeffs = [U256::ZERO; DEGREE];
 
         for coeff in &mut coeffs {
-            // Sample a random u64 and reduce modulo context
-            let random_u64 = rng.random::<u64>();
-            let random_u256 = U256::from(random_u64);
+            // Build a full U256 from four u64 values for proper uniform distribution
+            let words = [
+                rng.random::<u64>(),
+                rng.random::<u64>(),
+                rng.random::<u64>(),
+                rng.random::<u64>(),
+            ];
+            let random_u256 = U256::from_words(words);
             *coeff = random_u256.rem(context);
         }
 
@@ -227,7 +232,7 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for PolyRingU256<DEGREE> {
     }
 }
 
-impl<const DEGREE: usize> PolyRescale<DEGREE> for PolyRingU256<DEGREE> {
+impl<const DEGREE: usize> PolyRescale<DEGREE> for BigIntPolyRing<DEGREE> {
     fn rescale_assign(&mut self, scale_factor: f64) {
         let scale_u256 = U256::from_u64(scale_factor as u64);
         for coeff in &mut self.coeffs {
@@ -263,7 +268,7 @@ fn rescale_coeff_pow2_u256(c: U256, q: U256, k: u32) -> U256 {
 }
 
 pub fn rescale_ciphertext_u256_inplace<const DEGREE: usize>(
-    ct: &mut Ciphertext<PolyRingU256<DEGREE>, DEGREE>,
+    ct: &mut Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>,
     k: u32,
 ) {
     let q = ct.c0.modulus().get();
@@ -279,5 +284,5 @@ pub fn rescale_ciphertext_u256_inplace<const DEGREE: usize>(
         ct.c1.coeffs[i] = r1;
     }
 
-    ct.scale /= (1u64 << k) as f64;
+    ct.scale_bits -= k;
 }

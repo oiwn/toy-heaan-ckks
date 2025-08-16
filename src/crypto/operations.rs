@@ -73,7 +73,7 @@ where
     Ok(Ciphertext {
         c0,
         c1,
-        scale: plaintext.scale,
+        scale_bits: plaintext.scale_bits,
     })
 }
 
@@ -112,7 +112,7 @@ where
 
     Plaintext {
         poly: result,
-        scale: ciphertext.scale,
+        scale_bits: ciphertext.scale_bits,
     }
 }
 
@@ -124,10 +124,10 @@ pub fn add_ciphertexts<P, const DEGREE: usize>(
 where
     P: PolyRing<DEGREE>,
 {
-    if (ct1.scale - ct2.scale).abs() > f64::EPSILON {
+    if ct1.scale_bits != ct2.scale_bits {
         return Err(EncryptionError::ScaleMismatch {
-            expected: ct1.scale,
-            actual: ct2.scale,
+            expected: ct1.scale_bits as f64,
+            actual: ct2.scale_bits as f64,
         });
     }
 
@@ -140,7 +140,7 @@ where
     Ok(Ciphertext {
         c0,
         c1,
-        scale: ct1.scale,
+        scale_bits: ct1.scale_bits,
     })
 }
 

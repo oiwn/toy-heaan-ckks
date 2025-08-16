@@ -45,7 +45,7 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Encoder<P, DEGREE>
         let poly = P::from_coeffs(&coeffs, context);
         Plaintext {
             poly,
-            scale: self.params.delta(),
+            scale_bits: self.params.scale_bits,
         }
     }
 

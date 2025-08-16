@@ -1,23 +1,17 @@
-#![allow(dead_code)]
 use crate::encoding::{Encoder, EncodingError, EncodingResult};
-use crate::{Plaintext, PolyRingU256};
+use crate::{BigIntPolyRing, Plaintext};
 use crypto_bigint::{NonZero, U256};
 use num_complex::Complex64;
-use rand::Rng;
 use std::f64::consts::PI;
 
 pub struct BigIntEncodingParams<const DEGREE: usize> {
     scale_bits: u32,
+    rot_group: Vec<u64>,
+    ksi_pows: Vec<Complex64>,
 }
 
 pub struct BigIntEncoder<const DEGREE: usize> {
     params: BigIntEncodingParams<DEGREE>,
-}
-
-#[derive(Clone)]
-struct QuantizedPolyU256 {
-    re: Vec<U256>,
-    im: Vec<U256>,
 }
 
 impl<const DEGREE: usize> BigIntEncodingParams<DEGREE> {
@@ -25,13 +19,41 @@ impl<const DEGREE: usize> BigIntEncodingParams<DEGREE> {
         if !DEGREE.is_power_of_two() {
             return Err(EncodingError::InvalidRingDegree { degree: DEGREE });
         }
-        assert!(scale_bits <= 52, "scale_bits must be ≤ 52 with f64 backend");
-        Ok(Self { scale_bits })
+        // assert!(scale_bits <= 52, "scale_bits must be ≤ 52 with f64 backend");
+
+        // Initialize Kim's rotation group and roots of unity
+        let (rot_group, ksi_pows) = Self::init_kim_structures();
+
+        Ok(Self {
+            scale_bits,
+            rot_group,
+            ksi_pows,
+        })
     }
 
-    #[inline]
-    pub fn delta(&self) -> f64 {
-        (1u64 << self.scale_bits) as f64
+    /// Kim's initialization: rotGroup and ksiPows
+    fn init_kim_structures() -> (Vec<u64>, Vec<Complex64>) {
+        let n = DEGREE; // N in Kim's code
+        let nh = n / 2; // Nh in Kim's code
+        let m = n * 2; // M in Kim's code
+
+        // rotGroup: powers of 5 mod M, Kim's rotation group
+        let mut rot_group = vec![0u64; nh];
+        let mut five_pows = 1u64;
+        for i in 0..nh {
+            rot_group[i] = five_pows;
+            five_pows = (five_pows * 5) % (m as u64);
+        }
+
+        // ksiPows: e^(2πij/M) for j = 0..M
+        let mut ksi_pows = vec![Complex64::new(0.0, 0.0); m + 1];
+        for j in 0..m {
+            let angle = 2.0 * PI * (j as f64) / (m as f64);
+            ksi_pows[j] = Complex64::new(angle.cos(), angle.sin());
+        }
+        ksi_pows[m] = ksi_pows[0]; // Wraparound
+
+        (rot_group, ksi_pows)
     }
 }
 
@@ -42,253 +64,339 @@ impl<const DEGREE: usize> BigIntEncoder<DEGREE> {
         })
     }
 
-    /// π^{-1}: Expand C^{N/2} to Hermitian space H
-    fn pi_inverse(&self, z: &[f64]) -> Vec<Complex64> {
-        let n = z.len();
-        let mut result = Vec::with_capacity(2 * n);
+    /// Kim's bit reversal algorithm for FFT
+    fn bit_reverse(&self, vals: &mut [Complex64]) {
+        let size = vals.len();
+        let mut j = 0usize;
 
-        // First N/2 elements: convert real to complex
-        for &val in z {
-            result.push(Complex64::new(val, 0.0));
-        }
-
-        // Second N/2 elements: complex conjugates in reverse order
-        for &val in z.iter().rev() {
-            result.push(Complex64::new(val, 0.0)); // Since input is real, conjugate is same
-        }
-
-        result
-    }
-
-    /// Create the σ(R) lattice basis
-    fn create_sigma_r_basis(&self) -> Vec<Vec<Complex64>> {
-        let n = DEGREE / 2;
-        let xi = primitive_root(n as u32);
-
-        // Vandermonde matrix: sigma(1), sigma(X), ..., sigma(X^{N-1})
-        (0..DEGREE)
-            .map(|j| {
-                (0..n)
-                    .map(|i| xi.powu(((2 * i + 1) * j) as u32))
-                    .chain((0..n).map(|i| xi.powu(((2 * i + 1) * j) as u32).conj()))
-                    .collect()
-            })
-            .collect()
-    }
-
-    /// Reconstruct vector from lattice basis coordinates
-    fn reconstruct_from_basis(
-        &self,
-        coords: &[i64],
-        basis: &[Vec<Complex64>],
-    ) -> Vec<Complex64> {
-        let mut result = vec![Complex64::new(0.0, 0.0); basis[0].len()];
-
-        for (coord, basis_vec) in coords.iter().zip(basis.iter()) {
-            let weight = *coord as f64;
-            for (i, &basis_val) in basis_vec.iter().enumerate() {
-                result[i] += basis_val * weight;
+        for i in 1..size {
+            let mut bit = size >> 1;
+            while j >= bit {
+                j -= bit;
+                bit >>= 1;
+            }
+            j += bit;
+            if i < j {
+                vals.swap(i, j);
             }
         }
+    }
 
-        result
+    /// Kim's fftSpecialInvLazy implementation
+    fn fft_special_inv_lazy(&self, vals: &mut [Complex64]) {
+        let size = vals.len();
+        let m = DEGREE * 2; // M in Kim's code
+
+        let mut len = size;
+        while len >= 1 {
+            for i in (0..size).step_by(len) {
+                let lenh = len >> 1;
+                let lenq = len << 2;
+
+                for j in 0..lenh {
+                    let rot_idx = self.params.rot_group[j] % (lenq as u64);
+                    let idx = ((lenq as u64 - rot_idx) * (m as u64) / (lenq as u64))
+                        as usize;
+
+                    let u = vals[i + j] + vals[i + j + lenh];
+                    let mut v = vals[i + j] - vals[i + j + lenh];
+                    v *= self.params.ksi_pows[idx];
+
+                    vals[i + j] = u;
+                    vals[i + j + lenh] = v;
+                }
+            }
+            len >>= 1;
+        }
+
+        self.bit_reverse(vals);
+    }
+
+    /// Kim's fftSpecialInv with normalization
+    fn fft_special_inv(&self, vals: &mut [Complex64]) {
+        println!("fft_special_inv: input size = {}", vals.len());
+        self.fft_special_inv_lazy(vals);
+        println!("fft_special_inv: after lazy, normalizing...");
+        let size = vals.len() as f64;
+        for val in vals.iter_mut() {
+            *val /= size;
+        }
+        println!("fft_special_inv: done");
+    }
+
+    /// Kim's fftSpecial for decoding
+    fn fft_special(&self, vals: &mut [Complex64]) {
+        let size = vals.len();
+        let m = DEGREE * 2; // M in Kim's code
+
+        self.bit_reverse(vals);
+
+        let mut len = 2;
+        while len <= size {
+            for i in (0..size).step_by(len) {
+                let lenh = len >> 1;
+                let lenq = len << 2;
+
+                for j in 0..lenh {
+                    let rot_idx = self.params.rot_group[j] % (lenq as u64);
+                    let idx = (rot_idx * (m as u64) / (lenq as u64)) as usize;
+
+                    let u = vals[i + j];
+                    let mut v = vals[i + j + lenh];
+                    v *= self.params.ksi_pows[idx];
+
+                    vals[i + j] = u + v;
+                    vals[i + j + lenh] = u - v;
+                }
+            }
+            len <<= 1;
+        }
+    }
+
+    fn scale_down_to_real(
+        &self,
+        coeff: U256,
+        logp: u32,
+        modulus: &NonZero<U256>,
+    ) -> f64 {
+        let q = modulus.get();
+        let half_q = q >> 1;
+
+        // Convert to centered representation: map [0, q) -> [-(q/2), q/2)
+        let centered_val = if coeff > half_q {
+            // Negative: coeff - q (wrapped subtraction)
+            let diff = q.wrapping_sub(&coeff);
+            -(diff.to_words()[0] as f64) // Use only lower word for now
+        } else {
+            // Positive
+            coeff.to_words()[0] as f64
+        };
+
+        // Apply Kim's approach: divide by 2^logp (scale factor)
+        let scale_factor = (1u64 << logp) as f64;
+        centered_val / scale_factor
+    }
+
+    /// Improved scale up that handles edge cases better
+    fn scale_up_to_u256(&self, val: f64, logp: u32) -> U256 {
+        let scale_factor = (1u64 << logp) as f64;
+        let scaled = (val * scale_factor).round();
+
+        if scaled >= 0.0 {
+            // Positive value
+            let uint_val = scaled as u64;
+            U256::from_u64(uint_val)
+        } else {
+            // Negative value: compute modulus - |scaled|
+            let abs_val = (-scaled) as u64;
+            let abs_u256 = U256::from_u64(abs_val);
+            // Note: This is a simplified version. In practice you'd need the actual modulus here
+            U256::ZERO.wrapping_sub(&abs_u256)
+        }
     }
 }
 
-impl<const DEGREE: usize> Encoder<PolyRingU256<DEGREE>, DEGREE>
+impl<const DEGREE: usize> Encoder<BigIntPolyRing<DEGREE>, DEGREE>
     for BigIntEncoder<DEGREE>
 {
     fn encode(
         &self,
         values: &[f64],
         context: &NonZero<U256>,
-    ) -> Plaintext<PolyRingU256<DEGREE>, DEGREE> {
-        let n = DEGREE / 2;
-        let mut padded = values.to_vec();
-        padded.resize(n, 0.0);
+    ) -> Plaintext<BigIntPolyRing<DEGREE>, DEGREE> {
+        let n = DEGREE / 2; // Nh in Kim's code
+        let slots = values.len();
 
-        // For now, use the original vanilla implementation
-        // TODO: Add full lattice projection in separate commit
-        let complex_coeffs = sigma_inv(&padded, n as u32);
-        let qp = quantize_u256(&complex_coeffs, context, self.params.delta());
+        // Assert no padding as requested
+        assert!(slots <= n, "Too many values: got {}, max {}", slots, n);
 
-        // Pack into polynomial coefficients
-        let mut coeffs = [U256::ZERO; DEGREE];
-        for i in 0..n {
-            coeffs[i] = qp.re[i];
-            coeffs[i + n] = qp.im[i];
+        // Step 1: Convert real values to complex (imag = 0.0)
+        let mut uvals = vec![Complex64::new(0.0, 0.0); slots];
+        for (i, &val) in values.iter().enumerate() {
+            uvals[i] = Complex64::new(val, 0.0); // Real part only
         }
 
-        let poly = PolyRingU256::<DEGREE>::from_u256_coeffs(&coeffs, context);
+        // Step 2: Kim's fftSpecialInv
+        self.fft_special_inv(&mut uvals);
+
+        // Step 3: Kim's gap-based coefficient distribution
+        let mut coeffs = [U256::ZERO; DEGREE];
+        let gap = n / slots;
+
+        for i in 0..slots {
+            let idx = i * gap; // Real parts: 0, gap, 2*gap, ...
+            let jdx = n + i * gap; // Imag parts: Nh, Nh+gap, Nh+2*gap, ...
+
+            coeffs[idx] =
+                self.scale_up_to_u256(uvals[i].re, self.params.scale_bits);
+            coeffs[jdx] =
+                self.scale_up_to_u256(uvals[i].im, self.params.scale_bits);
+        }
+
+        let poly = BigIntPolyRing::<DEGREE>::from_u256_coeffs(&coeffs, context);
         Plaintext {
             poly,
-            scale: self.params.delta(),
+            scale_bits: self.params.scale_bits,
         }
     }
 
     fn decode(
         &self,
-        plaintext: &Plaintext<PolyRingU256<DEGREE>, DEGREE>,
+        plaintext: &Plaintext<BigIntPolyRing<DEGREE>, DEGREE>,
     ) -> Vec<f64> {
         let coeffs = plaintext.poly.coefficients();
-        let modulus = plaintext.poly.modulus(); // NonZero<U256>
-
+        let modulus = plaintext.poly.modulus();
         let n = DEGREE / 2;
 
-        let qp = QuantizedPolyU256 {
-            re: coeffs[0..n].to_vec(),
-            im: coeffs[n..2 * n].to_vec(),
-        };
+        let logp = plaintext.scale_bits;
 
-        let deq = dequantize_u256(&qp, modulus, n as u32, plaintext.scale);
+        println!("Decode debug: scale_bits={}", logp);
 
-        // let deq = dequantize_u256(&qp, modulus, n as u32, self.params.delta());
+        let slots = n;
+        let gap = n / slots;
+        let mut uvals = vec![Complex64::new(0.0, 0.0); slots];
 
-        sigma(&deq, n as u32)
-    }
-}
+        for i in 0..slots {
+            let idx = i * gap;
+            let jdx = n + i * gap;
 
-// xi = e^{2pi*i / (2*N)}
-fn primitive_root(n: u32) -> Complex64 {
-    let m = 2 * n;
-    Complex64::from_polar(1.0, 2.0 * PI / (m as f64))
-}
+            let real_val = self.scale_down_to_real(coeffs[idx], logp, &modulus);
+            let imag_val = self.scale_down_to_real(coeffs[jdx], logp, &modulus);
 
-// r_i = xi^{2i+1}, i = 0..N-1
-fn odd_roots(n: u32) -> Vec<Complex64> {
-    let xi = primitive_root(n);
-    (0..n).map(|i| xi.powu(2 * i + 1)).collect()
-}
+            println!(
+                "  uvals[{}]: coeffs[{}]={:x} -> {:.6}, coeffs[{}]={:x} -> {:.6}",
+                i,
+                idx,
+                coeffs[idx].to_words()[0],
+                real_val,
+                jdx,
+                coeffs[jdx].to_words()[0],
+                imag_val
+            );
 
-/// sigma^{-1}: b (len N, real) -> coeffs (len N, complex)
-/// c_j = (1/N) * sum_i b_i * conj(r_i)^j
-fn sigma_inv(b: &[f64], n: u32) -> Vec<Complex64> {
-    assert_eq!(b.len(), n as usize);
-    let roots = odd_roots(n);
-    let mut coeffs = vec![Complex64::new(0.0, 0.0); n as usize];
-
-    for j in 0..n as usize {
-        let mut acc = Complex64::new(0.0, 0.0);
-        for (i, &bi) in b.iter().enumerate() {
-            let mut pow = Complex64::new(1.0, 0.0);
-            let r_conj = roots[i].conj();
-            for _ in 0..j {
-                pow *= r_conj;
-            }
-            acc += pow * bi;
+            uvals[i] = Complex64::new(real_val, imag_val);
         }
-        coeffs[j] = acc / n as f64;
+
+        self.fft_special(&mut uvals);
+        let result: Vec<f64> = uvals.iter().map(|c| c.re).collect();
+        println!("After fft_special: {:?}", result);
+        result
     }
-    coeffs
-}
 
-/// sigma: coeffs -> b (len N, real part)
-fn sigma(coeffs: &[Complex64], n: u32) -> Vec<f64> {
-    assert_eq!(coeffs.len(), n as usize);
-    let roots = odd_roots(n);
-    let mut out = vec![0.0f64; n as usize];
+    /* fn decode(
+        &self,
+        plaintext: &Plaintext<BigIntPolyRing<DEGREE>, DEGREE>,
+    ) -> Vec<f64> {
+        let coeffs = plaintext.poly.coefficients();
+        let modulus = plaintext.poly.modulus();
+        let n = DEGREE / 2;
 
-    for i in 0..n as usize {
-        let mut acc = Complex64::new(0.0, 0.0);
-        let mut pow = Complex64::new(1.0, 0.0);
-        for (j, &c) in coeffs.iter().enumerate() {
-            if j > 0 {
-                pow *= roots[i];
-            }
-            acc += c * pow;
+        // Calculate logp from the actual plaintext scale
+        let actual_scale = plaintext.scale;
+        let logp = (actual_scale.log2().round() as u32); // Convert scale back to logp
+
+        let slots = n;
+        let gap = n / slots;
+        let mut uvals = vec![Complex64::new(0.0, 0.0); slots];
+
+        for i in 0..slots {
+            let idx = i * gap;
+            let jdx = n + i * gap;
+
+            let real_val = self.scale_down_to_real(coeffs[idx], logp, &modulus); // ✅ Use actual logp
+            let imag_val = self.scale_down_to_real(coeffs[jdx], logp, &modulus); // ✅ Use actual logp
+
+            uvals[i] = Complex64::new(real_val, imag_val);
         }
-        out[i] = acc.re;
+
+        self.fft_special(&mut uvals);
+        uvals.iter().map(|c| c.re).collect()
+    } */
+
+    /* fn decode(
+        &self,
+        plaintext: &Plaintext<BigIntPolyRing<DEGREE>, DEGREE>,
+    ) -> Vec<f64> {
+        let coeffs = plaintext.poly.coefficients();
+        let modulus = plaintext.poly.modulus();
+        let n = DEGREE / 2;
+
+        // Extract coefficients back with Kim's gap structure
+        // For now, assume we encoded with gap=1 (full slots)
+        // In a complete implementation, we'd need to track the original gap
+        let slots = n; // Simplified assumption
+        let gap = n / slots;
+
+        let mut uvals = vec![Complex64::new(0.0, 0.0); slots];
+
+        for i in 0..slots {
+            let idx = i * gap;
+            let jdx = n + i * gap;
+
+            let real_val = self.scale_down_to_real(
+                coeffs[idx],
+                self.params.scale_bits,
+                &modulus,
+            );
+            let imag_val = self.scale_down_to_real(
+                coeffs[jdx],
+                self.params.scale_bits,
+                &modulus,
+            );
+
+            uvals[i] = Complex64::new(real_val, imag_val);
+        }
+
+        // Apply Kim's fftSpecial for decoding
+        self.fft_special(&mut uvals);
+
+        // Extract real parts (since we encoded real values)
+        uvals.iter().map(|c| c.re).collect()
+    } */
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto_bigint::U256;
+
+    #[test]
+    fn test_bigint_encoder_roundtrip() {
+        const DEGREE: usize = 8;
+        const SCALE_BITS: u32 = 20;
+
+        let encoder = BigIntEncoder::<DEGREE>::new(SCALE_BITS).unwrap();
+        let modulus =
+            NonZero::new(U256::from_u128(1152921504606846883u128)).unwrap();
+
+        // Start with just 1 value to debug
+        let values = vec![1.5];
+        println!("Starting encode with values: {:?}", values);
+
+        let plaintext = encoder.encode(&values, &modulus);
+        println!("Encode completed, starting decode...");
+
+        let decoded = encoder.decode(&plaintext);
+        println!("Decoded: {:?}", decoded);
     }
-    out
-}
 
-fn quantize_u256(
-    coeffs: &[Complex64],
-    q: &NonZero<U256>,
-    scale: f64,
-) -> QuantizedPolyU256 {
-    let re = coeffs
-        .iter()
-        .map(|c| to_mod_u256((c.re * scale).round() as i128, q))
-        .collect();
-    let im = coeffs
-        .iter()
-        .map(|c| to_mod_u256((c.im * scale).round() as i128, q))
-        .collect();
-    QuantizedPolyU256 { re, im }
-}
+    #[test]
+    fn test_max_slots_assertion() {
+        const DEGREE: usize = 8;
+        let encoder = BigIntEncoder::<DEGREE>::new(20).unwrap();
+        let modulus =
+            NonZero::new(U256::from_u128(1152921504606846883u128)).unwrap();
 
-fn dequantize_u256(
-    qp: &QuantizedPolyU256,
-    q: NonZero<U256>,
-    n: u32,
-    scale: f64,
-) -> Vec<Complex64> {
-    assert_eq!(qp.re.len(), n as usize);
-    assert_eq!(qp.im.len(), n as usize);
+        // Should work: 4 slots for DEGREE=8
+        let values_ok = vec![1.0, 2.0, 3.0, 4.0];
+        encoder.encode(&values_ok, &modulus);
 
-    (0..n as usize)
-        .map(|i| {
-            let re = from_mod_u256_centered(qp.re[i], q.get()) as f64 / scale;
-            let im = from_mod_u256_centered(qp.im[i], q.get()) as f64 / scale;
-            Complex64::new(re, im)
+        // Should panic: 5 slots > max 4
+        let values_too_many = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        std::panic::catch_unwind(|| {
+            encoder.encode(&values_too_many, &modulus);
         })
-        .collect()
-}
-
-fn compute_basis_coordinates(
-    z: &[Complex64],
-    basis: &[Vec<Complex64>],
-) -> Vec<f64> {
-    basis
-        .iter()
-        .map(|b| {
-            let dot_product: Complex64 =
-                z.iter().zip(b.iter()).map(|(zi, bi)| zi * bi.conj()).sum();
-            let norm_squared: f64 = b.iter().map(|bi| bi.norm_sqr()).sum();
-            dot_product.re / norm_squared
-        })
-        .collect()
-}
-
-fn coordinate_wise_random_rounding(coords: &[f64], rng: &mut impl Rng) -> Vec<i64> {
-    coords
-        .iter()
-        .map(|&c| {
-            let floor_c = c.floor();
-            let frac = c - floor_c;
-            if rng.random::<f64>() < frac {
-                floor_c as i64 + 1
-            } else {
-                floor_c as i64
-            }
-        })
-        .collect()
-}
-
-#[inline]
-fn to_mod_u256(v: i128, q: &NonZero<U256>) -> U256 {
-    if v >= 0 {
-        U256::from_u128(v as u128).rem_vartime(q)
-    } else {
-        let mag = U256::from_u128((-v) as u128).rem_vartime(q);
-        q.get().wrapping_sub(&mag)
+        .expect_err("Should panic with too many values");
     }
-}
-
-#[inline]
-fn from_mod_u256_centered(x: U256, q: U256) -> i128 {
-    let half = q >> 1;
-    if x > half {
-        let mag = q.wrapping_sub(&x);
-        -(u256_to_u128(mag) as i128)
-    } else {
-        u256_to_u128(x) as i128
-    }
-}
-
-#[inline]
-fn u256_to_u128(x: U256) -> u128 {
-    let words = x.to_words();
-    ((words[1] as u128) << 64) | (words[0] as u128)
 }

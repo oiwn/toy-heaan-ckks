@@ -31,7 +31,7 @@ explore different approaches to CKKS operations:
 
 - **`NaivePolyRing`** - Simple single-modulus arithmetic using native `u64`
 - **`RnsPolyRing`** - Multi-prime RNS (Residue Number System) for improved precision
-- **`PolyRingU256`** - Large modulus support using `crypto-bigint::U256`
+- **`BigIntPolyRing`** - Large modulus support using `crypto-bigint::U256`
 - **`RnsNttPolyRing`** - NTT-optimized RNS backend (experimental)
 
 ### Key Features by Backend
@@ -136,7 +136,7 @@ let engine = CkksEngine::<RnsPolyRing<8>, 8>::builder()
 
 // BigInt backend - large modulus support
 let modulus = NonZero::new(U256::from_u128(large_prime))?;
-let engine = CkksEngine::<PolyRingU256<8>, 8>::builder()
+let engine = CkksEngine::<BigIntPolyRing<8>, 8>::builder()
     .build_bigint_u256(modulus, scale_bits)?;
 ```
 

@@ -3,10 +3,14 @@ use crate::{
     math::{gaussian_coefficients, ternary_coefficients, uniform_coefficients},
 };
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::ops::{AddAssign, MulAssign, Neg};
 
-#[derive(Debug, Clone, PartialEq)]
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaivePolyRing<const DEGREE: usize> {
+    #[serde_as(as = "[_; DEGREE]")]
     pub coeffs: [u64; DEGREE],
     pub context: u64,
 }
