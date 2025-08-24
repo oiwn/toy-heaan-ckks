@@ -1,8 +1,8 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    Ciphertext, CkksEngine, NaivePolyRing, Plaintext, PolyRescale, PolyRing,
-    RelinearizationKey,
+    crypto::operations::multiply_ciphertexts,
+    Ciphertext, CkksEngine, NaivePolyRing, Plaintext, PolyRing,
 };
 
 const DEGREE: usize = 8;
@@ -17,9 +17,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 CKKS Homomorphic Multiplication with Relinearization");
     println!("   Using NaivePolyRing<{}> with {}-bit modulus", DEGREE, 50);
 
-    // Create engine
+    // First, test basic polynomial multiplication without encryption
+    println!("\n🧪 Testing basic polynomial multiplication (no encryption):");
+    test_basic_polynomial_multiplication();
+
+    // Create engine with much smaller error variance for multiplication
     let engine = Engine::builder()
-        .error_variance(3.2)
+        .error_variance(0.1)  // Much smaller noise for multiplication
         .hamming_weight(DEGREE / 2)
         .build_naive(MODULUS, SCALE_BITS)?;
 
@@ -67,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Perform homomorphic multiplication WITH relinearization
     println!("\n✖️  Performing homomorphic multiplication...");
     let ciphertext_product =
-        multiply_with_relinearization(&ciphertext1, &ciphertext2, &relin_key);
+        multiply_ciphertexts(&ciphertext1, &ciphertext2, &relin_key, SCALE_BITS)?;
 
     println!("   ✅ Multiplication completed");
     println!("   Product scale_bits: {}", ciphertext_product.scale_bits);
@@ -78,14 +82,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Extract the result
     let result_scaled = decrypted_product.poly.coeffs[0] as f64;
-    let expected_scale = (1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64;
+    let expected_scale = (1u64 << SCALE_BITS) as f64; // Now back to single scale
     let result = result_scaled / expected_scale;
 
     println!(
         "   Raw coefficient[0]: {}",
         decrypted_product.poly.coeffs[0]
     );
-    println!("   Expected scale (Δ²): {:.0}", expected_scale);
+    println!("   Expected scale (Δ): {:.0}", expected_scale);
     println!("   Computed result: {:.6}", result);
     println!("   Expected result: {:.1}", 2.0 * 3.0);
 
@@ -107,7 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let product_no_relin =
         multiply_without_relinearization(&ciphertext1, &ciphertext2);
     let decrypt_no_relin = Engine::decrypt(&product_no_relin, &secret_key);
-    let result_no_relin = decrypt_no_relin.poly.coeffs[0] as f64 / expected_scale;
+    let doubled_scale = (1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64;
+    let result_no_relin = decrypt_no_relin.poly.coeffs[0] as f64 / doubled_scale;
 
     println!(
         "   Without relinearization: {:.6} (error: {:.6})",
@@ -129,60 +134,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Proper homomorphic multiplication with relinearization
-fn multiply_with_relinearization(
-    ct1: &Ciphertext<NaivePolyRing<DEGREE>, DEGREE>,
-    ct2: &Ciphertext<NaivePolyRing<DEGREE>, DEGREE>,
-    relin_key: &RelinearizationKey<NaivePolyRing<DEGREE>, DEGREE>,
-) -> Ciphertext<NaivePolyRing<DEGREE>, DEGREE> {
-    println!("   Step 1: Computing polynomial products...");
-
-    // Multiply: (c0₁ + c1₁·s) × (c0₂ + c1₂·s)
-    // = c0₁·c0₂ + (c0₁·c1₂ + c1₁·c0₂)·s + c1₁·c1₂·s²
-
-    // d0 = c0₁ * c0₂
-    let mut d0 = ct1.c0.clone();
-    d0 *= &ct2.c0;
-
-    // d1 = c0₁·c1₂ + c1₁·c0₂
-    let mut d1_part1 = ct1.c0.clone();
-    d1_part1 *= &ct2.c1;
-
-    let mut d1_part2 = ct1.c1.clone();
-    d1_part2 *= &ct2.c0;
-
-    let mut d1 = d1_part1;
-    d1 += &d1_part2;
-
-    // d2 = c1₁ * c1₂ (coefficient of s²)
-    let mut d2 = ct1.c1.clone();
-    d2 *= &ct2.c1;
-
-    println!("   Step 2: Applying relinearization...");
-
-    // Relinearization: Replace d2·s² with d2·(relin_key.b + relin_key.a·s)
-    // Since relin_key.b + relin_key.a·s ≈ s² + small_error
-
-    // Compute d2 * relin_key.b
-    let mut relin_c0 = d2.clone();
-    relin_c0 *= &relin_key.b;
-
-    // Compute d2 * relin_key.a
-    let mut relin_c1 = d2;
-    relin_c1 *= &relin_key.a;
-
-    // Add relinearization terms
-    d0 += &relin_c0; // d0 += d2 * relin_key.b
-    d1 += &relin_c1; // d1 += d2 * relin_key.a
-
-    println!("   Step 3: Relinearization complete!");
-
-    Ciphertext {
-        c0: d0,
-        c1: d1,
-        scale_bits: ct1.scale_bits + ct2.scale_bits,
-    }
-}
 
 /// Multiplication without relinearization (for comparison)
 fn multiply_without_relinearization(
@@ -222,6 +173,39 @@ fn create_constant_plaintext(
     Plaintext {
         poly: NaivePolyRing::from_coeffs(&coeffs, engine.context()),
         scale_bits: SCALE_BITS,
+    }
+}
+
+/// Test basic polynomial multiplication without encryption noise
+fn test_basic_polynomial_multiplication() {
+    // Create polynomials representing 2.0 and 3.0 at scale 2^10
+    let coeffs1 = [2048i64, 0, 0, 0, 0, 0, 0, 0]; // 2.0 * 1024
+    let coeffs2 = [3072i64, 0, 0, 0, 0, 0, 0, 0]; // 3.0 * 1024
+    
+    let poly1 = NaivePolyRing::<DEGREE>::from_coeffs(&coeffs1, &MODULUS);
+    let poly2 = NaivePolyRing::<DEGREE>::from_coeffs(&coeffs2, &MODULUS);
+    
+    println!("   poly1[0]: {} (represents 2.0)", poly1.coeffs[0]);
+    println!("   poly2[0]: {} (represents 3.0)", poly2.coeffs[0]);
+    
+    // Multiply
+    let mut result = poly1.clone();
+    result *= &poly2;
+    
+    println!("   result[0]: {}", result.coeffs[0]);
+    
+    let expected = 2048u64 * 3072u64; // 6,291,456
+    println!("   expected: {}", expected);
+    
+    // After multiplication, we have scale 2^20, so to get the value:
+    let computed_value = result.coeffs[0] as f64 / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
+    println!("   computed value: {:.6}", computed_value);
+    println!("   expected value: {:.1}", 2.0 * 3.0);
+    
+    if result.coeffs[0] == expected {
+        println!("   ✅ Basic polynomial multiplication is correct!");
+    } else {
+        println!("   ❌ Basic polynomial multiplication failed!");
     }
 }
 
