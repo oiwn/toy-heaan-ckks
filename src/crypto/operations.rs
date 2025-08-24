@@ -3,7 +3,9 @@
 //! This module contains the core cryptographic operations for the CKKS homomorphic
 //! encryption scheme, including functions to encrypt plaintexts and decrypt ciphertexts.
 use super::{Ciphertext, Plaintext};
-use crate::{PolyRescale, PolyRing, PolySampler, PublicKey, RelinearizationKey, SecretKey};
+use crate::{
+    PolyRescale, PolyRing, PolySampler, PublicKey, RelinearizationKey, SecretKey,
+};
 use rand::Rng;
 use thiserror::Error;
 

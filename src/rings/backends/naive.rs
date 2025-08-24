@@ -181,7 +181,7 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
 impl<const DEGREE: usize> PolyRescale<DEGREE> for NaivePolyRing<DEGREE> {
     fn rescale_assign(&mut self, scale_factor: f64) {
         let divisor = scale_factor as u64;
-        
+
         for coeff in &mut self.coeffs {
             // Use rounding division for better precision
             // (a + divisor/2) / divisor gives rounded division

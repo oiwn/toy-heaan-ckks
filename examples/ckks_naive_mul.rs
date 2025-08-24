@@ -1,8 +1,8 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    crypto::operations::multiply_ciphertexts,
     Ciphertext, CkksEngine, NaivePolyRing, Plaintext, PolyRing,
+    crypto::operations::multiply_ciphertexts,
 };
 
 const DEGREE: usize = 8;
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create engine with much smaller error variance for multiplication
     let engine = Engine::builder()
-        .error_variance(0.1)  // Much smaller noise for multiplication
+        .error_variance(0.1) // Much smaller noise for multiplication
         .hamming_weight(DEGREE / 2)
         .build_naive(MODULUS, SCALE_BITS)?;
 
@@ -134,7 +134,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 /// Multiplication without relinearization (for comparison)
 fn multiply_without_relinearization(
     ct1: &Ciphertext<NaivePolyRing<DEGREE>, DEGREE>,
@@ -181,27 +180,28 @@ fn test_basic_polynomial_multiplication() {
     // Create polynomials representing 2.0 and 3.0 at scale 2^10
     let coeffs1 = [2048i64, 0, 0, 0, 0, 0, 0, 0]; // 2.0 * 1024
     let coeffs2 = [3072i64, 0, 0, 0, 0, 0, 0, 0]; // 3.0 * 1024
-    
+
     let poly1 = NaivePolyRing::<DEGREE>::from_coeffs(&coeffs1, &MODULUS);
     let poly2 = NaivePolyRing::<DEGREE>::from_coeffs(&coeffs2, &MODULUS);
-    
+
     println!("   poly1[0]: {} (represents 2.0)", poly1.coeffs[0]);
     println!("   poly2[0]: {} (represents 3.0)", poly2.coeffs[0]);
-    
+
     // Multiply
     let mut result = poly1.clone();
     result *= &poly2;
-    
+
     println!("   result[0]: {}", result.coeffs[0]);
-    
+
     let expected = 2048u64 * 3072u64; // 6,291,456
     println!("   expected: {}", expected);
-    
+
     // After multiplication, we have scale 2^20, so to get the value:
-    let computed_value = result.coeffs[0] as f64 / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
+    let computed_value = result.coeffs[0] as f64
+        / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
     println!("   computed value: {:.6}", computed_value);
     println!("   expected value: {:.1}", 2.0 * 3.0);
-    
+
     if result.coeffs[0] == expected {
         println!("   ✅ Basic polynomial multiplication is correct!");
     } else {
