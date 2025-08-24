@@ -1,5 +1,5 @@
 use crate::{
-    PolyRing, PolySampler,
+    PolyRescale, PolyRing, PolySampler,
     math::{gaussian_coefficients, ternary_coefficients, uniform_coefficients},
 };
 use rand::Rng;
@@ -175,6 +175,19 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
         rng: &mut R,
     ) -> Self {
         Self::sample_gaussian(variance.sqrt(), context, rng)
+    }
+}
+
+impl<const DEGREE: usize> PolyRescale<DEGREE> for NaivePolyRing<DEGREE> {
+    fn rescale_assign(&mut self, scale_factor: f64) {
+        let divisor = scale_factor as u64;
+
+        for coeff in &mut self.coeffs {
+            // Use rounding division for better precision
+            // (a + divisor/2) / divisor gives rounded division
+            let rounded_div = (*coeff + divisor / 2) / divisor;
+            *coeff = rounded_div;
+        }
     }
 }
 
