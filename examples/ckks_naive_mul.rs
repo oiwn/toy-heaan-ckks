@@ -1,7 +1,8 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
-    Ciphertext, CkksEngine, NaivePolyRing, Plaintext, PolyRing, RelinearizationKey,
+    Ciphertext, CkksEngine, NaivePolyRing, Plaintext, PolyRescale, PolyRing,
+    RelinearizationKey,
 };
 
 const DEGREE: usize = 8;
@@ -254,7 +255,8 @@ mod tests {
         let ct_product = multiply_with_relinearization(&ct1, &ct2, &relin_key);
         let decrypted = Engine::decrypt(&ct_product, &secret_key);
 
-        let result = decrypted.poly.coeffs[0] as f64 / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
+        let result = decrypted.poly.coeffs[0] as f64
+            / ((1u64 << SCALE_BITS) as f64 * (1u64 << SCALE_BITS) as f64);
         let expected = 8.0;
 
         // With proper relinearization, error should be much smaller
