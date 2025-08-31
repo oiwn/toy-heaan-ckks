@@ -11,8 +11,8 @@ use std::ops::{AddAssign, MulAssign, Neg};
 /// Supports multiple moduli: q (base), Q (extended), QQ, qQ for key switching
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaiveContext {
-    pub logq: u32,  // Base modulus bits (e.g., 20)
-    pub logQ: u32,  // Extended modulus bits (e.g., 20)  
+    pub logq: u32, // Base modulus bits (e.g., 20)
+    pub logQ: u32, // Extended modulus bits (e.g., 20)
 }
 
 impl NaiveContext {
@@ -21,9 +21,14 @@ impl NaiveContext {
         // Validate bit budget fits in u64
         assert!(logq <= 32, "logq too large: {} > 32 bits", logq);
         assert!(logQ <= 32, "logQ too large: {} > 32 bits", logQ);
-        assert!(logq + logQ <= 40, "qQ = {} + {} = {} > 40 bits, exceeds u64 capacity", 
-                logq, logQ, logq + logQ);
-        
+        assert!(
+            logq + logQ <= 40,
+            "qQ = {} + {} = {} > 40 bits, exceeds u64 capacity",
+            logq,
+            logQ,
+            logq + logQ
+        );
+
         Self { logq, logQ }
     }
 
