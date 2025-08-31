@@ -102,9 +102,13 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
         values: &[f64],
         context: &u64, // NaivePolyRing uses u64 modulus
     ) -> Plaintext<NaivePolyRing<DEGREE>, DEGREE> {
+        let slots = values.len(); // Use actual input length as slots
         let n = DEGREE / 2;
+
+        assert!(slots <= n, "Too many values: got {}, max {}", slots, n);
+
         let mut padded = values.to_vec();
-        padded.resize(n, 0.0);
+        padded.resize(n, 0.0); // Still pad to n for FFT, but track actual slots
 
         // For now, use the vanilla implementation (same as BigInt approach)
         let complex_coeffs = sigma_inv(&padded, n as u32);
@@ -124,6 +128,7 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
         Plaintext {
             poly,
             scale_bits: self.params.scale_bits,
+            slots,
         }
     }
 
@@ -133,7 +138,7 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
     ) -> Vec<f64> {
         let coeffs = plaintext.poly.coeffs; // [u64; DEGREE] - already u64!
         let modulus = plaintext.poly.context();
-
+        let slots = plaintext.slots; // Use actual encoded slots
         let n = DEGREE / 2;
 
         // Coefficients are already u64, no conversion needed
@@ -144,7 +149,9 @@ impl<const DEGREE: usize> Encoder<NaivePolyRing<DEGREE>, DEGREE>
 
         let deq = dequantize_u64(&qp, *modulus, n as u32, self.params.delta());
 
-        sigma(&deq, n as u32)
+        let full_decoded = sigma(&deq, n as u32);
+        // Return only the number of slots that were originally encoded
+        full_decoded[..slots].to_vec()
     }
 }
 

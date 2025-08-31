@@ -7,6 +7,57 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::ops::{AddAssign, MulAssign, Neg};
 
+/// Extended context for Kim's HEAAN multiplication algorithm
+/// Supports multiple moduli: q (base), Q (extended), QQ, qQ for key switching
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NaiveContext {
+    pub logq: u32,  // Base modulus bits (e.g., 20)
+    pub logQ: u32,  // Extended modulus bits (e.g., 20)  
+}
+
+impl NaiveContext {
+    /// Create new context with logq and logQ
+    pub fn new(logq: u32, logQ: u32) -> Self {
+        // Validate bit budget fits in u64
+        assert!(logq <= 32, "logq too large: {} > 32 bits", logq);
+        assert!(logQ <= 32, "logQ too large: {} > 32 bits", logQ);
+        assert!(logq + logQ <= 40, "qQ = {} + {} = {} > 40 bits, exceeds u64 capacity", 
+                logq, logQ, logq + logQ);
+        
+        Self { logq, logQ }
+    }
+
+    /// Base ciphertext modulus: q = 2^logq
+    pub fn q(&self) -> u64 {
+        1u64 << self.logq
+    }
+
+    /// Extended modulus: Q = 2^logQ  
+    pub fn Q(&self) -> u64 {
+        1u64 << self.logQ
+    }
+
+    /// Key switching modulus: qQ = q * Q = 2^(logq + logQ)
+    pub fn qQ(&self) -> u64 {
+        1u64 << (self.logq + self.logQ)
+    }
+
+    /// Double extended modulus: QQ = Q^2 (uses u128 for intermediate calculations)
+    pub fn QQ(&self) -> u128 {
+        let Q = self.Q() as u128;
+        Q * Q
+    }
+}
+
+/// Legacy single-modulus constructor for backward compatibility
+impl From<u64> for NaiveContext {
+    fn from(modulus: u64) -> Self {
+        // Extract log2 of modulus for logq, set logQ = 0
+        let logq = 64 - modulus.leading_zeros();
+        Self::new(logq, 0)
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaivePolyRing<const DEGREE: usize> {
@@ -180,14 +231,39 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for NaivePolyRing<DEGREE> {
 
 impl<const DEGREE: usize> PolyRescale<DEGREE> for NaivePolyRing<DEGREE> {
     fn rescale_assign(&mut self, scale_factor: f64) {
-        let divisor = scale_factor as u64;
+        // Convert scale_factor to bit shift amount (more accurate than floating point division)
+        let shift_bits = (scale_factor.log2().round() as u32).min(63);
 
         for coeff in &mut self.coeffs {
-            // Use rounding division for better precision
-            // (a + divisor/2) / divisor gives rounded division
-            let rounded_div = (*coeff + divisor / 2) / divisor;
-            *coeff = rounded_div;
+            *coeff = modular_right_shift(*coeff, shift_bits, self.context);
         }
+    }
+}
+
+/// Performs modular-aware right shift, handling negative values correctly
+/// This implements HEAAN's rightShiftAndEqual behavior
+fn modular_right_shift(value: u64, shift_bits: u32, modulus: u64) -> u64 {
+    if shift_bits == 0 {
+        return value;
+    }
+
+    let half_modulus = modulus / 2;
+
+    // Check if this represents a negative value in modular arithmetic
+    if value > half_modulus {
+        // This is a negative value: convert to signed, shift, convert back
+        let negative_value = -((modulus - value) as i64);
+        let shifted_negative = negative_value >> shift_bits;
+
+        if shifted_negative >= 0 {
+            shifted_negative as u64
+        } else {
+            // Convert back to modular representation
+            (modulus as i64 + shifted_negative) as u64
+        }
+    } else {
+        // This is a positive value: simple right shift
+        value >> shift_bits
     }
 }
 

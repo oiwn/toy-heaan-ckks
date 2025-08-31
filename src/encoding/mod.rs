@@ -3,7 +3,7 @@ mod fft;
 mod naive;
 
 use crate::{Plaintext, PolyRing};
-pub use bigint::BigIntEncoder;
+pub use bigint::{BigIntEncoder, BigIntEncodingParams};
 pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
 pub use naive::NaiveEncoder;
 use thiserror::Error;

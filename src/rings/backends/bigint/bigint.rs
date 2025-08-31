@@ -1,10 +1,12 @@
 use crate::{
-    Ciphertext, PolyRescale, PolyRing, PolySampler,
-    math::{gaussian_coefficients, ternary_coefficients},
+    Ciphertext, PolyRescale, PolyRing, PolySampler, math::ternary_coefficients,
 };
 use crypto_bigint::{NonZero, U256, Zero};
 use rand::Rng;
+use rand_distr::{Distribution, Normal};
 use std::ops::{AddAssign, MulAssign, Neg};
+
+pub use super::display::CompactPolyDisplay;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BigIntPolyRing<const DEGREE: usize> {
@@ -186,13 +188,30 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for BigIntPolyRing<DEGREE> {
         context: &Self::Context,
         rng: &mut R,
     ) -> Self {
-        // Use existing gaussian sampling for u64, then convert
-        let gaussian_u64 =
-            gaussian_coefficients::<DEGREE, R>(std_dev, context.as_words()[0], rng);
+        // Sample centered Gaussian integers, map into Z_q using full U256 arithmetic
+        let q = context.get();
+        let normal = Normal::new(0.0, std_dev).expect("invalid Gaussian std_dev");
         let mut coeffs = [U256::ZERO; DEGREE];
 
-        for (i, &val) in gaussian_u64.iter().enumerate() {
-            coeffs[i] = U256::from(val);
+        for c in &mut coeffs {
+            let sample = normal.sample(rng).round() as i128; // centered integer
+            if sample == 0 {
+                *c = U256::ZERO;
+                continue;
+            }
+            if sample > 0 {
+                // Reduce positive sample modulo q
+                let v = U256::from_u128(sample as u128);
+                *c = v.rem(context);
+            } else {
+                // Map negative sample to q - (|v| mod q)
+                let v_abs = U256::from_u128((-sample) as u128).rem(context);
+                *c = if v_abs.is_zero().into() {
+                    U256::ZERO
+                } else {
+                    q.wrapping_sub(&v_abs)
+                };
+            }
         }
 
         Self {
@@ -234,9 +253,12 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for BigIntPolyRing<DEGREE> {
 
 impl<const DEGREE: usize> PolyRescale<DEGREE> for BigIntPolyRing<DEGREE> {
     fn rescale_assign(&mut self, scale_factor: f64) {
-        let scale_u256 = U256::from_u64(scale_factor as u64);
+        // Extract scale_bits from scale_factor (assuming scale_factor = 2^k)
+        let k = (scale_factor.log2().round()) as u32;
+        let modulus = self.modulus.get();
+
         for coeff in &mut self.coeffs {
-            *coeff = *coeff / scale_u256; // Simplified
+            *coeff = rescale_coeff_pow2_u256(*coeff, modulus, k);
         }
     }
 }

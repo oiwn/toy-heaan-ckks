@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -792,6 +793,7 @@ async fn encrypt_and_send_value(
     let plaintext = Plaintext {
         poly,
         scale_bits: SCALE_BITS,
+        slots: values.len(), // Number of encoded values
     };
 
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);

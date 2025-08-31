@@ -7,6 +7,7 @@ where
 {
     pub poly: P,
     pub scale_bits: u32,
+    pub slots: usize, // Number of encoded slots (determines decode output length)
 }
 
 #[derive(Debug)]

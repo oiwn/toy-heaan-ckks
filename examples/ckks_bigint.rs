@@ -4,25 +4,35 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
     BigIntPolyRing, CkksEngine, Encoder, encoding::BigIntEncoder,
 };
+use tracing::{Level, info};
+use tracing_subscriber;
 
 const DEGREE: usize = 32;
-const SCALE_BITS: u32 = 50;
+const SCALE_BITS: u32 = 80;
 // 2^128 - 159 (a well-known 128-bit prime)
-const _Q128_PRIME: U256 = U256::from_words([
+const Q128_PRIME: U256 = U256::from_words([
     0xffffffffffffff61, // 2^64 - 159
     0xffffffffffffffff, // 2^64 - 1
     0x0000000000000000, // 0
     0x0000000000000000, // 0
 ]);
-const Q60_PRIME: U256 = U256::from_u128((1u128 << 60) - 3);
 
 type Engine = CkksEngine<BigIntPolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing subscriber
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .with_target(true)
+        .with_timer(tracing_subscriber::fmt::time::uptime())
+        .init();
+
+    info!("🔐 CKKS BigInt U256 Backend Demo");
+
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
     println!("🔐 CKKS BigInt U256 Backend Demo\n");
 
-    let modulus = NonZero::new(Q60_PRIME).expect("Modulus should not be zero");
+    let modulus = NonZero::new(Q128_PRIME).expect("Modulus should not be zero");
     let encoder = BigIntEncoder::new(SCALE_BITS)?;
     println!("✅ Using 128-bit modulus: {}", modulus.get());
 
@@ -37,17 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key = engine.generate_secret_key(&mut rng)?;
     let public_key = engine.generate_public_key(&secret_key, &mut rng)?;
     println!("✅ Secret and public keys generated with U256 arithmetic");
-    println!("SecretKey: {:?}", secret_key);
-    println!("PublicKey: {:?}", public_key);
+    println!("SecretKey: {}", secret_key.poly);
+    println!("PublicKey (a, b): {} {}", public_key.a, public_key.b);
 
-    // Input data - pad to use all 16 available slots (DEGREE/2)
-    let mut values = vec![1.5, 2.5, 3.5, 4.5];
+    // Input data - test 4 slots (power of 2, as required by Kim's HEAAN)
+    let values = vec![1.5, 2.5, 3.5, 4.5];
     let slots = DEGREE / 2;
     println!("\n📊 Available slots: {}", slots);
-
-    // Pad with zeros to fill all slots
-    values.resize(slots, 0.0);
-    println!("📊 Padded input data: {:?}", values);
+    println!("📊 Testing with {} slots: {:?}", values.len(), values);
 
     // Step 1: Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
@@ -70,14 +77,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 4: Decode: Plaintext → Vec<f64>
     println!("\n🔢 Decoding back to floating-point...");
-    let decoded_values = encoder.decode(&decrypted_plaintext);
+    let full_decoded = encoder.decode(&decrypted_plaintext);
+    // After decryption, we lost the original slot info, so trim to expected length
+    let decoded_values = full_decoded[..values.len()].to_vec();
     println!("✅ Plaintext decoded: {:?}", decoded_values);
 
     // Display results
     println!("\n📊 Results:");
-    println!("  Original: {:?}", &values[..4]); // Show original 4 values
-    println!("  Decoded:  {:?}", &decoded_values[..4]); // Show first 4 decoded values
-    println!("  Full decoded (all {} slots): {:?}", slots, decoded_values);
+    println!("  Original: {:?}", values); // Show original value
+    println!("  Decoded:  {:?}", decoded_values); // Show decoded values
 
     // Verify accuracy
     let max_error = values
@@ -99,9 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Demonstrate homomorphic addition with BigInt backend
     println!("\n➕ Testing homomorphic addition with U256 arithmetic...");
 
-    let mut values2 = vec![0.5, 1.0, 1.5, 0.0];
-    values2.resize(slots, 0.0); // Pad second input too
-    println!("Second input (padded): {:?}", values2);
+    let values2 = vec![0.5, 1.0, 1.5, 2.0];
+    println!("Second input: {:?}", values2);
 
     let plaintext2 = encoder.encode(&values2, engine.context());
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
@@ -109,26 +116,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Homomorphic addition
     let ciphertext_sum = Engine::add_ciphertexts(&ciphertext, &ciphertext2);
     let decrypted_sum = Engine::decrypt(&ciphertext_sum, &secret_key);
-    let decoded_sum = encoder.decode(&decrypted_sum);
+    let full_decoded_sum = encoder.decode(&decrypted_sum);
+    let decoded_sum = full_decoded_sum[..values.len()].to_vec(); // Trim to expected length
 
     // Expected result
     let expected_sum: Vec<f64> =
         values.iter().zip(&values2).map(|(a, b)| a + b).collect();
 
     println!("\n📊 Homomorphic Addition Results:");
-    println!("  Input 1:    {:?}", &values[..4]);
-    println!("  Input 2:    {:?}", &values2[..4]);
+    println!("  Input 1:    {:?}", values);
+    println!("  Input 2:    {:?}", values2);
     println!("  Expected:   {:?}", expected_sum);
-    println!("  Computed:   {:?}", &decoded_sum[..expected_sum.len()]);
-    println!(
-        "  Full sum (all {} slots): {:?}",
-        slots,
-        &decoded_sum[..slots]
-    );
+    println!("  Computed:   {:?}", decoded_sum);
 
-    // Verify homomorphic addition accuracy
+    // Verify homomorphic addition accuracy for the meaningful values
     let add_max_error = expected_sum
         .iter()
+        .take(decoded_sum.len()) // Only compare up to the length of decoded_sum
         .zip(&decoded_sum)
         .map(|(exp, comp)| (exp - comp).abs())
         .fold(0.0, f64::max);
