@@ -1,8 +1,9 @@
 use super::{CkksEngine, CkksError};
 use crate::crypto::engine::CkksParams;
 use crate::rings::NaivePolyRing;
-use crate::rings::backends::BigIntPolyRing;
-use crate::rings::backends::{RnsPolyRing, rns::RnsBasis};
+use crate::rings::backends::bigint::BigIntContext;
+use crate::rings::backends::bigint::BigIntPolyRing;
+use crate::rings::backends::rns::{RnsBasis, RnsPolyRing};
 use std::sync::Arc;
 
 pub enum CkksEngineVariant<const DEGREE: usize> {
@@ -74,8 +75,12 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
             scale_bits,
         };
 
+        // Create BigIntContext with Kim's HEAAN parameters for proper multiplication
+        // Use the same parameters as examples/ckks_full.rs for consistency
+        let context = BigIntContext::new(modulus, 50, 20);
+
         Ok(CkksEngine::<BigIntPolyRing<DEGREE>, DEGREE>::new(
-            modulus, params,
+            context, params,
         ))
     }
 

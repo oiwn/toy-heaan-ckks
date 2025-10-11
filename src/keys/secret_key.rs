@@ -134,7 +134,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rings::backends::NaivePolyRing;
+    use crate::rings::backends::naive::NaivePolyRing;
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
 

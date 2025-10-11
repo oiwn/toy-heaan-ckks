@@ -387,6 +387,7 @@ fn test_taylor_coefficients_precision() {
 fn test_against_kim_golden_encoding() {
     use crypto_bigint::{NonZero, U256};
     use toy_heaan_ckks::encoding::Encoder;
+    use toy_heaan_ckks::rings::backends::bigint::BigIntContext;
 
     // Kim's parameters from golden_encode_kim.json
     const DEGREE: usize = 8192; // N = 2^13
@@ -459,8 +460,9 @@ fn test_against_kim_golden_encoding() {
     let modulus =
         NonZero::new(U256::from_u128(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFF63u128))
             .unwrap();
+    let context = BigIntContext::new(modulus, SCALE_BITS, 20);
 
-    let plaintext = encoder.encode(&input_values, &modulus);
+    let plaintext = encoder.encode(&input_values, &context);
     let coeffs = plaintext.poly.coefficients();
 
     // Find non-zero coefficients in our result

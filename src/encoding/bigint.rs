@@ -1,4 +1,5 @@
 use crate::encoding::{Encoder, EncodingError, EncodingResult};
+use crate::rings::backends::bigint::BigIntContext;
 use crate::{BigIntPolyRing, Plaintext};
 use crypto_bigint::{NonZero, U256};
 use malachite::base::num::arithmetic::traits::{PowerOf2, UnsignedAbs};
@@ -436,7 +437,7 @@ impl<const DEGREE: usize> Encoder<BigIntPolyRing<DEGREE>, DEGREE>
     fn encode(
         &self,
         values: &[f64],
-        context: &NonZero<U256>,
+        context: &BigIntContext,
     ) -> Plaintext<BigIntPolyRing<DEGREE>, DEGREE> {
         let n = DEGREE / 2; // Nh in HEAAN terminology
         let slots = values.len();
@@ -475,11 +476,17 @@ impl<const DEGREE: usize> Encoder<BigIntPolyRing<DEGREE>, DEGREE>
 
         for i in 0..slots {
             // Real parts at gap-spaced indices starting from 0
-            coeffs[idx] =
-                self.scale_up_to_u256(uvals[i].re, self.params.scale_bits, context);
+            coeffs[idx] = self.scale_up_to_u256(
+                uvals[i].re,
+                self.params.scale_bits,
+                &context.q,
+            );
             // Imaginary parts at gap-spaced indices starting from Nh
-            coeffs[jdx] =
-                self.scale_up_to_u256(uvals[i].im, self.params.scale_bits, context);
+            coeffs[jdx] = self.scale_up_to_u256(
+                uvals[i].im,
+                self.params.scale_bits,
+                &context.q,
+            );
 
             idx += gap;
             jdx += gap;
@@ -539,6 +546,14 @@ mod tests {
     use super::*;
     use crypto_bigint::U256;
 
+    // Helper function to create test context from modulus
+    fn create_test_context(
+        modulus: NonZero<U256>,
+        scale_bits: u32,
+    ) -> BigIntContext {
+        BigIntContext::new(modulus, scale_bits, 20)
+    }
+
     #[test]
     fn test_bigint_encoder_roundtrip_small() {
         const DEGREE: usize = 8;
@@ -547,10 +562,11 @@ mod tests {
         let encoder = BigIntEncoder::<DEGREE>::new(SCALE_BITS).unwrap();
         let modulus =
             NonZero::new(U256::from_u128(1152921504606846883u128)).unwrap();
+        let context = create_test_context(modulus, SCALE_BITS);
 
         // Test with a single value - note: small degrees may have precision issues
         let values = vec![1.5];
-        let plaintext = encoder.encode(&values, &modulus);
+        let plaintext = encoder.encode(&values, &context);
         let decoded = encoder.decode(&plaintext);
 
         println!(
@@ -612,9 +628,10 @@ mod tests {
         let modulus =
             NonZero::new(U256::from_u128(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFF63u128))
                 .unwrap();
+        let context = create_test_context(modulus, SCALE_BITS);
 
         let values = vec![1.5];
-        let plaintext = encoder.encode(&values, &modulus);
+        let plaintext = encoder.encode(&values, &context);
         let decoded = encoder.decode(&plaintext);
 
         decoded[0]
@@ -629,10 +646,11 @@ mod tests {
         let modulus =
             NonZero::new(U256::from_u128(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFF63u128))
                 .unwrap();
+        let context = create_test_context(modulus, SCALE_BITS);
 
         // Test with a single value
         let values = vec![1.5];
-        let plaintext = encoder.encode(&values, &modulus);
+        let plaintext = encoder.encode(&values, &context);
         let decoded = encoder.decode(&plaintext);
 
         println!(
@@ -657,10 +675,11 @@ mod tests {
         let modulus =
             NonZero::new(U256::from_u128(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFF63u128))
                 .unwrap();
+        let context = create_test_context(modulus, SCALE_BITS);
 
         // Test with multiple values (power of 2 required)
         let values = vec![1.0, 2.5, -0.75, 1.25];
-        let plaintext = encoder.encode(&values, &modulus);
+        let plaintext = encoder.encode(&values, &context);
         let decoded = encoder.decode(&plaintext);
 
         assert_eq!(decoded.len(), 4);
@@ -683,16 +702,17 @@ mod tests {
         let encoder = BigIntEncoder::<DEGREE>::new(20).unwrap();
         let modulus =
             NonZero::new(U256::from_u128(1152921504606846883u128)).unwrap();
+        let context = create_test_context(modulus, 20);
 
         // Should work: 4 slots for DEGREE=8 (power of 2)
         let values_ok = vec![1.0, 2.0, 3.0, 4.0];
-        encoder.encode(&values_ok, &modulus);
+        encoder.encode(&values_ok, &context);
 
         // Should panic: 5 slots > max 4
         let values_too_many = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         std::panic::catch_unwind(|| {
-            encoder.encode(&values_too_many, &modulus);
+            encoder.encode(&values_too_many, &context);
         })
         .expect_err("Should panic with too many values");
     }
@@ -703,21 +723,22 @@ mod tests {
         let encoder = BigIntEncoder::<DEGREE>::new(20).unwrap();
         let modulus =
             NonZero::new(U256::from_u128(1152921504606846883u128)).unwrap();
+        let context = create_test_context(modulus, 20);
 
         // Should work: 1, 2, 4 slots (all powers of 2)
         let values_1 = vec![1.0];
-        encoder.encode(&values_1, &modulus);
+        encoder.encode(&values_1, &context);
 
         let values_2 = vec![1.0, 2.0];
-        encoder.encode(&values_2, &modulus);
+        encoder.encode(&values_2, &context);
 
         let values_4 = vec![1.0, 2.0, 3.0, 4.0];
-        encoder.encode(&values_4, &modulus);
+        encoder.encode(&values_4, &context);
 
         // Should panic: 3 slots (not power of 2)
         let values_3 = vec![1.0, 2.0, 3.0];
         let result = std::panic::catch_unwind(|| {
-            encoder.encode(&values_3, &modulus);
+            encoder.encode(&values_3, &context);
         });
         assert!(
             result.is_err(),
