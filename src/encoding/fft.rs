@@ -41,17 +41,20 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Encoder<P, DEGREE>
     for RustFftEncoder<DEGREE>
 {
     fn encode(&self, values: &[f64], context: &P::Context) -> Plaintext<P, DEGREE> {
+        let slots = values.len(); // Use input length as slots
         let coeffs = encode(values, &self.params).expect("Encoding failed");
         let poly = P::from_coeffs(&coeffs, context);
         Plaintext {
             poly,
             scale_bits: self.params.scale_bits,
+            slots,
         }
     }
 
     fn decode(&self, plaintext: &Plaintext<P, DEGREE>) -> Vec<f64> {
         let coeffs = plaintext.poly.to_coeffs();
-        decode(&coeffs, &self.params).expect("Decoding should succeed")
+        decode_with_slots(&coeffs, &self.params, plaintext.slots)
+            .expect("Decoding should succeed")
     }
 }
 
@@ -175,6 +178,32 @@ pub fn decode<const DEGREE: usize>(
     let result: Vec<f64> = fft_input
         .iter()
         .take(max_slots)
+        .map(|&x| x.re / params.delta())
+        .collect();
+
+    Ok(result)
+}
+
+/// Decodes polynomial coefficients back to real values with specified number of slots.
+pub fn decode_with_slots<const DEGREE: usize>(
+    coeffs: &[i64],
+    params: &EncodingParams<DEGREE>,
+    slots: usize,
+) -> Result<Vec<f64>, String> {
+    let mut fft_input: Vec<Complex64> = coeffs
+        .iter()
+        .map(|&x| Complex64::new(x as f64, 0.0))
+        .collect();
+
+    fft_input.resize(DEGREE, Complex64::new(0.0, 0.0));
+
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(DEGREE);
+    fft.process(&mut fft_input);
+
+    let result: Vec<f64> = fft_input
+        .iter()
+        .take(slots) // Use actual slots instead of max_slots
         .map(|&x| x.re / params.delta())
         .collect();
 

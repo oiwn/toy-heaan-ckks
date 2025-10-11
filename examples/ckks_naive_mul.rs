@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create engine with much smaller error variance for multiplication
     let engine = Engine::builder()
-        .error_variance(0.1) // Much smaller noise for multiplication
+        .error_variance(0.2) // Back to 0.2 for working multiplication
         .hamming_weight(DEGREE / 2)
         .build_naive(MODULUS, SCALE_BITS)?;
 
@@ -49,10 +49,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         plaintext2.poly.coeffs[0]
     );
 
-    // Encrypt
+    // Encrypt and analyze noise
     println!("\n🔐 Encrypting plaintexts...");
     let ciphertext1 = engine.encrypt(&plaintext1, &public_key, &mut rng);
     let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+
+    // Analyze the noise/error polynomials
+    analyze_ciphertext_noise(&ciphertext1, &plaintext1, &secret_key, "CT1");
+    analyze_ciphertext_noise(&ciphertext2, &plaintext2, &secret_key, "CT2");
 
     // Verify encryption works
     let check1 = Engine::decrypt(&ciphertext1, &secret_key);
@@ -172,7 +176,50 @@ fn create_constant_plaintext(
     Plaintext {
         poly: NaivePolyRing::from_coeffs(&coeffs, engine.context()),
         scale_bits: SCALE_BITS,
+        slots: 1, // Single slot for naive multiplication example
     }
+}
+
+/// Analyze the noise in a ciphertext by computing the error polynomial
+fn analyze_ciphertext_noise(
+    ct: &Ciphertext<NaivePolyRing<DEGREE>, DEGREE>,
+    pt: &Plaintext<NaivePolyRing<DEGREE>, DEGREE>,
+    sk: &toy_heaan_ckks::SecretKey<NaivePolyRing<DEGREE>, DEGREE>,
+    label: &str,
+) {
+    // Decrypt to get noisy plaintext
+    let decrypted = Engine::decrypt(ct, sk);
+
+    // Compute noise = decrypted - original (manually since SubAssign not implemented)
+    let mut noise_coeffs = [0i64; DEGREE];
+    for i in 0..DEGREE {
+        let dec_val = decrypted.poly.coeffs[i] as i64;
+        let orig_val = pt.poly.coeffs[i] as i64;
+        noise_coeffs[i] = dec_val - orig_val;
+    }
+
+    println!("\n🔍 Noise Analysis for {}:", label);
+    println!("   Original plaintext[0]: {}", pt.poly.coeffs[0]);
+    println!("   Decrypted plaintext[0]: {}", decrypted.poly.coeffs[0]);
+    println!("   Noise polynomial coefficients:");
+    for i in 0..DEGREE {
+        if noise_coeffs[i] != 0 {
+            println!("     coeffs[{}]: {}", i, noise_coeffs[i]);
+        }
+    }
+
+    // Compute noise magnitude
+    let noise_magnitude: f64 = noise_coeffs
+        .iter()
+        .map(|&c| (c as f64).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    println!("   Noise magnitude (L2 norm): {:.3}", noise_magnitude);
+
+    // Scale-adjusted noise
+    let scale = (1u64 << SCALE_BITS) as f64;
+    let scaled_noise = noise_magnitude / scale;
+    println!("   Scaled noise (actual error): {:.6}", scaled_noise);
 }
 
 /// Test basic polynomial multiplication without encryption noise

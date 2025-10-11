@@ -118,6 +118,7 @@ where
         Plaintext {
             poly: result,
             scale_bits: ciphertext.scale_bits,
+            slots: DEGREE / 2, // After decryption, assume max slots (decoder will handle actual slots)
         }
     }
 

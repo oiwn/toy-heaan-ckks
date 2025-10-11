@@ -1,0 +1,48 @@
+{
+  "params": {
+    "logN": 13,
+    "logQ": 65,
+    "sigma": 3.2,
+    "h": 64,
+    "logp": 30,
+    "logSlots": 3
+  },
+  "input": [
+    {"re": 0, "im": 0},
+    {"re": 1, "im": 0},
+    {"re": 2, "im": 0},
+    {"re": 3, "im": 0},
+    {"re": 4, "im": 0},
+    {"re": 5, "im": 0},
+    {"re": 6, "im": 0},
+    {"re": 7, "im": 0}
+  ],
+  "coeffs": {
+    "non_zero_indices": [0, 1024, 2048, 3072, 4096, 5120, 6144, 7168, 1, 1025, 2049, 3073, 4097, 5121, 6145],
+    "non_zero_values": [
+      "3758096384",
+      "16106127360",
+      "4294967296",
+      "12884901888",
+      "8589934592",
+      "21474836480",
+      "17179869184",
+      "25769803776",
+      "-3758096384",
+      "-16106127360",
+      "-4294967296",
+      "-12884901888",
+      "-8589934592",
+      "-21474836480",
+      "-17179869184"
+    ],
+    "total_coeffs": 8192,
+    "total_non_zero": 15,
+    "coefficient_pattern": "gap-based indexing with gap = Nh / slots = 4096 / 8 = 512"
+  },
+  "validation": {
+    "expected_pattern": "15 non-zero coefficients at specific indices following gap-based pattern",
+    "accuracy_threshold": 0.01,
+    "test_description": "Validates that BigInt encoder produces same coefficient pattern as Kim's HEAAN for input [0,1,2,3,4,5,6,7] with N=8192, logp=30, 8 slots"
+  }
+}

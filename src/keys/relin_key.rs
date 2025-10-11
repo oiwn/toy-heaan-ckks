@@ -102,20 +102,22 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rings::backends::bigint::BigIntContext;
     use crate::{BigIntPolyRing, SecretKeyParams};
     use crypto_bigint::{NonZero, U256};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
 
-    fn get_test_modulus() -> NonZero<U256> {
+    fn get_test_context() -> BigIntContext {
         let modulus_words = [0x1, 0x0, 0x0, 0x8000000000000000u64];
-        NonZero::new(U256::from_words(modulus_words)).unwrap()
+        let modulus = NonZero::new(U256::from_words(modulus_words)).unwrap();
+        BigIntContext::new(modulus, 30, 20)
     }
 
     #[test]
     fn test_relinearization_key_generation() {
         const DEGREE: usize = 8;
-        let context = get_test_modulus();
+        let context = get_test_context();
         let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
 
         // Generate secret key
