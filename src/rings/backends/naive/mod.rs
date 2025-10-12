@@ -1,3 +1,3 @@
-pub mod naive;
+pub mod poly;
 
-pub use naive::{NaiveContext, NaivePolyRing};
+pub use poly::{NaiveContext, NaivePolyRing};

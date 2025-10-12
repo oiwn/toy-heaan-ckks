@@ -1,5 +1,5 @@
-pub mod rns;
+pub mod poly;
 
-pub use rns::{
+pub use poly::{
     RnsBasis, RnsBasisBuilder, RnsError, RnsPolyRing, crt_reconstruct, mod_inverse,
 };

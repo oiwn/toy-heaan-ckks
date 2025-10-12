@@ -77,7 +77,7 @@ pub fn generate_primes(
     while primes.len() < count && candidate >= min_prime {
         if is_prime(candidate) {
             // Additional check: ensure 2*ring_degree divides (candidate - 1) for NTT
-            if (candidate - 1) % (2 * ring_degree as u64) == 0 {
+            if (candidate - 1).is_multiple_of(2 * ring_degree as u64) {
                 primes.push(candidate);
             }
         }

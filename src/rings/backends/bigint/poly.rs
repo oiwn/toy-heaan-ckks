@@ -161,12 +161,12 @@ impl<const DEGREE: usize> BigIntPolyRing<DEGREE> {
     /// Switch to extended modulus domain (qQ) for key switching operations
     /// This is used in Step 3 of Kim's multiplication algorithm
     pub fn to_extended_domain(&self) -> Self {
-        let qQ_modulus = self.context.q_times_q();
+        let q_q_modulus = self.context.q_times_q();
         let mut extended_coeffs = [U256::ZERO; DEGREE];
 
         for (i, &coeff) in self.coeffs.iter().enumerate() {
             // Convert coefficient to extended domain by reducing mod qQ
-            extended_coeffs[i] = coeff % qQ_modulus;
+            extended_coeffs[i] = coeff % q_q_modulus;
         }
 
         Self {
@@ -230,11 +230,11 @@ impl<const DEGREE: usize> BigIntPolyRing<DEGREE> {
 
     /// Multiply in extended domain (qQ) - used for key switching
     pub fn mul_in_extended_domain(&mut self, other: &Self) {
-        let qQ_modulus = self.context.q_times_q();
+        let q_q_modulus = self.context.q_times_q();
 
         for (i, coeff) in self.coeffs.iter_mut().enumerate() {
             let product = coeff.saturating_mul(&other.coeffs[i]);
-            *coeff = product % qQ_modulus;
+            *coeff = product % q_q_modulus;
         }
     }
 

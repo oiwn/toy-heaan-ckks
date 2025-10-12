@@ -1,3 +1,3 @@
-pub mod ntt;
+pub mod poly;
 
-pub use ntt::{RnsNttBasis, RnsNttPolyRing, create_ntt_engine};
+pub use poly::{RnsNttBasis, RnsNttPolyRing, create_ntt_engine};
