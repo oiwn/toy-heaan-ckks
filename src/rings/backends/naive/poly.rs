@@ -11,25 +11,25 @@ use std::ops::{AddAssign, MulAssign, Neg};
 /// Supports multiple moduli: q (base), Q (extended), QQ, qQ for key switching
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaiveContext {
-    pub logq: u32, // Base modulus bits (e.g., 20)
-    pub logQ: u32, // Extended modulus bits (e.g., 20)
+    pub logq: u32,   // Base modulus bits (e.g., 20)
+    pub log_q: u32, // Extended modulus bits (e.g., 20)
 }
 
 impl NaiveContext {
-    /// Create new context with logq and logQ
-    pub fn new(logq: u32, logQ: u32) -> Self {
+    /// Create new context with logq and log_q
+    pub fn new(logq: u32, log_q: u32) -> Self {
         // Validate bit budget fits in u64
         assert!(logq <= 32, "logq too large: {} > 32 bits", logq);
-        assert!(logQ <= 32, "logQ too large: {} > 32 bits", logQ);
+        assert!(log_q <= 32, "log_q too large: {} > 32 bits", log_q);
         assert!(
-            logq + logQ <= 40,
+            logq + log_q <= 40,
             "qQ = {} + {} = {} > 40 bits, exceeds u64 capacity",
             logq,
-            logQ,
-            logq + logQ
+            log_q,
+            logq + log_q
         );
 
-        Self { logq, logQ }
+        Self { logq, log_q }
     }
 
     /// Base ciphertext modulus: q = 2^logq
@@ -37,20 +37,20 @@ impl NaiveContext {
         1u64 << self.logq
     }
 
-    /// Extended modulus: Q = 2^logQ  
-    pub fn Q(&self) -> u64 {
-        1u64 << self.logQ
+    /// Extended modulus: Q = 2^log_q
+    pub fn q_ext(&self) -> u64 {
+        1u64 << self.log_q
     }
 
-    /// Key switching modulus: qQ = q * Q = 2^(logq + logQ)
-    pub fn qQ(&self) -> u64 {
-        1u64 << (self.logq + self.logQ)
+    /// Key switching modulus: qQ = q * Q = 2^(logq + log_q)
+    pub fn q_q(&self) -> u64 {
+        1u64 << (self.logq + self.log_q)
     }
 
     /// Double extended modulus: QQ = Q^2 (uses u128 for intermediate calculations)
-    pub fn QQ(&self) -> u128 {
-        let Q = self.Q() as u128;
-        Q * Q
+    pub fn q_q_ext(&self) -> u128 {
+        let q_val = self.q_ext() as u128;
+        q_val * q_val
     }
 }
 

@@ -1,4 +1,4 @@
-pub mod bigint;
+pub mod poly;
 pub mod display;
 
-pub use bigint::{BigIntContext, BigIntPolyRing};
+pub use poly::{BigIntContext, BigIntPolyRing, ModulusDomain};

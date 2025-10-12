@@ -65,7 +65,7 @@ impl NttTables {
         }
 
         // Check if prime is NTT-friendly: (prime-1) % (2*degree) == 0
-        if (prime - 1) % (2 * degree as u64) != 0 {
+        if !(prime - 1).is_multiple_of(2 * degree as u64) {
             return Err(NttError::PrimeNotNttFriendly { prime, degree });
         }
 
@@ -525,7 +525,7 @@ pub fn inverse_ntt(evals: &mut [u64], tables: &NttTables) {
 /// Find primitive root of given order modulo prime (simplified version)
 fn find_primitive_root(prime: u64, order: usize) -> NttResult<u64> {
     // Check if primitive root can exist
-    if (prime - 1) % (order as u64) != 0 {
+    if !(prime - 1).is_multiple_of(order as u64) {
         return Err(NttError::NoPrimitiveRoot { prime, order });
     }
 
@@ -548,7 +548,7 @@ fn is_primitive_root(g: u64, prime: u64, order: usize) -> bool {
 
     // Check that g^(order/p) ≢ 1 for all prime divisors p of order
     // For simplicity, just check a few common cases
-    if order % 2 == 0 && mod_exp(g, (order / 2) as u64, prime) == 1 {
+    if order.is_multiple_of(2) && mod_exp(g, (order / 2) as u64, prime) == 1 {
         return false;
     }
 

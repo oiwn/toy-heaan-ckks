@@ -4,7 +4,7 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{
     BigIntPolyRing, CkksEngine, Encoder, PolyRescale, RelinearizationKey,
     crypto::Ciphertext, crypto::operations::multiply_ciphertexts, encoding,
-    rings::backends::bigint::bigint::ModulusDomain,
+    rings::backends::bigint::ModulusDomain,
 };
 
 // Kim's HEAAN Parameters (adjusted for U256 safety)
@@ -37,7 +37,7 @@ fn kim_heaan_multiply(
     ct2: &Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>,
     relin_key: &RelinearizationKey<BigIntPolyRing<DEGREE>, DEGREE>,
     target_scale_bits: u32,
-    kim_context: &toy_heaan_ckks::rings::backends::bigint::bigint::BigIntContext,
+    kim_context: &toy_heaan_ckks::rings::backends::bigint::BigIntContext,
 ) -> Result<Ciphertext<BigIntPolyRing<DEGREE>, DEGREE>, Box<dyn std::error::Error>>
 {
     println!("🔄 Starting Kim's HEAAN multiplication algorithm...");
@@ -232,7 +232,7 @@ fn test_multiplication_detailed(
     encoder: &encoding::BigIntEncoder<DEGREE>,
     values1: &[f64],
     values2: &[f64],
-    kim_context: &toy_heaan_ckks::rings::backends::bigint::bigint::BigIntContext,
+    kim_context: &toy_heaan_ckks::rings::backends::bigint::BigIntContext,
 ) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
     println!("\n🧪 Detailed Multiplication Test");
     println!("Input 1: {:?}", values1);
@@ -284,7 +284,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 CKKS BigInt U256 Backend Multiplication Demo");
 
     // Create BigInt context with Kim's HEAAN parameters
-    let context = toy_heaan_ckks::rings::backends::bigint::bigint::BigIntContext::from_kim_params(
+    let context = toy_heaan_ckks::rings::backends::bigint::BigIntContext::from_kim_params(
         BASE_MODULUS_BITS,
         EXTENDED_MODULUS_BITS,
     )?;

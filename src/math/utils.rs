@@ -57,7 +57,7 @@ pub fn is_prime(n: u64) -> bool {
     if n == 2 || n == 3 {
         return true;
     }
-    if n % 2 == 0 || n % 3 == 0 {
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
         return false;
     }
 
@@ -65,7 +65,7 @@ pub fn is_prime(n: u64) -> bool {
     let sqrt_n = ((n as f64).sqrt() as u64) + 1;
     let mut i = 5;
     while i <= sqrt_n {
-        if n % i == 0 || n % (i + 2) == 0 {
+        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
             return false;
         }
         i += 6;
@@ -110,7 +110,7 @@ pub fn generate_primes(bit_size: usize, count: usize) -> Vec<u64> {
     let mut primes = Vec::with_capacity(count);
     let max_val = (1u64 << bit_size) - 1;
     let min_val = 1u64 << (bit_size - 1);
-    let mut candidate = max_val - (max_val % 2 == 0) as u64; // Ensure odd
+    let mut candidate = max_val - max_val.is_multiple_of(2) as u64; // Ensure odd
 
     while primes.len() < count && candidate >= min_val {
         if is_prime(candidate) {
