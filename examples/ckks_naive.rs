@@ -3,8 +3,8 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::{CkksEngine, Encoder, NaivePolyRing, RustFftEncoder};
 
 const DEGREE: usize = 8;
-const SCALE_BITS: u32 = 40;
-const MODULUS: u64 = 741507920154517877u64;
+const SCALE_BITS: u32 = 20;
+const MODULUS: u64 = 2u64.pow(61) - 1;
 type Engine = CkksEngine<NaivePolyRing<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key = engine.generate_secret_key(&mut rng)?;
     let public_key = engine.generate_public_key(&secret_key, &mut rng)?;
     println!(
-        "✅ Secret and public keys generated: \n{secret_key:?}\n{public_key:?}"
+        "✅ Secret and public keys generated: \n\t{secret_key:?}\n\t{public_key:?}"
     );
 
     // Input data (small vector to test)
