@@ -11,7 +11,7 @@ use std::ops::{AddAssign, MulAssign, Neg};
 /// Supports multiple moduli: q (base), Q (extended), QQ, qQ for key switching
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaiveContext {
-    pub logq: u32,   // Base modulus bits (e.g., 20)
+    pub logq: u32,  // Base modulus bits (e.g., 20)
     pub log_q: u32, // Extended modulus bits (e.g., 20)
 }
 
