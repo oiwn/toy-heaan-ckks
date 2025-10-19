@@ -115,9 +115,8 @@ pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
     /// standard deviation for consistency with CKKS literature.
     ///
     /// # Parameters
-    /// - `variance`: Variance `σ^2` of the noise distribution
-    /// `std_dev = sqrt(variance)`
-    /// TODO: need to figure out if we actually need it....
+    /// - `variance`: Variance `σ^2` of the noise distribution `std_dev = sqrt(variance)`
+    // TODO: need to figure out if we actually need it....
     fn sample_noise<R: Rng>(
         variance: f64,
         context: &Self::Context,
