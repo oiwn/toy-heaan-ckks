@@ -284,10 +284,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔐 CKKS BigInt U256 Backend Multiplication Demo");
 
     // Create BigInt context with Kim's HEAAN parameters
-    let context = toy_heaan_ckks::rings::backends::bigint::BigIntContext::from_kim_params(
-        BASE_MODULUS_BITS,
-        EXTENDED_MODULUS_BITS,
-    )?;
+    let context =
+        toy_heaan_ckks::rings::backends::bigint::BigIntContext::from_kim_params(
+            BASE_MODULUS_BITS,
+            EXTENDED_MODULUS_BITS,
+        )?;
 
     println!(
         "✅ Using Kim's context: q=2^{}, Q=2^{}",
