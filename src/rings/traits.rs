@@ -116,7 +116,7 @@ pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
     ///
     /// # Parameters
     /// - `variance`: Variance `σ^2` of the noise distribution
-    /// std_dev = sqrt(variance)
+    /// `std_dev = sqrt(variance)`
     /// TODO: need to figure out if we actually need it....
     fn sample_noise<R: Rng>(
         variance: f64,
