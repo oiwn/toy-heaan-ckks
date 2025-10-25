@@ -1,5 +1,5 @@
 use crate::{
-    PolyRescale, PolyRing, PolySampler,
+    PolyModSwitch, PolyRescale, PolyRing, PolySampler,
     math::{gaussian_coefficients, ternary_coefficients, uniform_coefficients},
 };
 use rand::Rng;
@@ -76,6 +76,57 @@ impl<const DEGREE: usize> NaivePolyRing<DEGREE> {
         Self {
             coeffs: [0; DEGREE],
             context: modulus,
+        }
+    }
+
+    /// Modulus switching: transforms polynomial from current modulus to new modulus
+    ///
+    /// Implements the formula from FHE textbook (c04-glwe-modulus-switch.tex):
+    /// ```text
+    /// c_hat = round(c * (q_hat / q))
+    /// ```
+    ///
+    /// # Key Properties
+    /// - Preserves signed representation (handles negative values correctly)
+    /// - Applies rounding for minimal error
+    /// - Secret key remains valid at new modulus
+    ///
+    /// # Parameters
+    /// - `new_modulus`: Target modulus q_hat
+    ///
+    /// # Returns
+    /// New polynomial with coefficients scaled to new modulus
+    pub fn mod_switch(&self, new_modulus: u64) -> Self {
+        // Compute ratio as f64 for precision
+        let old_q = self.context as f64;
+        let new_q = new_modulus as f64;
+        let ratio = new_q / old_q;
+
+        let mut new_coeffs = [0u64; DEGREE];
+
+        for i in 0..DEGREE {
+            // Convert to signed representation for correct rounding
+            let signed_val = if self.coeffs[i] < self.context / 2 {
+                self.coeffs[i] as i64
+            } else {
+                (self.coeffs[i] as i64) - (self.context as i64)
+            };
+
+            // Apply scaling: c_hat = round(c * (q_hat/q))
+            let scaled = (signed_val as f64 * ratio).round() as i64;
+
+            // Convert back to unsigned mod new_modulus
+            new_coeffs[i] = if scaled >= 0 {
+                (scaled as u64) % new_modulus
+            } else {
+                let pos = (new_modulus as i64) + scaled;
+                (pos % (new_modulus as i64)) as u64
+            };
+        }
+
+        Self {
+            coeffs: new_coeffs,
+            context: new_modulus,
         }
     }
 }
@@ -242,6 +293,13 @@ impl<const DEGREE: usize> PolyRescale<DEGREE> for NaivePolyRing<DEGREE> {
         for coeff in &mut self.coeffs {
             *coeff = modular_right_shift(*coeff, shift_bits, self.context);
         }
+    }
+}
+
+impl<const DEGREE: usize> PolyModSwitch<DEGREE> for NaivePolyRing<DEGREE> {
+    fn mod_switch(&self, new_context: &Self::Context) -> Self {
+        // Delegate to the implementation method
+        self.mod_switch(*new_context)
     }
 }
 

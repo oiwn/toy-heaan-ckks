@@ -19,4 +19,4 @@ pub use rings::backends::bigint::BigIntPolyRing;
 pub use rings::backends::naive::NaivePolyRing;
 pub use rings::backends::rns::RnsPolyRing;
 
-pub use rings::{PolyRescale, PolyRing, PolySampler};
+pub use rings::{PolyModSwitch, PolyRescale, PolyRing, PolySampler};

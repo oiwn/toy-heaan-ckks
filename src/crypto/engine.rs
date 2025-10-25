@@ -83,6 +83,7 @@ where
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
         rng: &mut R,
+        logq: u32,
     ) -> Ciphertext<P, DEGREE> {
         let u = P::sample_tribits(self.params.hamming_weight, &self.context, rng);
         let e0 = P::sample_gaussian(self.params.error_variance, &self.context, rng);
@@ -102,7 +103,8 @@ where
         Ciphertext {
             c0,
             c1,
-            scale_bits: plaintext.scale_bits,
+            logp: plaintext.scale_bits, // Precision from encoding
+            logq,                       // Modulus level
         }
     }
 
@@ -117,7 +119,7 @@ where
 
         Plaintext {
             poly: result,
-            scale_bits: ciphertext.scale_bits,
+            scale_bits: ciphertext.logp, // Use precision parameter
             slots: DEGREE / 2, // After decryption, assume max slots (decoder will handle actual slots)
         }
     }
@@ -133,13 +135,15 @@ where
         let mut c1 = ct1.c1.clone();
         c1 += &ct2.c1;
 
-        // Scale_bits should be the same for both
-        assert_eq!(ct1.scale_bits, ct2.scale_bits);
+        // Both logp and logq should match for addition
+        assert_eq!(ct1.logp, ct2.logp, "logp mismatch in addition");
+        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in addition");
 
         Ciphertext {
             c0,
             c1,
-            scale_bits: ct1.scale_bits,
+            logp: ct1.logp,
+            logq: ct1.logq,
         }
     }
 
@@ -181,13 +185,17 @@ where
         let mut c1_new = d1;
         c1_new += &rk_a_times_d2;
 
-        // Step 3: Scale calculation - add scale_bits
-        let new_scale_bits = ct1.scale_bits + ct2.scale_bits;
+        // Step 3: Scale calculation - both logp and logq double
+        // After multiplication, scale becomes 2^(logp1 + logp2)
+        // Modulus stays at logq1 + logq2 (or should match for valid multiplication)
+        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in multiplication");
+        let new_logp = ct1.logp + ct2.logp;
 
         Ciphertext {
             c0: c0_new,
             c1: c1_new,
-            scale_bits: new_scale_bits,
+            logp: new_logp,
+            logq: ct1.logq, // Modulus unchanged (rescaling would reduce this)
         }
     }
 }
