@@ -72,10 +72,16 @@ where
     c1.mul_assign(&u); // pk.a * u
     c1.add_assign(&e1); // + e1
 
+    // Note: This function needs logq parameter for proper HEAAN-style tracking
+    // For now, we extract it from the context if available
+    // TODO: Add logq parameter or compute from context
+    let logq = 60; // Default placeholder - should be provided by caller
+
     Ok(Ciphertext {
         c0,
         c1,
-        scale_bits: plaintext.scale_bits,
+        logp: plaintext.scale_bits,
+        logq,
     })
 }
 
@@ -114,8 +120,8 @@ where
 
     Plaintext {
         poly: result,
-        scale_bits: ciphertext.scale_bits,
-        slots: DEGREE / 2, // After decryption, assume max slots
+        scale_bits: ciphertext.logp, // Use precision parameter
+        slots: DEGREE / 2,           // After decryption, assume max slots
     }
 }
 
@@ -127,10 +133,10 @@ pub fn add_ciphertexts<P, const DEGREE: usize>(
 where
     P: PolyRing<DEGREE>,
 {
-    if ct1.scale_bits != ct2.scale_bits {
+    if ct1.logp != ct2.logp || ct1.logq != ct2.logq {
         return Err(EncryptionError::ScaleMismatch {
-            expected: ct1.scale_bits as f64,
-            actual: ct2.scale_bits as f64,
+            expected: ct1.logp as f64,
+            actual: ct2.logp as f64,
         });
     }
 
@@ -143,7 +149,8 @@ where
     Ok(Ciphertext {
         c0,
         c1,
-        scale_bits: ct1.scale_bits,
+        logp: ct1.logp,
+        logq: ct1.logq,
     })
 }
 
@@ -157,10 +164,10 @@ pub fn multiply_ciphertexts_kim<P, const DEGREE: usize>(
 where
     P: PolyRing<DEGREE> + PolyRescale<DEGREE>,
 {
-    if ct1.scale_bits != ct2.scale_bits {
+    if ct1.logp != ct2.logp || ct1.logq != ct2.logq {
         return Err(EncryptionError::ScaleMismatch {
-            expected: ct1.scale_bits as f64,
-            actual: ct2.scale_bits as f64,
+            expected: ct1.logp as f64,
+            actual: ct2.logp as f64,
         });
     }
 
@@ -221,9 +228,9 @@ where
     let mut c1_result = bxmult;
 
     // Rescaling to target scale
-    let doubled_scale_bits = ct1.scale_bits + ct2.scale_bits;
-    if doubled_scale_bits > target_scale_bits {
-        let rescale_bits = doubled_scale_bits - target_scale_bits;
+    let doubled_logp = ct1.logp + ct2.logp;
+    if doubled_logp > target_scale_bits {
+        let rescale_bits = doubled_logp - target_scale_bits;
         let scale_factor = (1u64 << rescale_bits) as f64;
         c0_result.rescale_assign(scale_factor);
         c1_result.rescale_assign(scale_factor);
@@ -232,7 +239,8 @@ where
     Ok(Ciphertext {
         c0: c0_result,
         c1: c1_result,
-        scale_bits: target_scale_bits,
+        logp: target_scale_bits,
+        logq: ct1.logq, // Modulus unchanged
     })
 }
 

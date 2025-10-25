@@ -507,5 +507,5 @@ pub fn rescale_ciphertext_u256_inplace<const DEGREE: usize>(
         ct.c1.coeffs[i] = r1;
     }
 
-    ct.scale_bits -= k;
+    ct.logp -= k; // Rescaling reduces precision
 }
