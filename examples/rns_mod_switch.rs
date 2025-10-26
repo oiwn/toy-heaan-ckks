@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pk_q2 = engine_q2.generate_public_key(&sk_q2, &mut rng)?;
 
     let plaintext = encoder.encode(&values, engine_q2.context());
-    let ct_q2 = engine_q2.encrypt(&plaintext, &pk_q2, &mut rng, q2_log as u32);
+    let ct_q2 = engine_q2.encrypt(&plaintext, &pk_q2, q2_log as u32, &mut rng);
 
     println!("  Channels: {}", ct_q2.c0.channels());
     println!("  logp: {}, logq: {}", ct_q2.logp, ct_q2.logq);

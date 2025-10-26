@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plaintext_q1 = encoder_q1.encode(&values, engine_q1.context());
     let logq1 = Q_1.ilog2();
     let ciphertext_q1 =
-        engine_q1.encrypt(&plaintext_q1, &public_key, &mut rng, logq1);
+        engine_q1.encrypt(&plaintext_q1, &public_key, logq1, &mut rng);
 
     println!("  Ciphertext modulus q: {} (2^{})", Q_1, logq1);
     println!(

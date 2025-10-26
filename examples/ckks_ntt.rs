@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encrypt: Plaintext → Ciphertext
     println!("\n🔐 Encrypting plaintext...");
-    let ciphertext = engine.encrypt(&plaintext, &public_key, &mut rng);
+    let ciphertext = engine.encrypt(&plaintext, &public_key, SCALE_BITS, &mut rng);
     println!("✅ Plaintext encrypted to ciphertext");
     println!("   Ciphertext c0 NTT form: {}", ciphertext.c0.is_ntt_form());
     println!("   Ciphertext c1 NTT form: {}", ciphertext.c1.is_ntt_form());
@@ -134,7 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Second input: {:?}", values2);
 
     let plaintext2 = encoder.encode(&values2, engine.context());
-    let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+    let ciphertext2 =
+        engine.encrypt(&plaintext2, &public_key, SCALE_BITS, &mut rng);
 
     // Homomorphic addition
     let ciphertext_sum = Engine::add_ciphertexts(&ciphertext, &ciphertext2);

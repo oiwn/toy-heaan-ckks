@@ -59,12 +59,14 @@ fn kim_heaan_multiply(
     let ct1_kim = Ciphertext {
         c0: BigIntPolyRing::from_u256_coeffs(&ct1.c0.coeffs, kim_context),
         c1: BigIntPolyRing::from_u256_coeffs(&ct1.c1.coeffs, kim_context),
-        scale_bits: ct1.scale_bits,
+        logp: ct1.logp,
+        logq: ct1.logq,
     };
     let ct2_kim = Ciphertext {
         c0: BigIntPolyRing::from_u256_coeffs(&ct2.c0.coeffs, kim_context),
         c1: BigIntPolyRing::from_u256_coeffs(&ct2.c1.coeffs, kim_context),
-        scale_bits: ct2.scale_bits,
+        logp: ct2.logp,
+        logq: ct2.logq,
     };
     let relin_key_kim = RelinearizationKey {
         a: BigIntPolyRing::from_u256_coeffs(&relin_key.a.coeffs, kim_context),
@@ -158,13 +160,13 @@ fn kim_heaan_multiply(
 
     // Step 6: Additional rescaling after Kim's scale_down_by_q()
     println!("  Step 6: Additional rescaling after Kim's algorithm...");
-    let doubled_scale_bits = ct1.scale_bits + ct2.scale_bits; // 60
+    let doubled_scale_bits = ct1.logp + ct2.logp; // 60
     let kim_scaling_bits = kim_context.log_q; // 20 bits scaled by Kim
     let current_scale_bits = doubled_scale_bits - kim_scaling_bits; // 60 - 20 = 40
 
     println!(
         "    Original scales: {} + {} = {}",
-        ct1.scale_bits, ct2.scale_bits, doubled_scale_bits
+        ct1.logp, ct2.logp, doubled_scale_bits
     );
     println!(
         "    Kim's scale_down_by_q() scaled by {} bits",
@@ -191,7 +193,8 @@ fn kim_heaan_multiply(
     Ok(Ciphertext {
         c0: c0_result,
         c1: c1_result,
-        scale_bits: target_scale_bits,
+        logp: target_scale_bits,
+        logq: target_scale_bits,
     })
 }
 
@@ -253,12 +256,14 @@ fn test_multiplication_detailed(
     // Encrypt
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
     let public_key = engine.generate_public_key(secret_key, &mut rng)?;
-    let ciphertext1 = engine.encrypt(&plaintext1, &public_key, &mut rng);
-    let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+    let ciphertext1 =
+        engine.encrypt(&plaintext1, &public_key, SCALE_BITS, &mut rng);
+    let ciphertext2 =
+        engine.encrypt(&plaintext2, &public_key, SCALE_BITS, &mut rng);
 
     println!(
         "Original ciphertext scales: {} and {}",
-        ciphertext1.scale_bits, ciphertext2.scale_bits
+        ciphertext1.logp, ciphertext2.logp
     );
 
     // Test Kim's multiplication
@@ -342,8 +347,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 2: Encrypt: Plaintext → Ciphertext
     println!("\n🔒 Encrypting plaintext...");
-    let ciphertext1 = engine.encrypt(&plaintext1, &public_key, &mut rng);
-    let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+    let ciphertext1 =
+        engine.encrypt(&plaintext1, &public_key, SCALE_BITS, &mut rng);
+    let ciphertext2 =
+        engine.encrypt(&plaintext2, &public_key, SCALE_BITS, &mut rng);
     println!("✅ Plaintext encrypted to ciphertext using U256 operations");
 
     // Show extended modulus operations demo

@@ -82,8 +82,8 @@ where
         &self,
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
-        rng: &mut R,
         logq: u32,
+        rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
         let u = P::sample_tribits(self.params.hamming_weight, &self.context, rng);
         let e0 = P::sample_gaussian(self.params.error_variance, &self.context, rng);
