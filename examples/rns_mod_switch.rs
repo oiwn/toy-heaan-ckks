@@ -1,8 +1,8 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::Arc;
-use toy_heaan_ckks::{CkksEngine, Encoder, RnsPolyRing, RustFftEncoder, SecretKey};
 use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
+use toy_heaan_ckks::{CkksEngine, Encoder, RnsPolyRing, RustFftEncoder, SecretKey};
 
 // RNS Modulus Switching Constants
 const DEGREE: usize = 8;
@@ -14,8 +14,8 @@ const SCALE_BITS: u32 = 20; // Delta = 2^20 = 1,048,576
 // Total product must fit in u64 (64 bits), so we use smaller primes for the demo
 // Note: In production, you'd use crypto_bigint for reconstruction with larger primes
 const PRIME_BITS_3: [usize; 3] = [21, 20, 19]; // Level 2: Q2 = q1 * q2 * q3 (~60 bits)
-const PRIME_BITS_2: [usize; 2] = [21, 20];     // Level 1: Q1 = q1 * q2 (~41 bits)
-const PRIME_BITS_1: [usize; 1] = [21];         // Level 0: Q0 = q1 (~21 bits)
+const PRIME_BITS_2: [usize; 2] = [21, 20]; // Level 1: Q1 = q1 * q2 (~41 bits)
+const PRIME_BITS_1: [usize; 1] = [21]; // Level 0: Q0 = q1 (~21 bits)
 
 type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
 
@@ -98,7 +98,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n[Parameters]");
     println!("  Degree N:        {}", DEGREE);
-    println!("  Scale Delta:     {} (2^{})", 1u64 << SCALE_BITS, SCALE_BITS);
+    println!(
+        "  Scale Delta:     {} (2^{})",
+        1u64 << SCALE_BITS,
+        SCALE_BITS
+    );
 
     // ========================================================================
     // Step 1: Setup 3-level RNS modulus chain
@@ -112,58 +116,82 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let basis_q2 = Arc::new(
         RnsBasisBuilder::new(DEGREE)
             .with_prime_bits(PRIME_BITS_3.to_vec())
-            .build()?
+            .build()?,
     );
     let q2_product: u64 = basis_q2.primes().iter().product();
     let q2_log = PRIME_BITS_3.iter().sum::<usize>();
     println!(
         "  Level 2 (Q2):    {} primes {:?}",
         basis_q2.channel_count(),
-        basis_q2.primes().iter().map(|p| format!("2^{}-{}",
-            ((*p as f64).log2().ceil() as usize),
-            (1u64 << (*p as f64).log2().ceil() as usize) - p
-        )).collect::<Vec<_>>()
+        basis_q2
+            .primes()
+            .iter()
+            .map(|p| format!(
+                "2^{}-{}",
+                ((*p as f64).log2().ceil() as usize),
+                (1u64 << (*p as f64).log2().ceil() as usize) - p
+            ))
+            .collect::<Vec<_>>()
     );
     println!("                   Q2 = {} (~2^{})", q2_product, q2_log);
-    println!("                   Q2/Delta = {} (need >> 1 for correctness)", q2_product / delta);
+    println!(
+        "                   Q2/Delta = {} (need >> 1 for correctness)",
+        q2_product / delta
+    );
 
     // Level 1: 2 primes (middle)
     let basis_q1 = Arc::new(
         RnsBasisBuilder::new(DEGREE)
             .with_prime_bits(PRIME_BITS_2.to_vec())
-            .build()?
+            .build()?,
     );
     let q1_product: u64 = basis_q1.primes().iter().product();
     let q1_log = PRIME_BITS_2.iter().sum::<usize>();
     println!(
         "  Level 1 (Q1):    {} primes {:?}",
         basis_q1.channel_count(),
-        basis_q1.primes().iter().map(|p| format!("2^{}-{}",
-            ((*p as f64).log2().ceil() as usize),
-            (1u64 << (*p as f64).log2().ceil() as usize) - p
-        )).collect::<Vec<_>>()
+        basis_q1
+            .primes()
+            .iter()
+            .map(|p| format!(
+                "2^{}-{}",
+                ((*p as f64).log2().ceil() as usize),
+                (1u64 << (*p as f64).log2().ceil() as usize) - p
+            ))
+            .collect::<Vec<_>>()
     );
     println!("                   Q1 = {} (~2^{})", q1_product, q1_log);
-    println!("                   Q1/Delta = {} (need >> 1 for correctness)", q1_product / delta);
+    println!(
+        "                   Q1/Delta = {} (need >> 1 for correctness)",
+        q1_product / delta
+    );
 
     // Level 0: 1 prime (lowest)
     let basis_q0 = Arc::new(
         RnsBasisBuilder::new(DEGREE)
             .with_prime_bits(PRIME_BITS_1.to_vec())
-            .build()?
+            .build()?,
     );
     let q0_product: u64 = basis_q0.primes().iter().product();
     let q0_log = PRIME_BITS_1.iter().sum::<usize>();
     println!(
         "  Level 0 (Q0):    {} prime  {:?}",
         basis_q0.channel_count(),
-        basis_q0.primes().iter().map(|p| format!("2^{}-{}",
-            ((*p as f64).log2().ceil() as usize),
-            (1u64 << (*p as f64).log2().ceil() as usize) - p
-        )).collect::<Vec<_>>()
+        basis_q0
+            .primes()
+            .iter()
+            .map(|p| format!(
+                "2^{}-{}",
+                ((*p as f64).log2().ceil() as usize),
+                (1u64 << (*p as f64).log2().ceil() as usize) - p
+            ))
+            .collect::<Vec<_>>()
     );
     println!("                   Q0 = {} (~2^{})", q0_product, q0_log);
-    println!("                   Q0/Delta = {} [WARNING] TOO SMALL!", q0_product / delta);
+    println!(
+        "                   Q0/Delta = {} [WARNING] TOO SMALL!",
+        q0_product / delta
+    );
 
     // ========================================================================
     // Step 2: Input values and encoding
@@ -293,8 +321,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nError progression:");
     println!("  Q2 (3 primes): {:.2e}", error_q2);
-    println!("  Q1 (2 primes): {:.2e}  (ratio: {:.2}x)", error_q1, error_q1 / error_q2);
-    println!("  Q0 (1 prime):  {:.2e}  (ratio: {:.2}x)", error_q0, error_q0 / error_q2);
+    println!(
+        "  Q1 (2 primes): {:.2e}  (ratio: {:.2}x)",
+        error_q1,
+        error_q1 / error_q2
+    );
+    println!(
+        "  Q0 (1 prime):  {:.2e}  (ratio: {:.2}x)",
+        error_q0,
+        error_q0 / error_q2
+    );
 
     println!("\n[WARNING] Why Q0 Failed:");
     println!("  Q0 = {} (2^{})", q0_product, q0_log);
@@ -303,13 +339,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("  CKKS requires: q >> Delta (modulus much larger than scale)");
     println!("  - Need room for: Delta*m + e (mod q)");
-    println!("  - At Q0, we have q ~= Delta (ratio only ~{})!", q0_product / delta);
+    println!(
+        "  - At Q0, we have q ~= Delta (ratio only ~{})!",
+        q0_product / delta
+    );
     println!("  - No room for noise! Decryption wraps around modulus.");
     println!("  - Solution: Use larger primes or drop to Q1 as lowest level");
     println!();
     println!("[Key Insights]");
     println!("  1. RNS ModDrop is simple: just drop RNS channels");
-    println!("  2. Zero additional noise per ModDrop operation (Q2->Q1 shows 1.00x!)");
+    println!(
+        "  2. Zero additional noise per ModDrop operation (Q2->Q1 shows 1.00x!)"
+    );
     println!("  3. Scale (logp) stays constant (unlike naive backend)");
     println!("  4. Enables multi-level modulus chains for deep circuits");
     println!("  5. Error only from initial encryption, not from ModDrop");

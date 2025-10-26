@@ -838,12 +838,12 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17, 19, 23])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         let poly_high = RnsPolyRing::<8>::from_i64_slice(
             &[1, 2, 3, 4, 0, 0, 0, 0],
-            basis_high.clone()
+            basis_high.clone(),
         );
         assert_eq!(poly_high.channels(), 3);
 
@@ -852,7 +852,7 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17, 19])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         // Perform mod_switch
@@ -886,20 +886,18 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17, 19])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
-        let poly = RnsPolyRing::<8>::from_i64_slice(
-            &[1, 2, 3, 4, 0, 0, 0, 0],
-            basis1
-        );
+        let poly =
+            RnsPolyRing::<8>::from_i64_slice(&[1, 2, 3, 4, 0, 0, 0, 0], basis1);
 
         // Create basis with different primes - should panic
         let basis2 = Arc::new(
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![23])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         poly.mod_switch(&basis2); // Should panic
@@ -913,12 +911,12 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         let poly = RnsPolyRing::<8>::from_i64_slice(
             &[1, 2, 3, 4, 0, 0, 0, 0],
-            basis_small
+            basis_small,
         );
 
         // Try to switch to larger basis - should panic
@@ -926,7 +924,7 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17, 19, 23])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         poly.mod_switch(&basis_large); // Should panic
@@ -939,12 +937,12 @@ mod tests {
             RnsBasisBuilder::new(8)
                 .with_prime_bits(vec![17, 19])
                 .build()
-                .unwrap()
+                .unwrap(),
         );
 
         let poly1 = RnsPolyRing::<8>::from_i64_slice(
             &[1, 2, 3, 4, 0, 0, 0, 0],
-            basis.clone()
+            basis.clone(),
         );
 
         let poly2 = poly1.mod_switch(&basis);

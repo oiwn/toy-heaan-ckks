@@ -146,8 +146,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine_q1.encrypt(&plaintext_q1, &public_key, &mut rng, logq1);
 
     println!("  Ciphertext modulus q: {} (2^{})", Q_1, logq1);
-    println!("  Encoding scale Δ: {} (2^{})", 1u64 << SCALE_BITS, SCALE_BITS);
-    println!("  Stored: logp={}, logq={}", ciphertext_q1.logp, ciphertext_q1.logq);
+    println!(
+        "  Encoding scale Δ: {} (2^{})",
+        1u64 << SCALE_BITS,
+        SCALE_BITS
+    );
+    println!(
+        "  Stored: logp={}, logq={}",
+        ciphertext_q1.logp, ciphertext_q1.logq
+    );
     println!();
 
     // [2] Decrypt at Q_1 (baseline)
@@ -176,15 +183,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("  After switching:");
     println!("    New modulus q_hat: {} (2^{})", Q_0, logq0);
-    println!("    ACTUAL scale Δ_hat = Δ * ratio = {} (2^{:.1})",
-             delta_hat, (delta_hat as f64).log2());
-    println!("    Stored logp: {} (claims scale = 2^{} = {})",
-             ciphertext_q0.logp, ciphertext_q0.logp, 1u64 << ciphertext_q0.logp);
+    println!(
+        "    ACTUAL scale Δ_hat = Δ * ratio = {} (2^{:.1})",
+        delta_hat,
+        (delta_hat as f64).log2()
+    );
+    println!(
+        "    Stored logp: {} (claims scale = 2^{} = {})",
+        ciphertext_q0.logp,
+        ciphertext_q0.logp,
+        1u64 << ciphertext_q0.logp
+    );
     println!("    Stored logq: {}", ciphertext_q0.logq);
     println!();
-    println!("  ⚠️  MISMATCH: logp={} implies scale=2^{}={}, but ACTUAL scale={}!",
-             ciphertext_q0.logp, ciphertext_q0.logp,
-             1u64 << ciphertext_q0.logp, delta_hat);
+    println!(
+        "  ⚠️  MISMATCH: logp={} implies scale=2^{}={}, but ACTUAL scale={}!",
+        ciphertext_q0.logp,
+        ciphertext_q0.logp,
+        1u64 << ciphertext_q0.logp,
+        delta_hat
+    );
     println!();
 
     // [4] Decrypt at Q_0 - Comparing approaches
@@ -202,17 +220,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let decrypted_q0 = Engine::decrypt(&ciphertext_q0, &secret_key_q0);
 
     println!();
-    println!("  Approach A: Use logp={} → decode with scale=2^{}={}",
-             ciphertext_q0.logp, ciphertext_q0.logp, 1u64 << ciphertext_q0.logp);
+    println!(
+        "  Approach A: Use logp={} → decode with scale=2^{}={}",
+        ciphertext_q0.logp,
+        ciphertext_q0.logp,
+        1u64 << ciphertext_q0.logp
+    );
     let decoded_q0_wrong = encoder_q1.decode(&decrypted_q0);
     println!("    Result: {:?}", &decoded_q0_wrong[..values.len()]);
     let scale_error = (1u64 << ciphertext_q0.logp) as f64 / delta_hat as f64;
-    println!("    ❌ WRONG! Off by {:.0}x (because actual scale={} ≠ 2^{}={})",
-             scale_error, delta_hat, ciphertext_q0.logp, 1u64 << ciphertext_q0.logp);
+    println!(
+        "    ❌ WRONG! Off by {:.0}x (because actual scale={} ≠ 2^{}={})",
+        scale_error,
+        delta_hat,
+        ciphertext_q0.logp,
+        1u64 << ciphertext_q0.logp
+    );
     println!();
 
-    println!("  Approach B: Use ACTUAL scale after mod_switch = 2^{}≈{}",
-             scale_bits_hat, delta_hat);
+    println!(
+        "  Approach B: Use ACTUAL scale after mod_switch = 2^{}≈{}",
+        scale_bits_hat, delta_hat
+    );
     let encoder_corrected = toy_heaan_ckks::RustFftEncoder::new(scale_bits_hat)?;
     let decoded_q0 = encoder_corrected.decode(&decrypted_q0);
     println!("    Result: {:?}", &decoded_q0[..values.len()]);
@@ -228,9 +257,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Comparison:");
     println!("    At Q_1: max error = {:.2e}", max_error_q1);
     println!("    At Q_0: max error = {:.2e}", max_error_q0);
-    println!("    Error increased by {:.0}x (expected ~{}x from precision loss)",
-             max_error_q0 / max_error_q1.max(1e-10),
-             (1.0 / ratio) as u64);
+    println!(
+        "    Error increased by {:.0}x (expected ~{}x from precision loss)",
+        max_error_q0 / max_error_q1.max(1e-10),
+        (1.0 / ratio) as u64
+    );
     println!();
 
     // Analysis
