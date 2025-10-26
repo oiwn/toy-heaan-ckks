@@ -332,7 +332,8 @@ async fn sum_handler(
     let mut sum = Ciphertext {
         c0: first.c0.clone(),
         c1: first.c1.clone(),
-        scale_bits: first.scale_bits,
+        logp: first.logp,
+        logq: first.logq,
     };
 
     for i in 1..state.messages.len() {
@@ -362,7 +363,7 @@ async fn status_handler(
             format!(
                 "msg_{}: scale_bits={}, c0[0]={}",
                 i + 1,
-                ct.scale_bits,
+                ct.logp,
                 ct.c0.to_coeffs()[0]
             )
         })
@@ -385,7 +386,7 @@ fn ciphertext_to_serializable(
     SerializableCiphertext {
         c0_coeffs: c0_i64.iter().map(|&x| x as u64).collect(),
         c1_coeffs: c1_i64.iter().map(|&x| x as u64).collect(),
-        scale_bits: ct.scale_bits,
+        scale_bits: ct.logp,
     }
 }
 
@@ -423,7 +424,8 @@ fn serializable_to_ciphertext(
     Ok(Ciphertext {
         c0,
         c1,
-        scale_bits: s.scale_bits,
+        logp: s.scale_bits,
+        logq: s.scale_bits,
     })
 }
 

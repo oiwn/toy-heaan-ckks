@@ -74,8 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encrypt
     println!("\n🔐 Encrypting plaintexts...");
-    let ciphertext1 = engine.encrypt(&plaintext1, &public_key, &mut rng);
-    let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+    let ciphertext1 =
+        engine.encrypt(&plaintext1, &public_key, SCALE_BITS, &mut rng);
+    let ciphertext2 =
+        engine.encrypt(&plaintext2, &public_key, SCALE_BITS, &mut rng);
 
     // Verify encryption by decryption
     println!("\n🔍 Verifying encryption...");
@@ -112,8 +114,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ciphertext_product =
         multiply_ciphertexts(&ciphertext1, &ciphertext2, &relin_key, SCALE_BITS)?;
 
-    println!("   Original scale_bits: {}", ciphertext1.scale_bits);
-    println!("   Product scale_bits: {}", ciphertext_product.scale_bits);
+    println!("   Original scale_bits: {}", ciphertext1.logp);
+    println!("   Product scale_bits: {}", ciphertext_product.logp);
 
     // Decrypt the result
     println!("\n🔓 Decrypting multiplication result...");

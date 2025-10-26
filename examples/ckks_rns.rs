@@ -75,8 +75,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Plaintext 1 channels: {}", plaintext1.poly.channels());
     println!("   Plaintext 2 channels: {}", plaintext2.poly.channels());
 
-    let ciphertext1 = engine.encrypt(&plaintext1, &public_key, &mut rng);
-    let ciphertext2 = engine.encrypt(&plaintext2, &public_key, &mut rng);
+    let ciphertext1 =
+        engine.encrypt(&plaintext1, &public_key, SCALE_BITS, &mut rng);
+    let ciphertext2 =
+        engine.encrypt(&plaintext2, &public_key, SCALE_BITS, &mut rng);
     println!("✅ Plaintexts encrypted to ciphertexts");
 
     // Step 6: Homomorphic addition
