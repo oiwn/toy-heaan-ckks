@@ -42,7 +42,7 @@ type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
 /// poly' = [residues mod q1, residues mod q2, ..., residues mod qk']
 /// ```
 ///
-/// ## CKKS Invariant (ASCII formulas)
+/// ## CKKS Invariant
 ///
 /// A valid CKKS ciphertext satisfies:
 /// ```text
@@ -57,7 +57,7 @@ type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
 /// - q: modulus
 ///
 /// For correct decryption, we need: q >> Delta (modulus much larger than scale)
-/// Typical ratio: q/Delta >= 2^20 for security and correctness
+/// Let's say ratio: q/Delta >= 2^20 for security and correctness
 ///
 /// ## Key Advantage: ZERO Additional Noise
 ///
