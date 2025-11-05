@@ -29,6 +29,4 @@ dhat-heap.json
 .tmuxp.yaml
 toy_ckks.txt
 .DS_Store
-*.md
-!README.md
 .demo_sum_db/
