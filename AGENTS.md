@@ -10,9 +10,15 @@ homomorphic encryption scheme with multiple backends.
 cargo build && cargo test                    # build and run tests
 cargo clippy --all-targets -- -D warnings  # lint
 cargo run --example ckks_naive              # Naive demo
-cargo run --example ckks_rns                # RNS demo  
+cargo run --example ckks_rns                # RNS demo
 cargo run --example ckks_bigint             # BigInt demo
 cargo bench --bench end_to_end              # benchmarks
+```
+
+**Pre-commit Setup**
+```bash
+pip install pre-commit                      # install pre-commit
+pre-commit install                          # install git hooks
 ```
 
 **Code Style**
