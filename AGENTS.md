@@ -23,7 +23,7 @@ pre-commit install                          # install git hooks
 
 **Code Style**
 - rustfmt (edition 2024), max width ~84 chars
-- Imports: std → external → internal
+- Imports: std -> external -> internal
 - Naming: snake_case (functions/vars), PascalCase (types)
 - Errors: `thiserror`, return `Result<T, E>`; avoid panics outside tests
 - Types: prefer explicit types; use `const DEGREE: usize` generics
@@ -47,4 +47,15 @@ pre-commit install                          # install git hooks
 ## Documentation Links
 - Project Architecture: `specs/overview.md`
 - Current Tasks & Specifications: `specs/current_task.md`
+- FHE Textbook: https://fhetextbook.github.io - Comprehensive reference for FHE schemes
 - Build and test all examples to verify implementation
+
+**Important: Naming Conventions**
+- Use ASCII-only variable names and formulas
+- Replace Greek symbols with descriptive English names:
+  - `Delta` -> `scale` or `scaling_factor`
+  - `sigma` -> `std_dev` (standard deviation)
+  - `epsilon` -> `error` or `noise`
+  - `q`, `Q` -> `modulus`, `extended_modulus`
+  - `alpha`, `beta` -> use descriptive names like `base`, `digit`
+- This ensures code readability and avoids encoding issues
