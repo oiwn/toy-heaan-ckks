@@ -15,8 +15,9 @@ pub use keys::{
     RelinearizationKeyError, RelinearizationKeyParams, SecretKey, SecretKeyError,
     SecretKeyParams,
 };
-pub use rings::backends::bigint::BigIntPolyRing;
-pub use rings::backends::naive::NaivePolyRing;
-pub use rings::backends::rns::RnsPolyRing;
+pub use rings::backends::rns::{
+    RnsBasis, RnsBasisBuilder, RnsNttPoly, RnsPolyRing, toy_basis,
+    toy_basis_with_channels,
+};
 
 pub use rings::{PolyModSwitch, PolyRescale, PolyRing, PolySampler};
