@@ -4,12 +4,12 @@ use std::sync::Arc;
 use toy_heaan_ckks::{CkksEngine, Encoder, Plaintext, RustFftEncoder};
 
 // Import the RNS backend components
-use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsPolyRing};
+use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsNttPoly};
 
 const DEGREE: usize = 8;
 const SCALE_BITS: u32 = 40;
 
-type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
+type Engine = CkksEngine<RnsNttPoly<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
@@ -66,9 +66,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 5: Encode and encrypt
     println!("\n🔢 Encoding and encrypting...");
-    let plaintext1: Plaintext<RnsPolyRing<DEGREE>, DEGREE> =
+    let plaintext1: Plaintext<RnsNttPoly<DEGREE>, DEGREE> =
         encoder.encode(&values1, engine.context());
-    let plaintext2: Plaintext<RnsPolyRing<DEGREE>, DEGREE> =
+    let plaintext2: Plaintext<RnsNttPoly<DEGREE>, DEGREE> =
         encoder.encode(&values2, engine.context());
 
     println!("✅ Values encoded to plaintexts");
@@ -124,25 +124,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔬 RNS-specific demonstrations:");
 
     // Show coefficient reconstruction via CRT
+    let mut coeff_view = ciphertext_sum.c0.clone();
+    coeff_view.to_coeff_domain();
     println!("   Coefficient reconstruction example (first 4 coefficients):");
     for i in 0..4.min(DEGREE) {
-        let reconstructed = ciphertext_sum.c0.coefficient_to_u64(i);
-        println!("     c0[{}] = {} (reconstructed via CRT)", i, reconstructed);
+        let reconstructed = coeff_view.coefficient_to_u64(i);
+        println!("     c0[{i}] = {reconstructed} (reconstructed via CRT)");
     }
 
-    // Show residues for each prime
+    // Show residues for each prime (after converting to coefficient domain)
     println!("   Residue representation for c0[0]:");
     for (channel_idx, &prime) in rns_basis.primes().iter().enumerate() {
-        let residue = ciphertext_sum.c0.coefficients[channel_idx][0];
-        println!("     c0[0] mod {} = {}", prime, residue);
+        let residue = coeff_view.residue_at(channel_idx, 0);
+        println!("     c0[0] mod {prime} = {residue}");
     }
 
     // Test RNS polynomial arithmetic directly
     println!("\n🧮 Testing RNS polynomial arithmetic:");
-    let poly_a: RnsPolyRing<DEGREE> =
-        RnsPolyRing::from_i64_slice(&[1, 2, 3, 4, 0, 0, 0, 0], rns_basis.clone());
-    let poly_b: RnsPolyRing<DEGREE> =
-        RnsPolyRing::from_i64_slice(&[2, 3, 4, 5, 0, 0, 0, 0], rns_basis.clone());
+    let mut poly_a: RnsNttPoly<DEGREE> =
+        RnsNttPoly::from_i64_slice(&[1, 2, 3, 4, 0, 0, 0, 0], rns_basis.clone());
+    let mut poly_b: RnsNttPoly<DEGREE> =
+        RnsNttPoly::from_i64_slice(&[2, 3, 4, 5, 0, 0, 0, 0], rns_basis.clone());
+    poly_a.to_ntt_domain();
+    poly_b.to_ntt_domain();
 
     println!("   poly_a coefficients: {:?}", poly_a.to_i64_coefficients());
     println!("   poly_b coefficients: {:?}", poly_b.to_i64_coefficients());

@@ -49,7 +49,7 @@ pub fn encrypt<P, const DEGREE: usize, R: Rng>(
     public_key: &PublicKey<P, DEGREE>,
     rng: &mut R,
     context: &P::Context,
-    error_varaiance: f64,
+    error_variance: f64,
 ) -> EncryptionResult<Ciphertext<P, DEGREE>>
 where
     P: PolyRing<DEGREE> + PolySampler<DEGREE>,
@@ -58,8 +58,8 @@ where
     let u = P::sample_tribits(DEGREE / 2, context, rng);
 
     // Sample error polynomials from Gaussian distribution
-    let e0 = P::sample_gaussian(error_varaiance, context, rng);
-    let e1 = P::sample_gaussian(error_varaiance, context, rng);
+    let e0 = P::sample_gaussian(error_variance, context, rng);
+    let e1 = P::sample_gaussian(error_variance, context, rng);
 
     // Compute c0 = pk.b * u + e0 + plaintext
     let mut c0 = public_key.b.clone();

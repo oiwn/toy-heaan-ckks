@@ -1,8 +1,8 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::Arc;
-use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
-use toy_heaan_ckks::{CkksEngine, Encoder, RnsPolyRing, RustFftEncoder, SecretKey};
+use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsNttPoly};
+use toy_heaan_ckks::{CkksEngine, Encoder, RustFftEncoder, SecretKey};
 
 // RNS Modulus Switching Constants
 const DEGREE: usize = 8;
@@ -17,7 +17,7 @@ const PRIME_BITS_3: [usize; 3] = [21, 20, 19]; // Level 2: Q2 = q1 * q2 * q3 (~6
 const PRIME_BITS_2: [usize; 2] = [21, 20]; // Level 1: Q1 = q1 * q2 (~41 bits)
 const PRIME_BITS_1: [usize; 1] = [21]; // Level 0: Q0 = q1 (~21 bits)
 
-type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
+type Engine = CkksEngine<RnsNttPoly<DEGREE>, DEGREE>;
 
 /// # RNS-based Modulus Switching (ModDrop) for CKKS
 ///
@@ -86,8 +86,6 @@ type Engine = CkksEngine<RnsPolyRing<DEGREE>, DEGREE>;
 /// - Level 0: Drop to 1 prime (lowest level)
 ///
 /// At each ModDrop, we verify that the decryption error remains constant,
-/// proving the zero-noise property.
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n{}", "=".repeat(70));
     println!("RNS Modulus Switching Demo - CKKS RNS Backend");
@@ -259,9 +257,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create secret key at Q1 (same values, fewer RNS channels)
     let sk_q1_coeffs = sk_q2.poly.to_i64_coefficients();
-    let sk_q1 = SecretKey {
-        poly: RnsPolyRing::from_i64_slice(&sk_q1_coeffs, basis_q1.clone()),
-    };
+    let mut sk_q1_poly =
+        RnsNttPoly::from_i64_slice(&sk_q1_coeffs, basis_q1.clone());
+    sk_q1_poly.to_ntt_domain();
+    let sk_q1 = SecretKey { poly: sk_q1_poly };
 
     let decrypted_q1 = Engine::decrypt(&ct_q1, &sk_q1);
     let decoded_q1 = encoder.decode(&decrypted_q1);
@@ -299,9 +298,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n[6] Decrypt at Q0");
 
     let sk_q0_coeffs = sk_q2.poly.to_i64_coefficients();
-    let sk_q0 = SecretKey {
-        poly: RnsPolyRing::from_i64_slice(&sk_q0_coeffs, basis_q0.clone()),
-    };
+    let mut sk_q0_poly =
+        RnsNttPoly::from_i64_slice(&sk_q0_coeffs, basis_q0.clone());
+    sk_q0_poly.to_ntt_domain();
+    let sk_q0 = SecretKey { poly: sk_q0_poly };
 
     let decrypted_q0 = Engine::decrypt(&ct_q0, &sk_q0);
     let decoded_q0 = encoder.decode(&decrypted_q0);

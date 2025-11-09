@@ -15,19 +15,26 @@
 //! # Example
 //!
 //! ```rust
-//! use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing};
-//! use rand::rng;
+//! # use rand::SeedableRng;
+//! # use rand_chacha::ChaCha20Rng;
+//! # use std::sync::Arc;
+//! use toy_heaan_ckks::{PolyRing, RnsNttPoly, SecretKey, SecretKeyParams};
+//! use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
 //!
-//! const DEGREE: usize = 1024;
+//! const DEGREE: usize = 16;
 //!
-//! // Create parameters with half the coefficients non-zero
-//! let params = SecretKeyParams::<DEGREE>::new(DEGREE).unwrap();
-//! let modulus = 1125899906842679u64; // Example prime
+//! let params = SecretKeyParams::<DEGREE>::new(8)?;
+//! let basis = Arc::new(
+//!     RnsBasisBuilder::new(DEGREE)
+//!         .with_custom_primes(vec![97])
+//!         .build()
+//!         .unwrap(),
+//! );
+//! let mut rng = ChaCha20Rng::seed_from_u64(42);
 //!
-//! // Generate secret key
-//! let mut rng = rng();
-//! let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
-//!     SecretKey::generate(&params, &modulus, &mut rng).unwrap();
+//! let secret_key: SecretKey<RnsNttPoly<DEGREE>, DEGREE> =
+//!     SecretKey::generate(&params, &basis, &mut rng)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 use crate::{PolyRing, PolySampler};
 use rand::Rng;
@@ -102,16 +109,24 @@ where
     ///
     /// # Example
     /// ```rust
-    /// # use toy_heaan_ckks::{SecretKey, SecretKeyParams, NaivePolyRing, PolyRing};
     /// # use rand::SeedableRng;
     /// # use rand_chacha::ChaCha20Rng;
+    /// # use std::sync::Arc;
     /// # const DEGREE: usize = 16;
+    /// # use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
+    /// use toy_heaan_ckks::{PolyRing, RnsNttPoly, SecretKey, SecretKeyParams};
+    ///
     /// let params = SecretKeyParams::<DEGREE>::new(8)?;
-    /// let modulus = 97u64;
+    /// let basis = Arc::new(
+    ///     RnsBasisBuilder::new(DEGREE)
+    ///         .with_custom_primes(vec![97])
+    ///         .build()
+    ///         .unwrap(),
+    /// );
     /// let mut rng = ChaCha20Rng::seed_from_u64(42);
     ///
-    /// let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
-    ///     SecretKey::generate(&params, &modulus, &mut rng)?;
+    /// let secret_key: SecretKey<RnsNttPoly<DEGREE>, DEGREE> =
+    ///     SecretKey::generate(&params, &basis, &mut rng)?;
     ///
     /// // Verify hamming weight
     /// let coeffs = secret_key.poly.to_coeffs();
@@ -134,14 +149,21 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rings::backends::naive::NaivePolyRing;
+    use crate::{
+        rings::backends::rns::{RnsBasis, RnsNttPoly},
+        toy_basis_with_channels,
+    };
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
+    use std::sync::Arc;
 
     const TEST_DEGREE: usize = 16;
-    const TEST_MODULUS: u64 = 97; // Small prime for testing
 
-    type TestSecretKey = SecretKey<NaivePolyRing<TEST_DEGREE>, TEST_DEGREE>;
+    type TestSecretKey = SecretKey<RnsNttPoly<TEST_DEGREE>, TEST_DEGREE>;
+
+    fn test_basis<const DEGREE: usize>() -> Arc<RnsBasis> {
+        toy_basis_with_channels::<DEGREE>(1).expect("toy basis")
+    }
 
     #[test]
     fn test_secret_key_params_creation() {
@@ -184,7 +206,8 @@ mod tests {
         let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
-        let secret_key = TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng);
+        let basis = test_basis::<TEST_DEGREE>();
+        let secret_key = TestSecretKey::generate(&params, &basis, &mut rng);
         assert!(secret_key.is_ok());
     }
 
@@ -194,8 +217,9 @@ mod tests {
         let params = SecretKeyParams::<TEST_DEGREE>::new(hamming_weight).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(123);
 
+        let basis = test_basis::<TEST_DEGREE>();
         let secret_key =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+            TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
 
         // Check that the polynomial has exactly the requested hamming weight
         let coeffs = secret_key.poly.to_coeffs();
@@ -213,8 +237,9 @@ mod tests {
         let params = SecretKeyParams::<TEST_DEGREE>::new(8).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(789);
 
+        let basis = test_basis::<TEST_DEGREE>();
         let secret_key =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+            TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
         let coeffs = secret_key.poly.to_coeffs();
 
         // All coefficients should be in {-1, 0, 1}
@@ -232,8 +257,9 @@ mod tests {
         let params = SecretKeyParams::<TEST_DEGREE>::new(0).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(999);
 
+        let basis = test_basis::<TEST_DEGREE>();
         let secret_key =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+            TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
         let coeffs = secret_key.poly.to_coeffs();
 
         // All coefficients should be zero
@@ -247,8 +273,9 @@ mod tests {
         let params = SecretKeyParams::<TEST_DEGREE>::new(TEST_DEGREE).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(555);
 
+        let basis = test_basis::<TEST_DEGREE>();
         let secret_key =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+            TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
         let coeffs = secret_key.poly.to_coeffs();
 
         // All coefficients should be non-zero (±1)
@@ -268,11 +295,11 @@ mod tests {
         // Same seed should produce same secret key
         let mut rng1 = ChaCha20Rng::seed_from_u64(12345);
         let mut rng2 = ChaCha20Rng::seed_from_u64(12345);
+        let basis1 = test_basis::<TEST_DEGREE>();
+        let basis2 = test_basis::<TEST_DEGREE>();
 
-        let sk1 =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng1).unwrap();
-        let sk2 =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng2).unwrap();
+        let sk1 = TestSecretKey::generate(&params, &basis1, &mut rng1).unwrap();
+        let sk2 = TestSecretKey::generate(&params, &basis2, &mut rng2).unwrap();
 
         let coeffs1 = sk1.poly.to_coeffs();
         let coeffs2 = sk2.poly.to_coeffs();
@@ -290,11 +317,11 @@ mod tests {
         // Different seeds should produce different secret keys (with high probability)
         let mut rng1 = ChaCha20Rng::seed_from_u64(11111);
         let mut rng2 = ChaCha20Rng::seed_from_u64(22222);
+        let basis1 = test_basis::<TEST_DEGREE>();
+        let basis2 = test_basis::<TEST_DEGREE>();
 
-        let sk1 =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng1).unwrap();
-        let sk2 =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng2).unwrap();
+        let sk1 = TestSecretKey::generate(&params, &basis1, &mut rng1).unwrap();
+        let sk2 = TestSecretKey::generate(&params, &basis2, &mut rng2).unwrap();
 
         let coeffs1 = sk1.poly.to_coeffs();
         let coeffs2 = sk2.poly.to_coeffs();
@@ -310,6 +337,7 @@ mod tests {
         let hamming_weight = 10;
         let params = SecretKeyParams::<TEST_DEGREE>::new(hamming_weight).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(777);
+        let basis = test_basis::<TEST_DEGREE>();
 
         // Generate multiple secret keys to test distribution
         let num_samples = 100;
@@ -319,7 +347,7 @@ mod tests {
 
         for _ in 0..num_samples {
             let secret_key =
-                TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+                TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
             let coeffs = secret_key.poly.to_coeffs();
 
             for &coeff in &coeffs {
@@ -366,9 +394,9 @@ mod tests {
     fn test_secret_key_clone() {
         let params = SecretKeyParams::<TEST_DEGREE>::new(4).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(333);
+        let basis = test_basis::<TEST_DEGREE>();
 
-        let original =
-            TestSecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let original = TestSecretKey::generate(&params, &basis, &mut rng).unwrap();
         let cloned = original.clone();
 
         let orig_coeffs = original.poly.to_coeffs();
@@ -390,9 +418,10 @@ mod tests {
         let hamming_weight = DEGREE / 4;
         let params = SecretKeyParams::<DEGREE>::new(hamming_weight).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(42);
+        let basis = toy_basis_with_channels::<DEGREE>(1).expect("basis for degree");
 
-        let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
-            SecretKey::generate(&params, &TEST_MODULUS, &mut rng).unwrap();
+        let secret_key: SecretKey<RnsNttPoly<DEGREE>, DEGREE> =
+            SecretKey::generate(&params, &basis, &mut rng).unwrap();
 
         let coeffs = secret_key.poly.to_coeffs();
         let actual_hw = coeffs.iter().filter(|&&c| c != 0).count();
@@ -400,7 +429,7 @@ mod tests {
         assert_eq!(actual_hw, hamming_weight);
 
         for &coeff in &coeffs {
-            assert!(coeff >= -1 && coeff <= 1);
+            assert!((-1..=1).contains(&coeff));
         }
     }
 }

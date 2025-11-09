@@ -23,24 +23,32 @@
 //! # Example
 //!
 //! ```rust
-//! use toy_heaan_ckks::{PublicKey, PublicKeyParams, SecretKey, NaivePolyRing, SecretKeyParams};
-//! use rand::rng;
+//! # use rand::SeedableRng;
+//! # use rand_chacha::ChaCha20Rng;
+//! # use std::sync::Arc;
+//! use toy_heaan_ckks::{
+//!     PublicKey, PublicKeyParams, RnsNttPoly, SecretKey, SecretKeyParams,
+//! };
+//! use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
 //!
-//! const DEGREE: usize = 1024;
+//! const DEGREE: usize = 16;
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut rng = rng();
-//! let modulus = 1125899906842679u64; // Example prime
+//! let basis = Arc::new(
+//!     RnsBasisBuilder::new(DEGREE)
+//!         .with_custom_primes(vec![97])
+//!         .build()
+//!         .unwrap(),
+//! );
+//! let mut rng = ChaCha20Rng::seed_from_u64(123);
 //!
-//! // Generate secret key first
 //! let sk_params = SecretKeyParams::<DEGREE>::new(DEGREE / 2)?;
-//! let secret_key: SecretKey<NaivePolyRing<DEGREE>, DEGREE> =
-//!     SecretKey::generate(&sk_params, &modulus, &mut rng)?;
+//! let secret_key: SecretKey<RnsNttPoly<DEGREE>, DEGREE> =
+//!     SecretKey::generate(&sk_params, &basis, &mut rng)?;
 //!
-//! // Generate public key from secret key
 //! let pk_params = PublicKeyParams::<DEGREE>::new(3.2)?;
-//! let public_key: PublicKey<NaivePolyRing<DEGREE>, DEGREE> =
-//!     PublicKey::generate(&secret_key, &pk_params, &modulus, &mut rng)?;
+//! let public_key: PublicKey<RnsNttPoly<DEGREE>, DEGREE> =
+//!     PublicKey::generate(&secret_key, &pk_params, &basis, &mut rng)?;
 //! # Ok(())
 //! # }
 //! ```

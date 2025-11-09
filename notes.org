@@ -10,7 +10,7 @@
 ** TODO Implement key switching
 *** How to generate "switching key"
 *** gadget decomposition (?) for ciphertext
-** TODO Implement bootstraping
+** TODO Implement bootstrapping
 ** TODO Need to make RNS system (which could be complex)
 
 
