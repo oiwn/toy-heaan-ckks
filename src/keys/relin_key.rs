@@ -102,27 +102,30 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rings::backends::bigint::BigIntContext;
-    use crate::{BigIntPolyRing, SecretKeyParams};
-    use crypto_bigint::{NonZero, U256};
+    use crate::SecretKeyParams;
+    use crate::rings::backends::rns::{RnsBasis, RnsBasisBuilder, RnsNttPoly};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
+    use std::sync::Arc;
 
-    fn get_test_context() -> BigIntContext {
-        let modulus_words = [0x1, 0x0, 0x0, 0x8000000000000000u64];
-        let modulus = NonZero::new(U256::from_words(modulus_words)).unwrap();
-        BigIntContext::new(modulus, 30, 20)
+    fn get_test_context<const DEGREE: usize>() -> Arc<RnsBasis> {
+        Arc::new(
+            RnsBasisBuilder::new(DEGREE)
+                .with_custom_primes(vec![97])
+                .build()
+                .expect("test basis"),
+        )
     }
 
     #[test]
     fn test_relinearization_key_generation() {
         const DEGREE: usize = 8;
-        let context = get_test_context();
+        let context = get_test_context::<DEGREE>();
         let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
 
         // Generate secret key
         let sk_params = SecretKeyParams::new(DEGREE / 2).unwrap();
-        let secret_key = SecretKey::<BigIntPolyRing<DEGREE>, DEGREE>::generate(
+        let secret_key = SecretKey::<RnsNttPoly<DEGREE>, DEGREE>::generate(
             &sk_params, &context, &mut rng,
         )
         .unwrap();
@@ -155,12 +158,8 @@ mod tests {
         let neg_s_squared = -s_squared;
         verification += &neg_s_squared;
 
-        // If we get here without panicking, the key generation worked properly
-        // TODO: need to test result is small
-        assert!(
-            true,
-            "Relinearization key generation completed successfully"
-        );
+        // If we get here without panicking, the key generation worked properly.
+        // TODO: verify the resulting error magnitude once deterministic fixtures exist.
     }
 
     #[test]

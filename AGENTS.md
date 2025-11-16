@@ -9,9 +9,9 @@ homomorphic encryption scheme with multiple backends.
 ```bash
 cargo build && cargo test                    # build and run tests
 cargo clippy --all-targets -- -D warnings  # lint
-cargo run --example ckks_naive              # Naive demo
-cargo run --example ckks_rns                # RNS demo
-cargo run --example ckks_bigint             # BigInt demo
+cargo run --example rns                     # end-to-end CKKS flow
+cargo run --example ntt                     # verbose domain logging
+cargo run --example rns_mod_switch          # modulus-switching demo
 cargo bench --bench end_to_end              # benchmarks
 ```
 
@@ -47,8 +47,15 @@ pre-commit install                          # install git hooks
 ## Documentation Links
 - Project Architecture: `specs/overview.md`
 - Current Tasks & Specifications: `specs/current_task.md`
+- Running task context: `specs/ctx.md` (keep this file up to date and remind the operator to record every active-task decision there)
 - FHE Textbook: https://fhetextbook.github.io - Comprehensive reference for FHE schemes
 - Build and test all examples to verify implementation
+
+**Specification Rhythm**
+- Kick off every dev cycle by drafting or reviewing a spec: start with the rough idea, iterate with the AI until it becomes a crisp PRD with acceptance criteria, and treat requirements/design as living, versioned artifacts that move through branches like code.
+
+**Human-in-the-loop Rule**
+- Whenever you're uncertain about the correct approach or hit a decision point with multiple viable options, pause and ask the operator for guidance before proceeding.
 
 **Important: Naming Conventions**
 - Use ASCII-only variable names and formulas

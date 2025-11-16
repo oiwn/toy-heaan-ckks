@@ -27,6 +27,7 @@ dhat-heap.json
 # misc
 .amc.toml
 .tmuxp.yaml
-toy_ckks.txt
+*.txt
+data/*.py
 .DS_Store
 .demo_sum_db/

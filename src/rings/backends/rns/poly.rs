@@ -24,6 +24,10 @@ pub enum RnsError {
     #[error("Invalid prime count: {0}")]
     InvalidPrimeCount(usize),
 
+    /// RNS degree must be power of two for NTT support.
+    #[error("Ring degree {degree} must be a power of two")]
+    InvalidRingDegree { degree: usize },
+
     /// Failed to find a suitable prime for the given constraints.
     #[error("Unable to find prime for bit size {0} and ring degree {1}")]
     PrimeGenerationFailed(usize, usize),
@@ -39,6 +43,21 @@ pub enum RnsError {
 
     #[error("Invalid prime: {0}")]
     InvalidPrime(u64),
+
+    #[error("Prime {prime} is not NTT-friendly for degree {degree}")]
+    PrimeNotNttFriendly { prime: u64, degree: usize },
+
+    #[error("Failed to find primitive root of order {order} for prime {prime}")]
+    PrimitiveRootNotFound { prime: u64, order: usize },
+
+    #[error(
+        "Not enough toy primes for degree {degree}: need {needed}, found {found}"
+    )]
+    MissingToyPrimes {
+        degree: usize,
+        needed: usize,
+        found: usize,
+    },
 }
 
 /// Arithmetic operation errors
@@ -56,6 +75,131 @@ pub enum ArithmeticError {
 /// Result type for RNS operations.
 pub type RnsResult<T> = Result<T, RnsError>;
 pub type ArithmeticResult<T> = Result<T, ArithmeticError>;
+
+// ============================================================================
+// NTT Table & Helpers
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub(crate) struct NttTable {
+    pub(crate) forward_roots: Vec<u64>,
+    pub(crate) inverse_roots: Vec<u64>,
+    pub(crate) n_inv: u64,
+    pub(crate) prime: u64,
+}
+
+impl NttTable {
+    pub(crate) fn new(prime: u64, degree: usize) -> RnsResult<Self> {
+        if !degree.is_power_of_two() {
+            return Err(RnsError::InvalidRingDegree { degree });
+        }
+        let order = 2 * degree;
+        let modulus_minus_one = prime
+            .checked_sub(1)
+            .ok_or(RnsError::PrimeNotNttFriendly { prime, degree })?;
+        if !modulus_minus_one.is_multiple_of(order as u64) {
+            return Err(RnsError::PrimeNotNttFriendly { prime, degree });
+        }
+
+        let primitive_root = find_primitive_root(prime, order)?;
+        let bit_count = degree.trailing_zeros() as usize;
+
+        let mut forward_roots = vec![1u64; degree];
+        for i in 1..degree {
+            let bit_rev = reverse_bits(i, bit_count);
+            forward_roots[i] = mod_pow(primitive_root, bit_rev as u64, prime);
+        }
+
+        let primitive_root_inv = mod_inverse(primitive_root, prime);
+        let mut inverse_roots = vec![1u64; degree];
+        for i in 1..degree {
+            let bit_rev = reverse_bits(i, bit_count);
+            inverse_roots[i] = mod_pow(primitive_root_inv, bit_rev as u64, prime);
+        }
+
+        let n_inv = mod_inverse(degree as u64, prime);
+
+        Ok(Self {
+            forward_roots,
+            inverse_roots,
+            n_inv,
+            prime,
+        })
+    }
+}
+
+fn mul_mod(a: u64, b: u64, modulus: u64) -> u64 {
+    ((a as u128 * b as u128) % modulus as u128) as u64
+}
+
+fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
+    let mut result = 1u64;
+    base %= modulus;
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = mul_mod(result, base, modulus);
+        }
+        base = mul_mod(base, base, modulus);
+        exp >>= 1;
+    }
+    result
+}
+
+fn reverse_bits(mut value: usize, bits: usize) -> usize {
+    let mut result = 0;
+    for _ in 0..bits {
+        result = (result << 1) | (value & 1);
+        value >>= 1;
+    }
+    result
+}
+
+fn distinct_prime_factors(mut value: usize) -> Vec<usize> {
+    let mut factors = Vec::new();
+    let mut candidate = 2;
+    while candidate * candidate <= value {
+        if value.is_multiple_of(candidate) {
+            factors.push(candidate);
+            while value.is_multiple_of(candidate) {
+                value /= candidate;
+            }
+        }
+        candidate += 1;
+    }
+    if value > 1 {
+        factors.push(value);
+    }
+    factors
+}
+
+fn find_primitive_root(prime: u64, order: usize) -> RnsResult<u64> {
+    let order_u64 = order as u64;
+    let modulus_minus_one = prime - 1;
+    if !modulus_minus_one.is_multiple_of(order_u64) {
+        return Err(RnsError::PrimeNotNttFriendly {
+            prime,
+            degree: order / 2,
+        });
+    }
+    let exponent = modulus_minus_one / order_u64;
+    let factors = distinct_prime_factors(order);
+
+    'cand: for candidate in 2..prime {
+        let root = mod_pow(candidate, exponent, prime);
+        if root == 1 {
+            continue;
+        }
+        for &factor in &factors {
+            let test_power = order / factor;
+            if mod_pow(root, test_power as u64, prime) == 1 {
+                continue 'cand;
+            }
+        }
+        return Ok(root);
+    }
+
+    Err(RnsError::PrimitiveRootNotFound { prime, order })
+}
 
 /// Generate primes for RNS basis
 pub fn generate_primes(
@@ -136,6 +280,7 @@ pub fn mod_inverse(a: u64, m: u64) -> u64 {
 #[derive(Debug)]
 pub struct RnsBasis {
     primes: Vec<u64>,
+    ntt_tables: Vec<NttTable>,
 }
 
 impl RnsBasis {
@@ -145,6 +290,10 @@ impl RnsBasis {
 
     pub fn channel_count(&self) -> usize {
         self.primes.len()
+    }
+
+    pub(crate) fn ntt_table(&self, index: usize) -> &NttTable {
+        &self.ntt_tables[index]
     }
 
     pub fn validate(&self, expected: usize) -> RnsResult<()> {
@@ -192,9 +341,18 @@ impl RnsBasisBuilder {
     }
 
     pub fn build(self) -> RnsResult<RnsBasis> {
+        if !self.ring_degree.is_power_of_two() {
+            return Err(RnsError::InvalidRingDegree {
+                degree: self.ring_degree,
+            });
+        }
         let primes = self.get_or_generate_primes()?;
+        let mut ntt_tables = Vec::with_capacity(primes.len());
+        for &prime in &primes {
+            ntt_tables.push(NttTable::new(prime, self.ring_degree)?);
+        }
 
-        Ok(RnsBasis { primes })
+        Ok(RnsBasis { primes, ntt_tables })
     }
 
     fn get_or_generate_primes(&self) -> RnsResult<Vec<u64>> {

@@ -1,18 +1,13 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::sync::Arc;
+use toy_heaan_ckks::rings::backends::rns::{RnsBasisBuilder, RnsNttPoly};
 use toy_heaan_ckks::{CkksEngine, Encoder, Plaintext, RustFftEncoder};
-
-// Import the new NTT backend
-use toy_heaan_ckks::rings::backends::ntt::{
-    RnsNttBasis, RnsNttPolyRing, create_ntt_engine,
-};
-use toy_heaan_ckks::rings::backends::rns::RnsBasisBuilder;
 
 const DEGREE: usize = 8;
 const SCALE_BITS: u32 = 40;
 
-type Engine = CkksEngine<RnsNttPolyRing<DEGREE>, DEGREE>;
+type Engine = CkksEngine<RnsNttPoly<DEGREE>, DEGREE>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
@@ -20,41 +15,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 1: Create RNS basis with NTT-friendly primes
     println!("\n⚙️  Creating NTT-friendly RNS basis...");
-    let base_rns_basis = RnsBasisBuilder::new(DEGREE)
-        .with_prime_bits(vec![17, 19, 23]) // Generate NTT-friendly primes
-        .build()?;
+    let rns_basis = Arc::new(
+        RnsBasisBuilder::new(DEGREE)
+            .with_prime_bits(vec![17, 19, 23]) // Generate NTT-friendly primes
+            .build()?,
+    );
 
     println!(
-        "✅ Base RNS basis created with {} primes:",
-        base_rns_basis.channel_count()
+        "✅ RNS basis created with {} primes:",
+        rns_basis.channel_count()
     );
-    for (i, &prime) in base_rns_basis.primes().iter().enumerate() {
+    for (i, &prime) in rns_basis.primes().iter().enumerate() {
         let ntt_check = (prime - 1) % (2 * DEGREE as u64) == 0;
         println!(
-            "   Prime {}: {} ({} bits) - NTT-friendly: {}",
-            i,
-            prime,
-            prime.ilog2() + 1,
-            ntt_check
+            "   Prime {i}: {prime} ({} bits) - NTT-friendly: {ntt_check}",
+            prime.ilog2() + 1
         );
     }
 
-    // Step 2: Create NTT-enabled basis
-    println!("\n🧮 Creating NTT tables...");
-    let ntt_basis = Arc::new(RnsNttBasis::new(base_rns_basis, DEGREE)?);
-    println!(
-        "✅ NTT basis created with {} tables",
-        ntt_basis.ntt_tables.len()
-    );
-
-    // Step 3: Create CKKS Engine with NTT backend
+    // Step 2: Create CKKS Engine with RNS-NTT backend
     println!("\n🏗️  Building CKKS engine with NTT backend...");
-    let engine = create_ntt_engine(
-        ntt_basis.clone(),
-        SCALE_BITS,
-        3.2,        // error_variance
-        DEGREE / 2, // hamming_weight
-    );
+    let engine = Engine::builder()
+        .error_variance(3.2)
+        .hamming_weight(DEGREE / 2)
+        .build_rns(rns_basis.clone(), SCALE_BITS)?;
 
     let encoder = RustFftEncoder::new(engine.params.scale_bits)?;
     println!("✅ Engine configured with NTT backend");
@@ -67,9 +51,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print debug info about the keys and their domain
     println!("   Secret key channels: {}", secret_key.poly.channels());
-    println!("   Secret key NTT form: {}", secret_key.poly.is_ntt_form());
+    println!(
+        "   Secret key NTT form: {}",
+        secret_key.poly.is_ntt_domain()
+    );
     println!("   Public key a channels: {}", public_key.a.channels());
-    println!("   Public key a NTT form: {}", public_key.a.is_ntt_form());
+    println!("   Public key a NTT form: {}", public_key.a.is_ntt_domain());
 
     // Step 5: Test basic CKKS operations
     let values = vec![1.0, 2.0, 3.0, 4.0];
@@ -77,20 +64,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Encode: Vec<f64> → Plaintext
     println!("\n🔢 Encoding values...");
-    let plaintext: Plaintext<RnsNttPolyRing<DEGREE>, DEGREE> =
+    let plaintext: Plaintext<RnsNttPoly<DEGREE>, DEGREE> =
         encoder.encode(&values, engine.context());
     println!("✅ Values encoded to plaintext");
     println!(
         "   Plaintext poly NTT form: {}",
-        plaintext.poly.is_ntt_form()
+        plaintext.poly.is_ntt_domain()
     );
 
     // Encrypt: Plaintext → Ciphertext
     println!("\n🔐 Encrypting plaintext...");
     let ciphertext = engine.encrypt(&plaintext, &public_key, SCALE_BITS, &mut rng);
     println!("✅ Plaintext encrypted to ciphertext");
-    println!("   Ciphertext c0 NTT form: {}", ciphertext.c0.is_ntt_form());
-    println!("   Ciphertext c1 NTT form: {}", ciphertext.c1.is_ntt_form());
+    println!(
+        "   Ciphertext c0 NTT form: {}",
+        ciphertext.c0.is_ntt_domain()
+    );
+    println!(
+        "   Ciphertext c1 NTT form: {}",
+        ciphertext.c1.is_ntt_domain()
+    );
 
     // Decrypt: Ciphertext → Plaintext
     println!("\n🔓 Decrypting ciphertext...");
@@ -98,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Ciphertext decrypted to plaintext");
     println!(
         "   Decrypted plaintext NTT form: {}",
-        decrypted_plaintext.poly.is_ntt_form()
+        decrypted_plaintext.poly.is_ntt_domain()
     );
 
     // Decode: Plaintext → Vec<f64>
@@ -171,23 +164,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔄 Testing domain conversions...");
 
     // Create a test polynomial in coefficient form
-    let mut test_poly: RnsNttPolyRing<DEGREE> = RnsNttPolyRing::from_i64_slice(
-        &[1, 2, 3, 4, 0, 0, 0, 0],
-        ntt_basis.clone(),
-    );
+    let mut test_poly: RnsNttPoly<DEGREE> =
+        RnsNttPoly::from_i64_slice(&[1, 2, 3, 4, 0, 0, 0, 0], rns_basis.clone());
     println!(
         "Original poly (coeff): {:?}",
         test_poly.to_u64_coefficients()
     );
-    println!("NTT form: {}", test_poly.is_ntt_form());
+    println!("NTT form: {}", test_poly.is_ntt_domain());
 
     // Convert to NTT form
-    test_poly.to_ntt_form();
-    println!("After to_ntt_form(): {}", test_poly.is_ntt_form());
+    test_poly.to_ntt_domain();
+    println!("After to_ntt_domain(): {}", test_poly.is_ntt_domain());
 
     // Convert back to coefficient form
-    test_poly.to_coeff_form();
-    println!("After to_coeff_form(): {}", test_poly.is_ntt_form());
+    test_poly.to_coeff_domain();
+    println!("After to_coeff_domain(): {}", test_poly.is_ntt_domain());
     println!(
         "Recovered poly (coeff): {:?}",
         test_poly.to_u64_coefficients()

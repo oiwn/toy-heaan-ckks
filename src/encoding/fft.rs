@@ -10,6 +10,7 @@
 //! - The encoding maps real values to evaluations at these roots
 //! - We use scaling by 2^scale_bits to handle fixed-point arithmetic
 use crate::encoding::{EncodingError, EncodingResult};
+use crate::rings::backends::rns::RnsNttPoly;
 use crate::{Encoder, Plaintext, PolyRing};
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex64;
@@ -37,13 +38,18 @@ impl<const DEGREE: usize> RustFftEncoder<DEGREE> {
 }
 
 // Fix trait implementation
-impl<P: PolyRing<DEGREE>, const DEGREE: usize> Encoder<P, DEGREE>
+impl<const DEGREE: usize> Encoder<RnsNttPoly<DEGREE>, DEGREE>
     for RustFftEncoder<DEGREE>
 {
-    fn encode(&self, values: &[f64], context: &P::Context) -> Plaintext<P, DEGREE> {
+    fn encode(
+        &self,
+        values: &[f64],
+        context: &<RnsNttPoly<DEGREE> as crate::PolyRing<DEGREE>>::Context,
+    ) -> Plaintext<RnsNttPoly<DEGREE>, DEGREE> {
         let slots = values.len(); // Use input length as slots
         let coeffs = encode(values, &self.params).expect("Encoding failed");
-        let poly = P::from_coeffs(&coeffs, context);
+        let mut poly = RnsNttPoly::from_i64_slice(&coeffs, context.clone());
+        poly.to_ntt_domain();
         Plaintext {
             poly,
             scale_bits: self.params.scale_bits,
@@ -51,7 +57,10 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Encoder<P, DEGREE>
         }
     }
 
-    fn decode(&self, plaintext: &Plaintext<P, DEGREE>) -> Vec<f64> {
+    fn decode(
+        &self,
+        plaintext: &Plaintext<RnsNttPoly<DEGREE>, DEGREE>,
+    ) -> Vec<f64> {
         let coeffs = plaintext.poly.to_coeffs();
         decode_with_slots(&coeffs, &self.params, plaintext.slots)
             .expect("Decoding should succeed")
