@@ -46,6 +46,24 @@ impl<const DEGREE: usize> RnsNttPoly<DEGREE> {
         }
     }
 
+    /// Builds a polynomial directly from coefficient-domain residues laid out
+    /// per prime channel.
+    pub fn from_channels(
+        channels: Vec<[u64; DEGREE]>,
+        basis: Arc<RnsBasis>,
+    ) -> Self {
+        assert_eq!(
+            channels.len(),
+            basis.channel_count(),
+            "channel count mismatch for RNS polynomial construction"
+        );
+        Self {
+            coefficients: channels,
+            in_ntt_domain: false,
+            basis,
+        }
+    }
+
     pub fn from_u64_slice(coeffs: &[u64; DEGREE], basis: Arc<RnsBasis>) -> Self {
         let channels = reduce_unsigned_coeffs(coeffs, &basis);
         Self {

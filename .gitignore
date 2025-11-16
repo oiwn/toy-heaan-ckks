@@ -28,5 +28,6 @@ dhat-heap.json
 .amc.toml
 .tmuxp.yaml
 *.txt
+data/*.py
 .DS_Store
 .demo_sum_db/

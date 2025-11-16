@@ -1,7 +1,10 @@
 mod fft;
+pub mod special_fft;
+pub mod textbook;
 
 use crate::{Plaintext, PolyRing};
 pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
+pub use textbook::{TextbookEncoder, TextbookEncodingParams};
 use thiserror::Error;
 
 pub type EncodingResult<T> = Result<T, EncodingError>;

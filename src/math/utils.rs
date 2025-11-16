@@ -1,3 +1,5 @@
+use super::primes::get_first_prime_down;
+
 pub fn extended_gcd(a: i64, b: i64) -> (i64, i64, i64) {
     if a == 0 {
         (b, 0, 1)
@@ -26,102 +28,53 @@ pub fn crt_reconstruct(residues: &[u64], primes: &[u64]) -> u64 {
     result
 }
 
-/// Checks whether a given number `n` is prime using trial division.
+/// Generate `count` distinct NTT-friendly primes with the requested bit width.
 ///
-/// This function uses the 6k ± 1 optimization to skip unnecessary checks:
-/// - Returns `false` for values less than 2.
-/// - Returns `true` immediately for 2 and 3.
-/// - Eliminates multiples of 2 and 3 early.
-/// - Then checks divisibility by all numbers of the form 6k ± 1 up to √n.
-///
-/// # Arguments
-///
-/// * `n` - The number to check for primality.
-///
-/// # Returns
-///
-/// * `true` if `n` is a prime number.
-/// * `false` otherwise.
-///
-/// # Examples
+/// The search starts from the largest `bit_size`-wide integer and walks
+/// downward in steps of `2 * degree`, ensuring every returned prime satisfies
+/// the NTT constraint `p ≡ 1 (mod 2 * degree)`.
 ///
 /// ```
-/// use toy_heaan_ckks::math::is_prime;
-/// assert!(is_prime(7));
-/// assert!(!is_prime(9));
-/// ```
-pub fn is_prime(n: u64) -> bool {
-    if n < 2 {
-        return false;
-    }
-    if n == 2 || n == 3 {
-        return true;
-    }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) {
-        return false;
-    }
-
-    // Check divisibility by numbers of form 6k ± 1
-    let sqrt_n = ((n as f64).sqrt() as u64) + 1;
-    let mut i = 5;
-    while i <= sqrt_n {
-        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
-            return false;
-        }
-        i += 6;
-    }
-    true
-}
-
-/// Generates a list of distinct prime numbers of a given bit size.
+/// use toy_heaan_ckks::math::{generate_primes, is_ntt_friendly_prime};
 ///
-/// This function searches for odd prime numbers within the specified bit range,
-/// starting from the maximum possible value and working downward. It uses
-/// a brute-force method with `is_prime()` to check for primality.
-///
-/// # Arguments
-///
-/// * `bit_size` - The bit size of each prime (must be between 4 and 63 inclusive).
-/// * `count` - The number of primes to generate.
-///
-/// # Returns
-///
-/// * `Ok(Vec<u64>)` containing the generated primes if successful.
-/// * `Err(RnsError::InvalidPrime)` if not enough primes can be found within the range.
-///
-/// # Panics
-///
-/// * Panics if `bit_size` is not between 4 and 63 inclusive.
-///
-/// # Example
-///
-/// ```
-/// use toy_heaan_ckks::math::{is_prime, generate_primes};
-/// let primes = generate_primes(32, 3);
+/// let degree = 1024;
+/// let primes = generate_primes(32, 3, degree);
 /// assert_eq!(primes.len(), 3);
 /// for p in primes {
-///     assert!(is_prime(p));
-///     assert!(p.leading_zeros() <= (64 - 32) as u32);
+///     assert!(is_ntt_friendly_prime(p, degree as u64));
 /// }
 /// ```
-pub fn generate_primes(bit_size: usize, count: usize) -> Vec<u64> {
+pub fn generate_primes(bit_size: usize, count: usize, degree: u64) -> Vec<u64> {
     assert!((4..=63).contains(&bit_size));
+    assert!(count > 0, "prime count must be positive");
+    assert!(degree > 0, "degree must be positive");
+
+    let upper_bound = (1u64 << bit_size).saturating_sub(1);
+    let lower_bound = 1u64 << (bit_size - 1);
 
     let mut primes = Vec::with_capacity(count);
-    let max_val = (1u64 << bit_size) - 1;
-    let min_val = 1u64 << (bit_size - 1);
-    let mut candidate = max_val - max_val.is_multiple_of(2) as u64; // Ensure odd
+    let mut cursor = get_first_prime_down(upper_bound.saturating_add(1), degree)
+        .unwrap_or_else(|| {
+            panic!(
+                "Failed to find NTT prime below {bit_size} bits for degree {degree}"
+            )
+        });
 
-    while primes.len() < count && candidate >= min_val {
-        if is_prime(candidate) {
-            primes.push(candidate);
+    while primes.len() < count {
+        if cursor < lower_bound {
+            break;
         }
-        candidate = candidate.saturating_sub(2);
+        primes.push(cursor);
+        match get_first_prime_down(cursor, degree) {
+            Some(next) => cursor = next,
+            None => break,
+        }
     }
 
-    // if primes.len() < count {
-    //     return Err(RnsError::InvalidPrime(bit_size as u64));
-    // }
+    assert!(
+        primes.len() == count,
+        "Unable to find {count} NTT primes with {bit_size}-bit ceiling for degree {degree}"
+    );
 
     primes
 }
@@ -129,70 +82,26 @@ pub fn generate_primes(bit_size: usize, count: usize) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const KNOWN_PRIMES: [u64; 8] = [2, 3, 5, 7, 11, 13, 17, 19];
-    const KNOWN_COMPOSITES: [u64; 10] = [0, 1, 4, 6, 8, 9, 10, 12, 15, 16];
+    use crate::math::primes::is_ntt_friendly_prime;
 
     #[test]
-    fn test_is_prime_basic() {
-        // Test known primes
-        for prime in KNOWN_PRIMES {
-            assert!(is_prime(prime));
-        }
-        // Test known composites
-        for prime in KNOWN_COMPOSITES {
-            assert!(!is_prime(prime));
-        }
-    }
-
-    #[test]
-    fn test_is_prime_large() {
-        // Test some larger known primes
-        assert!(is_prime(65537)); // 2^16 + 1
-        assert!(is_prime(982451653)); // Large prime
-
-        // Test large composites
-        assert!(!is_prime(65536)); // 2^16
-        assert!(!is_prime(982451652)); // Even number
-    }
-
-    #[test]
-    fn test_generate_rns_primes_small() {
-        let primes = generate_primes(8, 3);
-
+    fn generates_ntt_primes_in_range() {
+        let degree = 1024;
+        let primes = generate_primes(20, 3, degree);
         assert_eq!(primes.len(), 3);
 
-        // All should be prime
-        for &p in &primes {
-            assert!(is_prime(p), "Generated number {} is not prime", p);
-        }
-
-        // All should be within bit range
-        for &p in &primes {
-            assert!(p >= (1u64 << 7), "Prime {} is too small for 8-bit", p);
-            assert!(p < (1u64 << 8), "Prime {} is too large for 8-bit", p);
-        }
-
-        // Should be in descending order (we generate backwards)
-        for i in 1..primes.len() {
-            assert!(
-                primes[i - 1] > primes[i],
-                "Primes should be in descending order"
-            );
+        for &prime in &primes {
+            assert!(prime >= (1u64 << 19));
+            assert!(prime < (1u64 << 20));
+            assert!(is_ntt_friendly_prime(prime, degree));
         }
     }
 
     #[test]
-    fn test_generate_rns_primes_60bit() {
-        let primes = generate_primes(60, 2);
-
-        assert_eq!(primes.len(), 2);
-
-        for &p in &primes {
-            assert!(is_prime(p), "Generated number {} is not prime", p);
-            assert!(p >= (1u64 << 59), "Prime {} is too small for 60-bit", p);
-            assert!(p < (1u64 << 60), "Prime {} is too large for 60-bit", p);
-        }
+    #[should_panic(expected = "Unable to find")]
+    fn panics_when_not_enough_primes() {
+        // Too many primes requested for small bit range should panic
+        let _ = generate_primes(4, 10, 2);
     }
 
     /* #[test]

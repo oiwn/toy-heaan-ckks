@@ -17,6 +17,7 @@ serde_json = "1"
 # Tracing for performance debugging and instrumentation
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+crypto-bigint = { version = "0.6.1", features = ["alloc"] }
 
 [dev-dependencies]
 approx = "0.5"
@@ -43,3 +44,7 @@ dhat-ad-hoc = []  # if you are doing ad hoc profiling
 # [[bench]]
 # name = "basic"
 # harness = false
+
+[[bench]]
+name = "primes"
+harness = false
