@@ -7,8 +7,8 @@ pub fn uniform_coefficients<const DEGREE: usize, R: Rng + ?Sized>(
     rng: &mut R,
 ) -> [u64; DEGREE] {
     let mut coeffs = [0u64; DEGREE];
-    for i in 0..DEGREE {
-        coeffs[i] = rng.random_range(0..max_value);
+    for coeff in &mut coeffs {
+        *coeff = rng.random_range(0..max_value);
     }
     coeffs
 }
@@ -22,12 +22,12 @@ pub fn gaussian_coefficients<const DEGREE: usize, R: Rng + ?Sized>(
     let normal = Normal::new(0.0, std_dev).expect("Invalid Gaussian std_dev");
     let mut coeffs = [0u64; DEGREE];
 
-    for i in 0..DEGREE {
+    for coeff in &mut coeffs {
         let sample = normal.sample(rng);
         let noise_int = sample.round() as i64;
 
         // Convert to unsigned: handle negative values properly
-        coeffs[i] = if noise_int < 0 {
+        *coeff = if noise_int < 0 {
             let abs_val = noise_int.unsigned_abs() % max_value;
             if abs_val == 0 { 0 } else { max_value - abs_val }
         } else {

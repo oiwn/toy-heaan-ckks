@@ -49,11 +49,12 @@ jobs:
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
 
     - name: Check if package is publishable
       run: cargo publish --dry-run
 
     - name: Publish to crates.io
       run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
-
 
