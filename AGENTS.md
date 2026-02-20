@@ -9,6 +9,7 @@ homomorphic encryption scheme with multiple backends.
 ```bash
 cargo build && cargo test                    # build and run tests
 cargo clippy --all-targets -- -D warnings  # lint
+cargo clippy -- -D clippy::pedantic -D clippy::nursery  # also lint
 cargo run --example rns                     # end-to-end CKKS flow
 cargo run --example ntt                     # verbose domain logging
 cargo run --example rns_mod_switch          # modulus-switching demo
@@ -29,6 +30,7 @@ pre-commit install                          # install git hooks
 - Types: prefer explicit types; use `const DEGREE: usize` generics
 - Docs: `///` with `# Panics` and `# Errors` where relevant
 - Clippy: fix warnings; allow specific lints only when necessary
+- prefer to use plain ascii instead of unicode for math!
 
 **Key File Paths**
 - `src/crypto/` - engine, builder, operations, types

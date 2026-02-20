@@ -21,6 +21,19 @@ this repository. Aligns with the "FHE Book Decode/Encode" scope captured in
 - Optimizing the transform beyond a straightforward Vandermonde implementation
   (but the API must leave room for a drop-in faster variant later).
 
+## Intuition about parameters
+
+Math PhD said:
+
+```
+2^60 это слишком много (иногда делают 128 бит plaintext modulus, тогда можно, но это пока сложнее)
+Если plaintext modulus 60 бит, то нужно 60 бит разбить на две части: сколько хотим под целую часть чисел выделить, и сколько под дробную. Например, можно взять 20+40, тогда нужно ставить масштаб 40 бит
+
+Модуль открытого текста побольше - 60 бит, scale factor и остальные модули - по 40
+Модули должны быть одного размера со scale factor
+```
+
+^^^ Need to figure out what does it mean. What is plaintext modulus? and how it's different?
 
 ## Parameter Object (`TextbookEncodingParams`)
 - `const N: usize` with `N.is_power_of_two()` enforced.

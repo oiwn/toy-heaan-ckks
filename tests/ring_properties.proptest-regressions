@@ -1,9 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc e9ffaf8d65190cc2e20e4c23d5e56b30474db7d9b94d910907b59d483a8ce18c # shrinks to p1 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }, p2 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }, p3 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }
-cc 54fc928f63842b2f8fbf4598abb1bcbc8870c0fb9a8ab2791f1e075110ff01a8 # shrinks to p1 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }, p2 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }
-cc bada1ea02a6512283d7a9d5c3b88c543658d8f3fc07e04fef368e5027c8bd068 # shrinks to p1 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }, p2 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }, p3 = PolyRing { coeffs: [], modulus: NonZero(Uint(0x0000000000000000000000000000000000000000000000000000000000000011)) }

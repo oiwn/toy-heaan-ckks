@@ -1,4 +1,4 @@
-use rand::{Rng, seq::SliceRandom};
+use rand::{Rng, RngExt, seq::SliceRandom};
 use rand_distr::{Distribution, Normal};
 
 // Sample uniformly random integer coefficients in range [0, max_value)

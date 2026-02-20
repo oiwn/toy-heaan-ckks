@@ -4,35 +4,31 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rand = "0.9"
-rand_chacha = "0.9"
-rand_distr = "0.5"
-rustfft = "6.2"
+rand = "0.10"
+rand_chacha = "0.10"
+rand_distr = "0.6"
+rustfft = "6"
 dhat = "0.3"
 thiserror = "2"
 num-complex = "0.4"
 serde = { version = "1", features = ["derive"] }
-serde_with = { version = "3.14", features = ["macros"] }
+serde_with = { version = "3", features = ["macros"] }
 serde_json = "1"
-# Tracing for performance debugging and instrumentation
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-crypto-bigint = { version = "0.6.1", features = ["alloc"] }
+crypto-bigint = { version = "0.6", features = ["alloc"] }
 
 [dev-dependencies]
 approx = "0.5"
 axum = "0.8"
 tower = "0.5"
 base64 = "0.22"
-bincode = { version = "2", features = ["serde"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-criterion = { version = "0.6", features = ["html_reports"] }
-fjall = "2.11"
-paste = "1.0"
-proptest = "1.6"
-serde_json = "1"
-thiserror = "2"
+criterion = { version = "0.8", features = ["html_reports"] }
+fjall = "3"
+paste = "1"
+proptest = "1.10"
 
 [profile.release]
 debug = 1
@@ -40,10 +36,6 @@ debug = 1
 [features]
 dhat-heap = []    # if you are doing heap profiling
 dhat-ad-hoc = []  # if you are doing ad hoc profiling
-
-# [[bench]]
-# name = "basic"
-# harness = false
 
 [[bench]]
 name = "primes"
