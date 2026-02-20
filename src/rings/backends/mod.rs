@@ -1,2 +1,1 @@
-pub mod ntt;
-pub mod rns;
+pub mod rns_ntt;

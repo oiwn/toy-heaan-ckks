@@ -73,8 +73,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "First {} coefficients with per-prime residues:",
         PRINT_COUNT
     );
-    for idx in 0..PRINT_COUNT.min(coeffs.len()) {
-        println!("  coeff[{idx}] = {}", coeffs[idx]);
+    for (idx, coeff) in coeffs.iter().take(PRINT_COUNT).enumerate() {
+        println!("  coeff[{idx}] = {coeff}");
         for (channel_idx, &prime) in basis.primes().iter().enumerate() {
             let residue = coeff_poly.residue_at(channel_idx, idx);
             println!("    mod {prime:>6} → {residue}");
