@@ -132,7 +132,10 @@ pub fn is_ntt_friendly_prime(p: u64, n: u64) -> bool {
 
 /// Returns the smallest `x >= value` such that `x % modulus == 1`.
 fn snap_up_to_congruence(value: u64, modulus: u64) -> u64 {
-    assert!(modulus > 1, "snap_up_to_congruence: modulus must be greater than 1");
+    assert!(
+        modulus > 1,
+        "snap_up_to_congruence: modulus must be greater than 1"
+    );
     let remainder = value % modulus;
     if remainder == 1 {
         value
@@ -284,19 +287,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "snap_up_to_congruence: modulus must be greater than 1")]
+    #[should_panic(
+        expected = "snap_up_to_congruence: modulus must be greater than 1"
+    )]
     fn snap_up_to_congruence_panics_on_zero_modulus() {
         let _ = snap_up_to_congruence(10, 0);
     }
 
     #[test]
-    #[should_panic(expected = "snap_up_to_congruence: modulus must be greater than 1")]
+    #[should_panic(
+        expected = "snap_up_to_congruence: modulus must be greater than 1"
+    )]
     fn snap_up_to_congruence_panics_on_modulus_one() {
         let _ = snap_up_to_congruence(10, 1);
     }
 
     #[test]
-    #[should_panic(expected = "snap_up_to_congruence: overflow while stepping upward")]
+    #[should_panic(
+        expected = "snap_up_to_congruence: overflow while stepping upward"
+    )]
     fn snap_up_to_congruence_panics_on_overflow() {
         let _ = snap_up_to_congruence(u64::MAX, 4);
     }
@@ -309,19 +318,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "snap_down_to_congruence: modulus must be greater than 1")]
+    #[should_panic(
+        expected = "snap_down_to_congruence: modulus must be greater than 1"
+    )]
     fn snap_down_to_congruence_panics_on_zero_modulus() {
         let _ = snap_down_to_congruence(10, 0);
     }
 
     #[test]
-    #[should_panic(expected = "snap_down_to_congruence: modulus must be greater than 1")]
+    #[should_panic(
+        expected = "snap_down_to_congruence: modulus must be greater than 1"
+    )]
     fn snap_down_to_congruence_panics_on_modulus_one() {
         let _ = snap_down_to_congruence(10, 1);
     }
 
     #[test]
-    #[should_panic(expected = "snap_down_to_congruence: underflow while stepping downward")]
+    #[should_panic(
+        expected = "snap_down_to_congruence: underflow while stepping downward"
+    )]
     fn snap_down_to_congruence_panics_on_underflow() {
         let _ = snap_down_to_congruence(0, 8);
     }
@@ -354,12 +369,8 @@ mod tests {
 
     #[test]
     fn miller_rabin_matches_reference_on_selected_ranges() {
-        let ranges: [(u64, u64); 4] = [
-            (2, 14),
-            (90, 114),
-            (10_000, 10_024),
-            (1_000_000, 1_000_024),
-        ];
+        let ranges: [(u64, u64); 4] =
+            [(2, 14), (90, 114), (10_000, 10_024), (1_000_000, 1_000_024)];
 
         for (start, end) in ranges {
             for n in start..=end {
