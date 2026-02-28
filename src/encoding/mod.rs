@@ -1,13 +1,14 @@
-mod fft;
+// mod fft;
+pub mod ckks_encoder;
 pub mod special_fft;
-pub mod textbook;
+// pub mod textbook;
 
-use crate::{Plaintext, PolyRing};
-pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
-pub use textbook::{TextbookEncoder, TextbookEncodingParams};
-use thiserror::Error;
+// use crate::{Plaintext, PolyRing};
+// pub use fft::{EncodingParams, RustFftEncoder, decode, encode};
+// pub use textbook::{TextbookEncoder, TextbookEncodingParams};
+// use thiserror::Error;
 
-pub type EncodingResult<T> = Result<T, EncodingError>;
+/* pub type EncodingResult<T> = Result<T, EncodingError>;
 
 #[derive(Error, Debug)]
 pub enum EncodingError {
@@ -27,4 +28,4 @@ pub enum EncodingError {
 pub trait Encoder<P: PolyRing<DEGREE>, const DEGREE: usize>: Send + Sync {
     fn encode(&self, values: &[f64], context: &P::Context) -> Plaintext<P, DEGREE>;
     fn decode(&self, plaintext: &Plaintext<P, DEGREE>) -> Vec<f64>;
-}
+} */

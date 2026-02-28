@@ -2,9 +2,8 @@
 //! will mirror the FHE Textbook Vandermonde/special FFT flow while keeping the
 //! logic reusable for future optimizations.
 
-use std::f64::consts::PI;
-
 use rustfft::num_complex::Complex64;
+use std::f64::consts::PI;
 
 fn pow_mod(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
     let mut acc = 1u64;
@@ -153,12 +152,16 @@ pub fn build_conjugate_slots<const N: usize>(
     let max_slots = N / 2;
     assert!(values.len() <= max_slots, "input exceeds slot capacity");
 
-    for idx in 0..values.len() {
-        let value = values.get(idx);
+    // Conjugate pairs in the J-function ordering are (slot[k], slot[N-1-k]).
+    // Fill all N/2 user positions; zero-pad any not supplied by the caller.
+    for idx in 0..max_slots {
+        let value = if idx < values.len() {
+            values.get(idx)
+        } else {
+            Complex64::new(0.0, 0.0)
+        };
         slots[idx] = value;
-        if idx > 0 {
-            slots[N - idx] = value.conj();
-        }
+        slots[N - 1 - idx] = value.conj();
     }
 
     slots
@@ -244,11 +247,14 @@ mod tests {
         ];
         let slots = build_slots_from_complex::<N>(&input);
         assert_eq!(slots.len(), N);
+        // User values at indices 0..k
         assert_eq!(slots[0], input[0]);
         assert_eq!(slots[1], input[1]);
         assert_eq!(slots[2], input[2]);
-        assert_eq!(slots[N - 1], input[1].conj());
-        assert_eq!(slots[N - 2], input[2].conj());
+        // Conjugates at N-1-k (J-function pairing: slot[k] <-> slot[N-1-k])
+        assert_eq!(slots[N - 1], input[0].conj());
+        assert_eq!(slots[N - 2], input[1].conj());
+        assert_eq!(slots[N - 3], input[2].conj());
     }
 
     #[test]
@@ -259,8 +265,10 @@ mod tests {
         assert_eq!(slots[0], Complex64::new(1.5, 0.0));
         assert_eq!(slots[1], Complex64::new(-2.25, 0.0));
         assert_eq!(slots[2], Complex64::new(0.75, 0.0));
-        assert_eq!(slots[N - 1], Complex64::new(-2.25, 0.0));
-        assert_eq!(slots[N - 2], Complex64::new(0.75, 0.0));
+        // Real inputs are their own conjugates
+        assert_eq!(slots[N - 1], Complex64::new(1.5, 0.0));
+        assert_eq!(slots[N - 2], Complex64::new(-2.25, 0.0));
+        assert_eq!(slots[N - 3], Complex64::new(0.75, 0.0));
     }
 
     #[test]
