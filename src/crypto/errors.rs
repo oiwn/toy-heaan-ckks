@@ -16,12 +16,6 @@ pub enum CkksError {
     //     #[from]
     //     source: crate::keys::KeyError,
     // },
-    #[error("Encoding failed: {source}")]
-    EncodingError {
-        #[from]
-        source: crate::encoding::EncodingError,
-    },
-
     #[error("Scale mismatch: expected {expected:.2}, got {actual:.2}")]
     ScaleMismatch { expected: f64, actual: f64 },
 

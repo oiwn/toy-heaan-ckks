@@ -12,22 +12,13 @@ use std::sync::Arc;
 
 use rustfft::num_complex::Complex64;
 
+use crate::crypto::types::Plaintext;
 use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use crate::rings::traits::PolyRing;
 
 use super::special_fft::{
     VandermondeTables, build_slots_from_complex, special_dft, special_idft,
 };
-
-/// A plaintext polynomial produced by `CkksEncoder::encode`.
-pub struct Plaintext<const DEGREE: usize> {
-    /// The scaled, rounded polynomial in coefficient domain.
-    pub poly: RnsPoly<DEGREE>,
-    /// Number of bits in the scaling factor Δ = 2^scale_bits.
-    pub scale_bits: u32,
-    /// Number of slots encoded (determines how many values `decode` returns).
-    pub slots: usize,
-}
 
 /// CKKS encoder/decoder targeting `RnsPoly<DEGREE>`.
 ///
@@ -75,7 +66,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
         &self,
         values: &[f64],
         basis: Arc<RnsBasis<DEGREE>>,
-    ) -> Plaintext<DEGREE> {
+    ) -> Plaintext<RnsPoly<DEGREE>, DEGREE> {
         assert!(
             values.len() <= DEGREE / 2,
             "encode: {} values exceed max slots {}",
@@ -95,7 +86,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
         &self,
         values: &[Complex64],
         basis: Arc<RnsBasis<DEGREE>>,
-    ) -> Plaintext<DEGREE> {
+    ) -> Plaintext<RnsPoly<DEGREE>, DEGREE> {
         assert!(
             values.len() <= DEGREE / 2,
             "encode_complex: {} values exceed max slots {}",
@@ -112,7 +103,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
         scaled: &[Complex64],
         slots: usize,
         basis: Arc<RnsBasis<DEGREE>>,
-    ) -> Plaintext<DEGREE> {
+    ) -> Plaintext<RnsPoly<DEGREE>, DEGREE> {
         // Build conjugate-symmetric N-slot vector, then IDFT → coefficient vector.
         let slot_vec = build_slots_from_complex::<DEGREE>(scaled);
         let coeff_vec = special_idft::<DEGREE>(&slot_vec, &self.tables);
@@ -135,12 +126,12 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
     /// Decodes a `Plaintext` back to real values.
     ///
     /// Error is bounded by the rounding noise from encoding (≈ 1/Δ per slot).
-    pub fn decode(&self, pt: &Plaintext<DEGREE>) -> Vec<f64> {
+    pub fn decode(&self, pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>) -> Vec<f64> {
         self.decode_complex(pt).into_iter().map(|s| s.re).collect()
     }
 
     /// Decodes a `Plaintext` back to complex values.
-    pub fn decode_complex(&self, pt: &Plaintext<DEGREE>) -> Vec<Complex64> {
+    pub fn decode_complex(&self, pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>) -> Vec<Complex64> {
         let delta = 2f64.powi(pt.scale_bits as i32);
 
         // CRT-reconstruct centered integer coefficients.

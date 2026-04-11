@@ -8,6 +8,13 @@ pub struct NttTable<const DEGREE: usize> {
     pub inverse_roots: [u64; DEGREE],
     pub n_inv: u64,
     pub modulus: u64,
+    /// `twist_factors[j] = ψ^j mod q` where ψ is the primitive 2N-th root of unity.
+    /// Used to pre-twist before the forward NTT so that pointwise multiplication
+    /// in NTT domain corresponds to negacyclic convolution in Z[X]/(X^N + 1).
+    pub twist_factors: [u64; DEGREE],
+    /// `untwist_factors[j] = ψ^{-j} mod q`. Applied after the inverse NTT to
+    /// undo the pre-twist.
+    pub untwist_factors: [u64; DEGREE],
 }
 
 impl<const DEGREE: usize> NttTable<DEGREE> {
@@ -22,29 +29,56 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
             });
         }
 
+        // ψ = primitive 2N-th root of unity (order 2N).
+        // ω = ψ² = primitive N-th root of unity (order N).
+        //
+        // The butterfly twiddle factors use ω so that the NTT computes the
+        // standard length-N circular convolution. The pre/post-twist factors
+        // use ψ so that `to_ntt_domain`/`to_coeff_domain` implement the
+        // negacyclic transform for Z[X]/(X^N + 1).
         let order = 2 * DEGREE;
-        let primitive_root = find_primitive_root(modulus, order);
-        let bit_count = DEGREE.trailing_zeros() as usize;
+        let psi = find_primitive_root(modulus, order); // order 2N
+        let omega = mod_pow(psi, 2, modulus); // order N
+        let _bit_count = DEGREE.trailing_zeros() as usize;
 
+        let omega_inv = mod_inverse(omega, modulus);
+
+        // Natural-power roots: forward_roots[i] = ω^i, inverse_roots[i] = ω^{-i}.
+        // The cooley_tukey_ntt accesses roots[offset * step], which equals
+        // ω^{offset * (N/len)} — exactly the twiddle needed for the DIT NTT
+        // to compute the standard circular DFT at evaluation points ω^0,...,ω^{N-1}.
         let mut forward_roots = [1u64; DEGREE];
-        for (index, root) in forward_roots.iter_mut().enumerate().skip(1) {
-            let bit_reversed = reverse_bits(index, bit_count);
-            *root = mod_pow(primitive_root, bit_reversed as u64, modulus);
+        for i in 1..DEGREE {
+            forward_roots[i] = mod_pow(omega, i as u64, modulus);
         }
 
-        let primitive_root_inverse = mod_inverse(primitive_root, modulus);
         let mut inverse_roots = [1u64; DEGREE];
-        for (index, root) in inverse_roots.iter_mut().enumerate().skip(1) {
-            let bit_reversed = reverse_bits(index, bit_count);
-            *root = mod_pow(primitive_root_inverse, bit_reversed as u64, modulus);
+        for i in 1..DEGREE {
+            inverse_roots[i] = mod_pow(omega_inv, i as u64, modulus);
         }
 
         let n_inv = mod_inverse(DEGREE as u64, modulus);
+
+        // ψ^j for j = 0..N: pre-twist before forward NTT.
+        let psi_inv = mod_inverse(psi, modulus);
+        let mut twist_factors = [1u64; DEGREE];
+        for j in 1..DEGREE {
+            twist_factors[j] = mod_pow(psi, j as u64, modulus);
+        }
+
+        // ψ^{-j} for j = 0..N: post-untwist after inverse NTT.
+        let mut untwist_factors = [1u64; DEGREE];
+        for j in 1..DEGREE {
+            untwist_factors[j] = mod_pow(psi_inv, j as u64, modulus);
+        }
+
         Ok(Self {
             forward_roots,
             inverse_roots,
             n_inv,
             modulus,
+            twist_factors,
+            untwist_factors,
         })
     }
 }
@@ -99,6 +133,14 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         })
     }
 
+    /// Returns the total bit-size of the composite modulus Q = q_0 · … · q_{L-1}.
+    ///
+    /// Computed as `Σ floor(log2(q_i))`, which gives the number of bits needed
+    /// to represent Q. Used to set `logq` when calling `CkksEngine::encrypt`.
+    pub fn total_bits(&self) -> u32 {
+        self.moduli.iter().map(|&q| u64::BITS - q.leading_zeros() - 1).sum()
+    }
+
     /// CRT-reconstructs a single coefficient and centers it in `(-Q/2, Q/2]`.
     ///
     /// Given per-channel residues `r[i] = a mod q_i`, recovers `a mod Q`
@@ -145,7 +187,7 @@ fn mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
     result
 }
 
-fn mod_inverse(value: u64, modulus: u64) -> u64 {
+pub(super) fn mod_inverse(value: u64, modulus: u64) -> u64 {
     fn extended_gcd(a: i128, b: i128) -> (i128, i128, i128) {
         if a == 0 {
             (b, 0, 1)

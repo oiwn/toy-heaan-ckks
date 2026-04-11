@@ -1,5 +1,5 @@
 use super::{
-    basis::{NttTable, RnsBasis, reverse_bits},
+    basis::{NttTable, RnsBasis, mod_inverse, reverse_bits},
     errors::{RnsNttError, RnsNttResult},
 };
 use crate::{
@@ -129,23 +129,38 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
     }
 
     /// Converts to NTT domain in-place (no-op if already there).
+    ///
+    /// Applies a pre-twist (multiply coefficient `j` by ψ^j) before the
+    /// forward NTT, so that pointwise multiplication in this domain equals
+    /// negacyclic convolution in Z[X]/(X^N + 1).
     pub fn to_ntt_domain(&mut self) {
         if self.in_ntt_domain {
             return;
         }
         for (ch, channel) in self.channels.iter_mut().enumerate() {
-            forward_ntt(channel, self.basis.ntt_table(ch));
+            let table = self.basis.ntt_table(ch);
+            for (j, v) in channel.iter_mut().enumerate() {
+                *v = mul_mod(*v, table.twist_factors[j], table.modulus);
+            }
+            forward_ntt(channel, table);
         }
         self.in_ntt_domain = true;
     }
 
     /// Converts to coefficient domain in-place (no-op if already there).
+    ///
+    /// Applies the inverse NTT followed by a post-untwist (multiply coefficient
+    /// `j` by ψ^{-j}), undoing the pre-twist applied in `to_ntt_domain`.
     pub fn to_coeff_domain(&mut self) {
         if !self.in_ntt_domain {
             return;
         }
         for (ch, channel) in self.channels.iter_mut().enumerate() {
-            inverse_ntt(channel, self.basis.ntt_table(ch));
+            let table = self.basis.ntt_table(ch);
+            inverse_ntt(channel, table);
+            for (j, v) in channel.iter_mut().enumerate() {
+                *v = mul_mod(*v, table.untwist_factors[j], table.modulus);
+            }
         }
         self.in_ntt_domain = false;
     }
@@ -159,6 +174,75 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
             reduced_basis,
             self.in_ntt_domain,
         ))
+    }
+
+    /// Divides every coefficient by the last RNS prime `q_L` and drops that channel.
+    ///
+    /// Uses a caller-supplied `new_basis` (the reduced basis with `q_L` dropped) so that
+    /// multiple polynomials (e.g. both ciphertext components) can share the same
+    /// `Arc<RnsBasis>` instance — required for operations that later `Arc::ptr_eq`-check
+    /// their bases.
+    ///
+    /// See [`rescale`] for a convenience wrapper that creates its own `Arc`.
+    pub fn rescale_into(&self, new_basis: Arc<RnsBasis<DEGREE>>) -> RnsNttResult<Self> {
+        let num_channels = self.basis.channel_count();
+        if num_channels < 2 {
+            return Err(RnsNttError::InvalidModDrop {
+                drop_count: 1,
+                channel_count: num_channels,
+            });
+        }
+
+        // Work in coefficient domain without mutating self.
+        let tmp;
+        let channels: &[[u64; DEGREE]] = if self.in_ntt_domain {
+            tmp = {
+                let mut clone = self.clone();
+                clone.to_coeff_domain();
+                clone
+            };
+            &tmp.channels
+        } else {
+            &self.channels
+        };
+
+        let last = num_channels - 1;
+        let q_last = self.basis.moduli()[last];
+
+        let mut new_channels = vec![[0u64; DEGREE]; last];
+        for i in 0..last {
+            let q_i = self.basis.moduli()[i];
+            let q_last_inv = mod_inverse(q_last % q_i, q_i);
+            for j in 0..DEGREE {
+                let c_i = channels[i][j];
+                let c_l = channels[last][j] % q_i;
+                let diff = sub_mod(c_i, c_l, q_i);
+                new_channels[i][j] = mul_mod(diff, q_last_inv, q_i);
+            }
+        }
+
+        Ok(Self::new_unchecked(new_channels, new_basis, false))
+    }
+
+    /// Divides every coefficient by the last RNS prime `q_L` and drops that channel.
+    ///
+    /// Used after homomorphic multiplication to bring `logp` back to its pre-multiplication
+    /// value. The operation is *exact* (no rounding error): subtracting `c mod q_L` from `c`
+    /// leaves a value exactly divisible by `q_L`.
+    ///
+    /// # Formula (per remaining channel `i`, per coefficient `j`)
+    /// ```text
+    /// new[i][j] = (c[i][j] − c[L][j] mod q_i) · q_L⁻¹  mod q_i
+    /// ```
+    ///
+    /// The polynomial is converted to coefficient domain before rescaling; the result is
+    /// always returned in coefficient domain.
+    ///
+    /// When rescaling multiple polynomials that will later be used together (e.g. the two
+    /// ciphertext components), prefer [`rescale_into`] with a shared `Arc<RnsBasis>`.
+    pub fn rescale(&self) -> RnsNttResult<Self> {
+        let new_basis = Arc::new(self.basis.drop_last(1)?);
+        self.rescale_into(new_basis)
     }
 }
 
@@ -188,19 +272,77 @@ impl<const DEGREE: usize> AddAssign<&RnsPoly<DEGREE>> for RnsPoly<DEGREE> {
 }
 
 impl<const DEGREE: usize> MulAssign<&RnsPoly<DEGREE>> for RnsPoly<DEGREE> {
-    /// Polynomial multiplication in `Z[X]/(X^N + 1)`, schoolbook, per channel.
+    /// Polynomial multiplication in `Z[X]/(X^N + 1)` via NTT, per channel.
     ///
-    /// Both operands must be in coefficient domain and share the same basis.
-    /// For NTT-domain pointwise multiplication use `to_ntt_domain` first, then
-    /// multiply channel-by-channel manually, or call a dedicated helper once added.
+    /// Both operands must share the same basis and be in the **same domain**:
+    ///
+    /// - **NTT domain**: pointwise multiply per channel; result stays in NTT
+    ///   domain. O(N·L). Use this path when chaining multiple multiplications.
+    /// - **Coefficient domain**: forward-NTT `self` in place, forward-NTT a
+    ///   temporary copy of `rhs`, pointwise multiply, then inverse-NTT `self`
+    ///   back to coefficient domain. O(N·log(N)·L).
     fn mul_assign(&mut self, rhs: &RnsPoly<DEGREE>) {
-        debug_assert!(
-            !self.in_ntt_domain && !rhs.in_ntt_domain,
-            "mul_assign: requires coefficient domain; call to_coeff_domain first"
-        );
         debug_assert!(
             Arc::ptr_eq(&self.basis, &rhs.basis),
             "mul_assign: basis mismatch"
+        );
+        debug_assert_eq!(
+            self.in_ntt_domain, rhs.in_ntt_domain,
+            "mul_assign: domain mismatch (both must be in the same domain)"
+        );
+
+        if self.in_ntt_domain {
+            // Both already in NTT domain: O(N·L) pointwise multiply.
+            for ch in 0..self.basis.channel_count() {
+                let q = self.basis.moduli()[ch];
+                for (a, &b) in
+                    self.channels[ch].iter_mut().zip(rhs.channels[ch].iter())
+                {
+                    *a = mul_mod(*a, b, q);
+                }
+            }
+        } else {
+            // Coefficient domain: fwd-NTT self, fwd-NTT rhs clone, pointwise
+            // multiply, inv-NTT self back to coefficient domain.
+            self.to_ntt_domain();
+
+            let mut rhs_ntt = rhs.channels.clone();
+            for (ch, channel) in rhs_ntt.iter_mut().enumerate() {
+                let table = self.basis.ntt_table(ch);
+                for (j, v) in channel.iter_mut().enumerate() {
+                    *v = mul_mod(*v, table.twist_factors[j], table.modulus);
+                }
+                forward_ntt(channel, table);
+            }
+
+            for ch in 0..self.basis.channel_count() {
+                let q = self.basis.moduli()[ch];
+                for (a, &b) in
+                    self.channels[ch].iter_mut().zip(rhs_ntt[ch].iter())
+                {
+                    *a = mul_mod(*a, b, q);
+                }
+            }
+
+            self.to_coeff_domain();
+        }
+    }
+}
+
+impl<const DEGREE: usize> RnsPoly<DEGREE> {
+    /// Schoolbook O(N²) polynomial multiplication in `Z[X]/(X^N + 1)`.
+    ///
+    /// Both operands must be in coefficient domain and share the same basis.
+    /// Kept as a reference implementation for correctness testing against the
+    /// NTT-based path.
+    pub fn mul_assign_naive(&mut self, rhs: &RnsPoly<DEGREE>) {
+        debug_assert!(
+            !self.in_ntt_domain && !rhs.in_ntt_domain,
+            "mul_assign_naive: requires coefficient domain"
+        );
+        debug_assert!(
+            Arc::ptr_eq(&self.basis, &rhs.basis),
+            "mul_assign_naive: basis mismatch"
         );
         for ch in 0..self.basis.channel_count() {
             let q = self.basis.moduli()[ch];
@@ -603,6 +745,50 @@ mod tests {
     }
 
     #[test]
+    fn mul_assign_ntt_domain_matches_coeff_domain() {
+        // Multiply in coefficient domain, then compare to multiplying after
+        // converting both operands to NTT domain. Results must be identical.
+        let basis = basis_17_97();
+        let a_coeffs = [1i64, -2, 3, -4, 5, -6, 7, -8];
+        let b_coeffs = [2i64, 1, -1, 3, 0, -2, 4, 1];
+
+        // Coefficient-domain path (goes through NTT internally).
+        let mut a_coeff = RnsPoly::<8>::from_coeffs(&a_coeffs, basis.clone());
+        let b_coeff = RnsPoly::<8>::from_coeffs(&b_coeffs, basis.clone());
+        a_coeff *= &b_coeff;
+        let expected = a_coeff.to_coeffs();
+
+        // NTT-domain path: convert both first, then pointwise multiply.
+        let mut a_ntt = RnsPoly::<8>::from_coeffs(&a_coeffs, basis.clone());
+        let mut b_ntt = RnsPoly::<8>::from_coeffs(&b_coeffs, basis.clone());
+        a_ntt.to_ntt_domain();
+        b_ntt.to_ntt_domain();
+        a_ntt *= &b_ntt;
+        assert!(a_ntt.is_ntt_domain(), "result should stay in NTT domain");
+        let got = a_ntt.to_coeffs();
+
+        assert_eq!(expected, got);
+    }
+
+    #[test]
+    fn mul_assign_matches_naive() {
+        // NTT-based mul_assign must produce the same result as mul_assign_naive.
+        let basis = basis_17_97();
+        let a_coeffs = [3i64, 1, -2, 0, 4, -1, 2, -3];
+        let b_coeffs = [1i64, -1, 0, 2, -2, 3, 1, -1];
+
+        let mut a_ntt = RnsPoly::<8>::from_coeffs(&a_coeffs, basis.clone());
+        let b = RnsPoly::<8>::from_coeffs(&b_coeffs, basis.clone());
+        a_ntt *= &b;
+
+        let mut a_naive = RnsPoly::<8>::from_coeffs(&a_coeffs, basis.clone());
+        let b_naive = RnsPoly::<8>::from_coeffs(&b_coeffs, basis.clone());
+        a_naive.mul_assign_naive(&b_naive);
+
+        assert_eq!(a_ntt.to_coeffs(), a_naive.to_coeffs());
+    }
+
+    #[test]
     fn sample_tribits_has_correct_hamming_weight() {
         let basis = basis_17_97();
         let mut rng = ChaCha20Rng::seed_from_u64(7);
@@ -612,5 +798,67 @@ mod tests {
         // ternary {-1,0,1} → {16,0,1} mod 17; 0 stays 0
         let non_zero = poly.channels()[0].iter().filter(|&&c| c != 0).count();
         assert_eq!(non_zero, hw);
+    }
+
+    // ── Rescale ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn rescale_drops_channel_count() {
+        let basis = basis_three();
+        let poly = RnsPoly::<8>::from_coeffs(&[1, 2, 3, 4, 5, 6, 7, 8], basis);
+        let rescaled = poly.rescale().unwrap();
+        assert_eq!(rescaled.basis().channel_count(), 2);
+        assert_eq!(rescaled.channels().len(), 2);
+        assert!(!rescaled.is_ntt_domain());
+    }
+
+    #[test]
+    fn rescale_on_single_channel_errors() {
+        let basis = Arc::new(RnsBasis::<8>::new(vec![17]).unwrap());
+        let poly = RnsPoly::<8>::from_coeffs(&[1, 2, 3, 4, 5, 6, 7, 8], basis);
+        assert!(matches!(
+            poly.rescale(),
+            Err(RnsNttError::InvalidModDrop { .. })
+        ));
+    }
+
+    #[test]
+    fn rescale_is_exact_division_by_last_prime() {
+        // Construct a polynomial whose integer coefficients are multiples of q_last=113.
+        // After rescaling by 113, the result should equal the original / 113.
+        //
+        // basis: q0=17, q1=97, q2=113.  We want c = 113 * v for small v.
+        // Choose c = 113 * 2 = 226 (fits in signed i64).
+        let basis = basis_three(); // moduli [17, 97, 113]
+        let v: i64 = 2;
+        let c: i64 = 113 * v;
+
+        // All-constant polynomial: every coefficient is c.
+        let coeffs: Vec<i64> = vec![c; 8];
+        let poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        let rescaled = poly.rescale().unwrap();
+
+        // After rescale by q_last=113, every coefficient should equal v=2.
+        let out = rescaled.to_coeffs();
+        assert!(
+            out.iter().all(|&x| x == v),
+            "expected all coefficients to be {v}, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn rescale_from_ntt_domain_matches_coeff_domain() {
+        // Rescaling from NTT domain should give the same result as from coeff domain.
+        let basis = basis_three();
+        let coeffs = [3i64, -1, 2, 0, -4, 5, -2, 1];
+
+        let poly_coeff = RnsPoly::<8>::from_coeffs(&coeffs, basis.clone());
+        let expected = poly_coeff.rescale().unwrap().to_coeffs();
+
+        let mut poly_ntt = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        poly_ntt.to_ntt_domain();
+        let got = poly_ntt.rescale().unwrap().to_coeffs();
+
+        assert_eq!(expected, got);
     }
 }

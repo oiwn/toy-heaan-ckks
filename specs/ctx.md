@@ -1,62 +1,101 @@
 # Current task context
 
-## New session restart (read this first)
+## Session status (2026-04-12) — all passing (101 tests)
 
-### Goal right now
-- Rebuild `rings/backends/rns_ntt` from scratch with a cleaner structure.
+### What's working
+- Encode/decode: `examples/encode_decode.rs` ✓
+- Encrypt/add/decrypt: `examples/encrypt_add.rs` ✓ (errors ~1e-7 at scale 2^30)
+- Encrypt/mul/rescale/decrypt: `examples/encrypt_mul.rs` ✓ (errors ~5e-6 at scale 2^30)
+- `RnsBasis<N>` + `RnsPoly<N>`: NTT forward/inverse, CRT, `PolyRing` + `PolySampler`
+- `mul_assign`: NTT-based negacyclic convolution (pre/post-twist by ψ^j around circular NTT)
+- `mul_assign_naive`: schoolbook O(N²), kept as reference
+- Keys: `SecretKey`, `PublicKey`, `RelinearizationKey`
+- `CkksEngine`: encrypt, decrypt, add_ciphertexts, mul_ciphertexts (schoolbook path)
+- Single unified `Plaintext<P,N>` in `crypto::types`; encoder uses it directly
 
-### Finalized file layout
-- `errors.rs`
-- `basis.rs` (contains both `RnsBasis` and `NttTable`)
-- `poly.rs` (single `RnsPoly` type; includes modular helpers + NTT kernels)
-- `mod.rs` (exports only)
+### What's NOT working / missing
+- `PolyRescale` not implemented for `RnsPoly` — needed after multiplication
+- `PolyModSwitch` not implemented for `RnsPoly` — needed for noise management
+- `logq` in `Ciphertext` is a tag only; not yet tied to active RNS channels
+- `mul_ciphertexts` in engine uses naive relin (broken for non-trivial params); use `mul_ciphertexts_gadget` + `RnsGadgetRelinKey` instead
+- `PolyRescale` trait not wired to RNS (mismatched signature); `rescale`/`rescale_into` are direct methods on `RnsPoly`
 
-### Explicit constraints
-- Do not split coeff/ntt into separate polynomial types.
-- Do not create `poly_ntt.rs`.
-- Do not create `modular.rs`.
-- Do not create standalone `ntt.rs`.
+## NTT implementation notes
 
-### Immediate next implementation steps
-- Replace current `rns_ntt/poly.rs` scaffold with the finalized single-type design.
-- Extract errors into `rns_ntt/errors.rs`.
-- Move basis + table ownership into `rns_ntt/basis.rs`.
-- Wire `rns_ntt/mod.rs` exports to the new files.
-- Add roundtrip and mod-drop tests before removing old backends.
+- `NttTable` stores:
+  - `forward_roots[i] = ω^i`, `inverse_roots[i] = ω^{-i}` where ω = ψ^2 (N-th root)
+  - `twist_factors[j] = ψ^j`, `untwist_factors[j] = ψ^{-j}` where ψ = primitive 2N-th root
+- `to_ntt_domain()`: pre-twist (×ψ^j) → forward NTT (circular DFT at ω^k)
+- `to_coeff_domain()`: inverse NTT → post-untwist (×ψ^{-j})
+- Pointwise multiply in NTT domain = negacyclic convolution in Z[X]/(X^N+1) ✓
+- Bug that was fixed: roots were stored as ω^{bit_rev(i)} instead of ω^i, making the butterfly compute a wrong (invertible but non-DFT) transform
 
-## Active task: rebuild `rns_ntt` backend (composition first)
+## Next goal: FHE multiplication
 
-### Decisions agreed
-- Keep trait compatibility with `src/rings/traits.rs` as the primary contract.
-- Implement `PolyRing` and `PolySampler` for coeff-domain `RnsPoly<const DEGREE: usize>`.
-- Keep `RnsNttPoly<const DEGREE: usize>` as an auxiliary NTT-domain type.
-- Expose explicit conversion methods: `RnsPoly::to_ntt()` and `RnsNttPoly::to_coeff()`.
-- Use per-channel storage for clarity and mod-drop ergonomics: `Vec<[u64; DEGREE]>`.
-- Keep modulus and NTT table alignment strict: channel `i` <-> modulus `q_i` <-> table `i`.
+Needed for encode → encrypt → homomorphic multiply → rescale → decrypt → decode.
 
-### Planned module split (finalized)
-- `errors.rs`: backend-specific errors.
-- `basis.rs`: `RnsBasis<DEGREE>` and `NttTable<DEGREE>` in one file; basis owns moduli and NTT tables.
-- `poly.rs`: single `RnsPoly<DEGREE>` type with per-channel storage, domain state (`Coeff`/`Ntt`), arithmetic, modular helpers, and NTT kernels inline.
-- `mod.rs`: exports only.
+### Phase 1 — RNS Rescaling (core missing piece)
 
-### Explicit non-goals for this phase
-- No `poly_ntt.rs`.
-- No `modular.rs`.
-- No separate `ntt.rs`.
-- No split coeff/ntt polynomial types.
+**Math:** After multiplication `logp` doubles. Rescaling divides every coefficient by the last
+RNS prime `q_L` and drops that channel. In RNS this is done without full CRT reconstruction:
 
-### Invariants to enforce
-- `channels.len() == basis.moduli.len() == basis.ntt_tables.len()`.
-- Every coefficient in channel `i` is reduced modulo `q_i`.
-- `DEGREE` is power-of-two for NTT-enabled contexts.
-- Mod-drop removes aligned suffixes from moduli, tables, and channels.
+```
+rescaled[i][j] = (c[i][j] - (c[L][j] mod q_i)) * inv(q_L, q_i)  mod q_i
+```
 
-### Rollout sequence
-- Build basis and polynomial skeletons first.
-- Add coeff <-> NTT conversion and roundtrip tests.
-- Add trait operation smoke tests on `RnsPoly`.
-- Only then start removing old `rns` / `ntt` backends.
+This is exact (no rounding error) because `c[L][j]` is the exact residue mod `q_L`, so
+`c - c_L` is exactly divisible by `q_L`.
 
-### Operator note
-- Record every active-task architecture/API decision in this file as it is made.
+**Changes:**
+- `src/rings/backends/rns_ntt/poly.rs`: add `pub fn rescale(&self) -> Self`
+  - Works in coeff domain (auto-convert from NTT, then restore domain flag)
+  - Computes `q_L_inv[i] = mod_inverse(q_last, q_i)` inline
+  - Returns new poly with L-1 channels via `new_unchecked` + `basis.drop_last(1)`
+- `src/crypto/engine.rs`: add `pub fn rescale_ciphertext(ct: &Ciphertext<P, DEGREE>) -> Ciphertext<P, DEGREE>`
+  - Calls `c0.rescale()` and `c1.rescale()`
+  - `logp -= floor(log2(q_last))`, `logq -= floor(log2(q_last))`
+- Note: skip wiring into the `PolyRescale` trait (its `rescale_assign(scale_factor: f64)`
+  signature doesn't match the RNS drop-channel design); implement directly on `RnsPoly`
+  like `mod_drop_last` is.
+
+### Phase 2 — Relinearization audit
+
+The current `mul_ciphertexts` uses naive relin:
+
+```
+c0_new = d0 + rk.b * d2
+c1_new = d1 + rk.a * d2
+```
+
+Mathematically correct (`b + a·s ≈ s²`), but relin noise = `d2 · e_rk`. Rough estimate for
+N=16, Δ=2^30, three 31-bit primes: relin noise per decoded slot ≈ 1.5e-8 — comparable to
+encryption noise. May be acceptable for the toy setting.
+
+**If tests show relin noise is too large**, implement gadget decomposition:
+- Generate relin key at extended basis (L regular + K special primes), encrypting `P·s²`
+  where `P = prod(special primes)`
+- Relinearization: extend `d2` to special-prime channels, multiply vs relin key, scale down
+  by P, drop special channels
+- This requires refactoring `RelinearizationKey` and `mul_ciphertexts`
+
+**Recommended order:** implement Phase 1 first, run Phase 3 example, measure actual noise,
+then decide if gadget decomp is needed.
+
+### Phase 3 — Example `examples/encrypt_mul.rs` ✅
+
+Full pipeline: encode → encrypt → mul_ciphertexts_gadget → rescale_ciphertext → decrypt → decode
+
+Implemented and passing. Key implementation notes:
+- `RnsGadgetRelinKey<DEGREE>` in `engine.rs`, one (a_i, b_i) pair per channel
+- `rescale_ciphertext` shares one `Arc<RnsBasis>` for c0 and c1 (required for `ptr_eq` checks)
+- Decryption after rescale requires reducing `sk` to the same 3-prime basis
+- `bits_dropped = bit_length(q_last)` (NOT `floor(log2)`); floor gives factor-of-2 error
+- 4 × 31-bit primes, `SCALE_BITS=30`; after rescale `logp=29`, error ≈ 5×10⁻⁶
+
+## Architecture decisions (standing)
+
+- Single `RnsPoly<const DEGREE: usize>` with `in_ntt_domain: bool`
+- Single `Plaintext<P, N>` in `crypto::types`; encoder returns it directly
+- `logq` = Σ floor(log2(qᵢ)) = bit-size of composite modulus Q
+- After rescale: drop last RNS channel, logq -= floor(log2(q_last)), logp unchanged
+- Channel i strictly aligned with modulus qᵢ and NTT table i
