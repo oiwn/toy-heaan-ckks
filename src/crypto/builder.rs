@@ -1,6 +1,6 @@
 use super::{CkksEngine, CkksError};
 use crate::crypto::engine::CkksParams;
-use crate::rings::backends::rns::{RnsBasis, RnsNttPoly};
+use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use std::sync::Arc;
 
 pub struct CkksEngineBuilder<const DEGREE: usize> {
@@ -41,16 +41,16 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
 
     pub fn build_rns(
         self,
-        rns_basis: Arc<RnsBasis>,
+        rns_basis: Arc<RnsBasis<DEGREE>>,
         scale_bits: u32,
-    ) -> Result<CkksEngine<RnsNttPoly<DEGREE>, DEGREE>, CkksError> {
+    ) -> Result<CkksEngine<RnsPoly<DEGREE>, DEGREE>, CkksError> {
         let params = CkksParams {
             error_variance: self.error_variance.unwrap_or(3.2),
             hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
             scale_bits,
         };
 
-        Ok(CkksEngine::<RnsNttPoly<DEGREE>, DEGREE>::new(
+        Ok(CkksEngine::<RnsPoly<DEGREE>, DEGREE>::new(
             rns_basis, params,
         ))
     }

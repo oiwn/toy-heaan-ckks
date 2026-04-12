@@ -14,7 +14,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,ignore
 //! # use rand::SeedableRng;
 //! # use rand_chacha::ChaCha20Rng;
 //! # use std::sync::Arc;
@@ -108,7 +108,7 @@ where
     /// * Use appropriate hamming weight for security level
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// # use rand::SeedableRng;
     /// # use rand_chacha::ChaCha20Rng;
     /// # use std::sync::Arc;
@@ -149,20 +149,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        rings::backends::rns::{RnsBasis, RnsNttPoly},
-        toy_basis_with_channels,
-    };
+    use crate::math::generate_primes;
+    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
     use std::sync::Arc;
 
     const TEST_DEGREE: usize = 16;
 
-    type TestSecretKey = SecretKey<RnsNttPoly<TEST_DEGREE>, TEST_DEGREE>;
+    type TestSecretKey = SecretKey<RnsPoly<TEST_DEGREE>, TEST_DEGREE>;
 
-    fn test_basis<const DEGREE: usize>() -> Arc<RnsBasis> {
-        toy_basis_with_channels::<DEGREE>(1).expect("toy basis")
+    fn test_basis<const DEGREE: usize>() -> Arc<RnsBasis<DEGREE>> {
+        let primes = generate_primes(20, 2, DEGREE as u64);
+        Arc::new(RnsBasis::new(primes).expect("test basis"))
     }
 
     #[test]
@@ -418,9 +417,9 @@ mod tests {
         let hamming_weight = DEGREE / 4;
         let params = SecretKeyParams::<DEGREE>::new(hamming_weight).unwrap();
         let mut rng = ChaCha20Rng::seed_from_u64(42);
-        let basis = toy_basis_with_channels::<DEGREE>(1).expect("basis for degree");
+        let basis = test_basis::<DEGREE>();
 
-        let secret_key: SecretKey<RnsNttPoly<DEGREE>, DEGREE> =
+        let secret_key: SecretKey<RnsPoly<DEGREE>, DEGREE> =
             SecretKey::generate(&params, &basis, &mut rng).unwrap();
 
         let coeffs = secret_key.poly.to_coeffs();

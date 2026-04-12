@@ -102,19 +102,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SecretKeyParams;
-    use crate::rings::backends::rns::{RnsBasis, RnsBasisBuilder, RnsNttPoly};
+    use crate::keys::SecretKeyParams;
+    use crate::math::generate_primes;
+    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
     use std::sync::Arc;
 
-    fn get_test_context<const DEGREE: usize>() -> Arc<RnsBasis> {
-        Arc::new(
-            RnsBasisBuilder::new(DEGREE)
-                .with_custom_primes(vec![97])
-                .build()
-                .expect("test basis"),
-        )
+    fn get_test_context<const DEGREE: usize>() -> Arc<RnsBasis<DEGREE>> {
+        let primes = generate_primes(20, 2, DEGREE as u64);
+        Arc::new(RnsBasis::new(primes).expect("test basis"))
     }
 
     #[test]
@@ -125,7 +122,7 @@ mod tests {
 
         // Generate secret key
         let sk_params = SecretKeyParams::new(DEGREE / 2).unwrap();
-        let secret_key = SecretKey::<RnsNttPoly<DEGREE>, DEGREE>::generate(
+        let secret_key = SecretKey::<RnsPoly<DEGREE>, DEGREE>::generate(
             &sk_params, &context, &mut rng,
         )
         .unwrap();
