@@ -78,7 +78,10 @@ fn main() {
     // ── 6. Encrypt ─────────────────────────────────────────────────────────────
     let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
     let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
-    println!("Both plaintexts encrypted (logp={}, logq={}).\n", ct_a.logp, ct_a.logq);
+    println!(
+        "Both plaintexts encrypted (logp={}, logq={}).\n",
+        ct_a.logp, ct_a.logq
+    );
 
     // ── 7. Homomorphic add ─────────────────────────────────────────────────────
     let ct_sum = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_a, &ct_b);
@@ -93,7 +96,9 @@ fn main() {
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
 
     // ── 10. Verify ─────────────────────────────────────────────────────────────
-    println!("─── Results ──────────────────────────────────────────────────────\n");
+    println!(
+        "─── Results ──────────────────────────────────────────────────────\n"
+    );
     println!(
         "{:<6} {:>10} {:>10} {:>12} {:>10}",
         "slot", "a[i]", "b[i]", "expected", "decoded"

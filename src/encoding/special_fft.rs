@@ -46,6 +46,11 @@ impl<'a> SlotInput<'a> {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
     pub fn get(&self, idx: usize) -> Complex64 {
         match self {
             SlotInput::Real(values) => Complex64::new(values[idx], 0.0),
@@ -134,6 +139,11 @@ impl<const N: usize> VandermondeTables<N> {
     #[inline]
     pub fn len(&self) -> usize {
         self.degree
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.degree == 0
     }
 }
 

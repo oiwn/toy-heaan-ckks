@@ -81,7 +81,10 @@ fn main() {
     // ── 6. Encrypt ─────────────────────────────────────────────────────────────
     let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
     let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
-    println!("Both plaintexts encrypted (logp={}, logq={}).\n", ct_a.logp, ct_a.logq);
+    println!(
+        "Both plaintexts encrypted (logp={}, logq={}).\n",
+        ct_a.logp, ct_a.logq
+    );
 
     // ── 7. Homomorphic multiply ────────────────────────────────────────────────
     // Uses the RNS gadget relinearization key to keep the degree at 1.
@@ -94,9 +97,8 @@ fn main() {
 
     // ── 8. Rescale ─────────────────────────────────────────────────────────────
     // Drops the last RNS prime and divides coefficients by it, halving logp.
-    let ct_rescaled =
-        CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_product)
-            .expect("rescale");
+    let ct_rescaled = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_product)
+        .expect("rescale");
     println!(
         "Rescale done                (logp={}, logq={}).\n",
         ct_rescaled.logp, ct_rescaled.logq
@@ -108,19 +110,23 @@ fn main() {
     let reduced_basis = ct_rescaled.c0.basis().clone();
     let level = reduced_basis.channel_count();
     let sk_channels: Vec<[u64; N]> = sk.poly.channels()[..level].to_vec();
-    let sk_poly_reduced =
-        RnsPoly::from_channels(sk_channels, reduced_basis, false)
-            .expect("reduced sk is correctly reduced");
-    let sk_reduced = SecretKey { poly: sk_poly_reduced };
+    let sk_poly_reduced = RnsPoly::from_channels(sk_channels, reduced_basis, false)
+        .expect("reduced sk is correctly reduced");
+    let sk_reduced = SecretKey {
+        poly: sk_poly_reduced,
+    };
 
-    let pt_product = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rescaled, &sk_reduced);
+    let pt_product =
+        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rescaled, &sk_reduced);
 
     // ── 10. Decode ─────────────────────────────────────────────────────────────
     let decoded = encoder.decode(&pt_product);
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
 
     // ── 11. Verify ─────────────────────────────────────────────────────────────
-    println!("─── Results ──────────────────────────────────────────────────────\n");
+    println!(
+        "─── Results ──────────────────────────────────────────────────────\n"
+    );
     println!(
         "{:<6} {:>8} {:>8} {:>10} {:>12} {:>10}",
         "slot", "a[i]", "b[i]", "expected", "decoded", "|err|"

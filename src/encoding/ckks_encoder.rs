@@ -131,7 +131,10 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
     }
 
     /// Decodes a `Plaintext` back to complex values.
-    pub fn decode_complex(&self, pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>) -> Vec<Complex64> {
+    pub fn decode_complex(
+        &self,
+        pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>,
+    ) -> Vec<Complex64> {
         let delta = 2f64.powi(pt.scale_bits as i32);
 
         // CRT-reconstruct centered integer coefficients.

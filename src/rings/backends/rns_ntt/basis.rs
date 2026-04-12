@@ -48,13 +48,13 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
         // ω^{offset * (N/len)} — exactly the twiddle needed for the DIT NTT
         // to compute the standard circular DFT at evaluation points ω^0,...,ω^{N-1}.
         let mut forward_roots = [1u64; DEGREE];
-        for i in 1..DEGREE {
-            forward_roots[i] = mod_pow(omega, i as u64, modulus);
+        for (i, item) in forward_roots.iter_mut().enumerate().skip(1) {
+            *item = mod_pow(omega, i as u64, modulus);
         }
 
         let mut inverse_roots = [1u64; DEGREE];
-        for i in 1..DEGREE {
-            inverse_roots[i] = mod_pow(omega_inv, i as u64, modulus);
+        for (i, item) in inverse_roots.iter_mut().enumerate().skip(1) {
+            *item = mod_pow(omega_inv, i as u64, modulus);
         }
 
         let n_inv = mod_inverse(DEGREE as u64, modulus);
@@ -62,14 +62,14 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
         // ψ^j for j = 0..N: pre-twist before forward NTT.
         let psi_inv = mod_inverse(psi, modulus);
         let mut twist_factors = [1u64; DEGREE];
-        for j in 1..DEGREE {
-            twist_factors[j] = mod_pow(psi, j as u64, modulus);
+        for (j, item) in twist_factors.iter_mut().enumerate().skip(1) {
+            *item = mod_pow(psi, j as u64, modulus);
         }
 
         // ψ^{-j} for j = 0..N: post-untwist after inverse NTT.
         let mut untwist_factors = [1u64; DEGREE];
-        for j in 1..DEGREE {
-            untwist_factors[j] = mod_pow(psi_inv, j as u64, modulus);
+        for (j, item) in untwist_factors.iter_mut().enumerate().skip(1) {
+            *item = mod_pow(psi_inv, j as u64, modulus);
         }
 
         Ok(Self {
@@ -138,7 +138,10 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
     /// Computed as `Σ floor(log2(q_i))`, which gives the number of bits needed
     /// to represent Q. Used to set `logq` when calling `CkksEngine::encrypt`.
     pub fn total_bits(&self) -> u32 {
-        self.moduli.iter().map(|&q| u64::BITS - q.leading_zeros() - 1).sum()
+        self.moduli
+            .iter()
+            .map(|&q| u64::BITS - q.leading_zeros() - 1)
+            .sum()
     }
 
     /// CRT-reconstructs a single coefficient and centers it in `(-Q/2, Q/2]`.

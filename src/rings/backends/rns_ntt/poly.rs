@@ -184,7 +184,10 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
     /// their bases.
     ///
     /// See [`rescale`] for a convenience wrapper that creates its own `Arc`.
-    pub fn rescale_into(&self, new_basis: Arc<RnsBasis<DEGREE>>) -> RnsNttResult<Self> {
+    pub fn rescale_into(
+        &self,
+        new_basis: Arc<RnsBasis<DEGREE>>,
+    ) -> RnsNttResult<Self> {
         let num_channels = self.basis.channel_count();
         if num_channels < 2 {
             return Err(RnsNttError::InvalidModDrop {
@@ -315,11 +318,9 @@ impl<const DEGREE: usize> MulAssign<&RnsPoly<DEGREE>> for RnsPoly<DEGREE> {
                 forward_ntt(channel, table);
             }
 
-            for ch in 0..self.basis.channel_count() {
+            for (ch, rhs_ch) in rhs_ntt.iter().enumerate() {
                 let q = self.basis.moduli()[ch];
-                for (a, &b) in
-                    self.channels[ch].iter_mut().zip(rhs_ntt[ch].iter())
-                {
+                for (a, &b) in self.channels[ch].iter_mut().zip(rhs_ch.iter()) {
                     *a = mul_mod(*a, b, q);
                 }
             }

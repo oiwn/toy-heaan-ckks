@@ -1,11 +1,11 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
+use crate::rings::backends::rns_ntt::{RnsNttError, RnsPoly};
 use crate::{
     PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
     RelinearizationKey, RelinearizationKeyError, RelinearizationKeyParams,
     SecretKey, SecretKeyError, SecretKeyParams,
 };
-use crate::rings::backends::rns_ntt::{RnsNttError, RnsPoly};
 use rand::Rng;
 use std::sync::Arc;
 
@@ -241,7 +241,7 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         // bit_length(q_last) = floor(log2(q_last)) + 1.
         // Using floor alone would give a factor-of-2 error: for q_last ≈ 2^31 the
         // floor is 30 but actual division by q_last shifts the scale by 31 bits.
-        let bits_dropped = (u64::BITS - q_last.leading_zeros()) as u32;
+        let bits_dropped = u64::BITS - q_last.leading_zeros();
 
         // One shared Arc so that c0 and c1 (and any later-created sk_reduced) satisfy
         // Arc::ptr_eq checks in mul_assign / add_assign.
@@ -283,7 +283,9 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
             plain_channels[i] = s2_ch[i]; // [u64; DEGREE] is Copy
             let plain_s2_i =
                 RnsPoly::from_channels(plain_channels, basis.clone(), false)
-                    .expect("gadget plaintext: channel i is already reduced mod q_i");
+                    .expect(
+                        "gadget plaintext: channel i is already reduced mod q_i",
+                    );
 
             let a_i = RnsPoly::sample_uniform(&basis, rng);
             let e_i = RnsPoly::sample_gaussian(
@@ -352,8 +354,8 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
                 .map(|j| {
                     let qj = moduli[j];
                     let mut ch = [0u64; DEGREE];
-                    for k in 0..DEGREE {
-                        ch[k] = d2.channels()[i][k] % qj;
+                    for (k, slot) in ch.iter_mut().enumerate() {
+                        *slot = d2.channels()[i][k] % qj;
                     }
                     ch
                 })
