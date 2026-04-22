@@ -82,7 +82,11 @@ fn main() {
 
     let engine = CkksEngine::new(
         basis.clone(),
-        CkksParams { error_variance: 3.2, hamming_weight: N / 2, scale_bits: SCALE },
+        CkksParams {
+            error_variance: 3.2,
+            hamming_weight: N / 2,
+            scale_bits: SCALE,
+        },
     );
     let encoder = CkksEncoder::<N>::new(SCALE);
     let mut rng = ChaCha20Rng::seed_from_u64(42);
@@ -107,7 +111,10 @@ fn main() {
     // Step A: rotate by ROT1
     println!("Step A: rotate ciphertext by {ROT1:+} slot(s) …");
     let ct_rot1 = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct, &rotk1);
-    println!("  logp={}, logq={} (unchanged — rotation is level-free)\n", ct_rot1.logp, ct_rot1.logq);
+    println!(
+        "  logp={}, logq={} (unchanged — rotation is level-free)\n",
+        ct_rot1.logp, ct_rot1.logq
+    );
 
     // Step B: add original and rotated ciphertexts
     println!("Step B: add original + rotated …");
@@ -116,7 +123,8 @@ fn main() {
 
     // Step C: rotate sum by ROT2
     println!("Step C: rotate sum by {ROT2:+} slot(s) …");
-    let ct_result = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct_added, &rotk2);
+    let ct_result =
+        CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct_added, &rotk2);
     println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq);
 
     // ── 5. Decrypt + decode ───────────────────────────────────────────────────
@@ -126,7 +134,8 @@ fn main() {
 
     // ── 6. Plaintext reference ────────────────────────────────────────────────
     let ref_rot1 = rotate_vec(&input, ROT1);
-    let ref_added: Vec<f64> = input.iter().zip(&ref_rot1).map(|(a, b)| a + b).collect();
+    let ref_added: Vec<f64> =
+        input.iter().zip(&ref_rot1).map(|(a, b)| a + b).collect();
     let expected = rotate_vec(&ref_added, ROT2);
 
     // ── 7. Results table ──────────────────────────────────────────────────────

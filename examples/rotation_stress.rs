@@ -23,7 +23,9 @@ const SCALE: u32 = 58;
 
 fn main() {
     println!("╔═══════════════════════════════════════════════════════╗");
-    println!("║  CKKS rotation stress test  (N={N}, {SLOTS} slots, Δ=2^{SCALE})  ║");
+    println!(
+        "║  CKKS rotation stress test  (N={N}, {SLOTS} slots, Δ=2^{SCALE})  ║"
+    );
     println!("╚═══════════════════════════════════════════════════════╝\n");
 
     // ── Setup ─────────────────────────────────────────────────────────────────
@@ -33,7 +35,11 @@ fn main() {
 
     let engine = CkksEngine::new(
         basis.clone(),
-        CkksParams { error_variance: 3.2, hamming_weight: N / 2, scale_bits: SCALE },
+        CkksParams {
+            error_variance: 3.2,
+            hamming_weight: N / 2,
+            scale_bits: SCALE,
+        },
     );
     let encoder = CkksEncoder::<N>::new(SCALE);
     let mut rng = ChaCha20Rng::seed_from_u64(42);
@@ -56,13 +62,18 @@ fn main() {
     let checkpoints = [1usize, 5, 10, 50, 100, 200, 400, 800];
     let mut prev = 0usize;
 
-    let mut t = table::new(["k (rots)", "max_err", "slot[0] got", "slot[0] want", "ok"]);
+    let mut t =
+        table::new(["k (rots)", "max_err", "slot[0] got", "slot[0] want", "ok"]);
 
     for &checkpoint in &checkpoints {
         let steps = checkpoint - prev;
         for _ in 0..steps {
             ct = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct, &rotk);
-            expected = expected[1..].iter().chain(expected[..1].iter()).copied().collect();
+            expected = expected[1..]
+                .iter()
+                .chain(expected[..1].iter())
+                .copied()
+                .collect();
         }
         prev = checkpoint;
 

@@ -366,9 +366,12 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
             let s_k_channels = s_k.channels();
             let mut plain_channels: Vec<[u64; DEGREE]> = vec![[0u64; DEGREE]; l];
             plain_channels[i] = s_k_channels[i];
-            let plain_s_k_i =
-                RnsPoly::from_channels(plain_channels, basis.clone(), false)
-                    .expect("rotation key plaintext: channel i is already reduced mod q_i");
+            let plain_s_k_i = RnsPoly::from_channels(
+                plain_channels,
+                basis.clone(),
+                false,
+            )
+            .expect("rotation key plaintext: channel i is already reduced mod q_i");
 
             let a_i = RnsPoly::sample_uniform(&basis, rng);
             let e_i = RnsPoly::sample_gaussian(
@@ -388,7 +391,11 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
             b_vec.push(b_i);
         }
 
-        RnsGadgetRotationKey { a: a_vec, b: b_vec, rotation }
+        RnsGadgetRotationKey {
+            a: a_vec,
+            b: b_vec,
+            rotation,
+        }
     }
 
     /// Rotate ciphertext slots by `rotk.rotation` positions using gadget key switching.

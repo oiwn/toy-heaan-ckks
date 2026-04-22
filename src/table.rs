@@ -11,7 +11,7 @@
 //! println!("{t}");
 //! ```
 
-use comfy_table::{presets, Table};
+use comfy_table::{Table, presets};
 
 /// Create a dense table with the given column headers.
 ///

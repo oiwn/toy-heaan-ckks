@@ -65,7 +65,10 @@ fn reduce_sk(
 }
 
 /// Build a `CkksEngine` at `basis` with standard noise parameters.
-fn make_engine(basis: Arc<RnsBasis<N>>, scale_bits: u32) -> CkksEngine<RnsPoly<N>, N> {
+fn make_engine(
+    basis: Arc<RnsBasis<N>>,
+    scale_bits: u32,
+) -> CkksEngine<RnsPoly<N>, N> {
     CkksEngine::new(
         basis,
         CkksParams {
@@ -82,7 +85,8 @@ fn mul_and_rescale(
     ct_b: &toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N>,
     rlk: &toy_heaan_ckks::crypto::engine::RnsGadgetRelinKey<N>,
 ) -> toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N> {
-    let ct_prod = CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(ct_a, ct_b, rlk);
+    let ct_prod =
+        CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(ct_a, ct_b, rlk);
     CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod).expect("rescale")
 }
 
@@ -190,7 +194,9 @@ fn two_chained_multiplications() {
     let basis_l2 = ct_ab.c0.basis().clone();
     let sk_l2 = reduce_sk(&sk, basis_l2.clone());
     let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
-    let pk_l2 = engine_l2.generate_public_key(&sk_l2, &mut rng).expect("keygen l2");
+    let pk_l2 = engine_l2
+        .generate_public_key(&sk_l2, &mut rng)
+        .expect("keygen l2");
     let rlk_l2 = engine_l2.generate_gadget_relin_key(&sk_l2, &mut rng);
 
     // ── Second multiplication: (a×b) × c ─────────────────────────────────────
@@ -260,10 +266,7 @@ fn add_then_multiply() {
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
 
     let err = max_abs_err(&expected, &result);
-    assert!(
-        err < 1e-8,
-        "(a+b)×c: max error {err:.2e} exceeds 1e-8"
-    );
+    assert!(err < 1e-8, "(a+b)×c: max error {err:.2e} exceeds 1e-8");
 }
 
 // ── Test 4: multiplication followed by addition ───────────────────────────────
@@ -311,7 +314,9 @@ fn multiply_then_add() {
     let basis_l2 = ct_ab.c0.basis().clone();
     let sk_l2 = reduce_sk(&sk, basis_l2.clone());
     let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
-    let pk_l2 = engine_l2.generate_public_key(&sk_l2, &mut rng).expect("keygen l2");
+    let pk_l2 = engine_l2
+        .generate_public_key(&sk_l2, &mut rng)
+        .expect("keygen l2");
 
     let pt_c = encoder.encode(&c, basis_l2.clone());
     let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, ct_ab.logq, &mut rng);
@@ -325,10 +330,7 @@ fn multiply_then_add() {
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
 
     let err = max_abs_err(&expected, &result);
-    assert!(
-        err < 1e-4,
-        "(a×b)+c: max error {err:.2e} exceeds 1e-4"
-    );
+    assert!(err < 1e-4, "(a×b)+c: max error {err:.2e} exceeds 1e-4");
 }
 
 // ── Test 5: full-slot single multiplication ───────────────────────────────────
@@ -353,8 +355,12 @@ fn full_slots_single_multiplication() {
     // All 512 slots filled with values in (-0.9, 0.9), fixed seed for reproducibility.
     let slots = N / 2;
     let mut val_rng = ChaCha20Rng::seed_from_u64(99);
-    let a: Vec<f64> = (0..slots).map(|_| val_rng.random::<f64>() * 1.8 - 0.9).collect();
-    let b: Vec<f64> = (0..slots).map(|_| val_rng.random::<f64>() * 1.8 - 0.9).collect();
+    let a: Vec<f64> = (0..slots)
+        .map(|_| val_rng.random::<f64>() * 1.8 - 0.9)
+        .collect();
+    let b: Vec<f64> = (0..slots)
+        .map(|_| val_rng.random::<f64>() * 1.8 - 0.9)
+        .collect();
     let expected: Vec<f64> = a.iter().zip(&b).map(|(x, y)| x * y).collect();
 
     let pt_a = encoder.encode(&a, basis.clone());

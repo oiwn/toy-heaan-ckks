@@ -140,7 +140,8 @@ mod tests {
         .unwrap();
 
         let params = RotationKeyParams::new(3.2).unwrap();
-        let rk = RotationKey::generate(&sk, 1, &params, &context, &mut rng).unwrap();
+        let rk =
+            RotationKey::generate(&sk, 1, &params, &context, &mut rng).unwrap();
 
         // Compute b + a·s
         let mut a_times_s = rk.a.clone();

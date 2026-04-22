@@ -127,16 +127,24 @@ fn encrypt_scalar(
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║  CKKS Horner chain — {ITERS} × (mul + add) over {slots} slots  ║",
-             slots = N / 2);
+    println!(
+        "║  CKKS Horner chain — {ITERS} × (mul + add) over {slots} slots  ║",
+        slots = N / 2
+    );
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     // ── parameters ───────────────────────────────────────────────────────────
     println!("Ring degree N     : {N}");
     println!("Slots (N/2)       : {}", N / 2);
     println!("Scale bits        : {SCALE}  →  Δ = 2^{SCALE}");
-    println!("RNS primes        : {NUM_PRIMES} × {SCALE}-bit (Q ≈ 2^{})", NUM_PRIMES * SCALE as usize);
-    println!("Operations        : {ITERS} × (mul·α + add·β)  =  {} total", 2 * ITERS);
+    println!(
+        "RNS primes        : {NUM_PRIMES} × {SCALE}-bit (Q ≈ 2^{})",
+        NUM_PRIMES * SCALE as usize
+    );
+    println!(
+        "Operations        : {ITERS} × (mul·α + add·β)  =  {} total",
+        2 * ITERS
+    );
     println!("α (scale factor)  : {ALPHA}");
     println!("β (additive bias) : {BETA}");
     println!();
@@ -158,8 +166,11 @@ fn main() {
     let mut rng = ChaCha20Rng::seed_from_u64(42);
 
     let sk_top = engine_top.generate_secret_key(&mut rng).expect("sk");
-    let pk_top = engine_top.generate_public_key(&sk_top, &mut rng).expect("pk");
-    let rlk_top: RnsGadgetRelinKey<N> = engine_top.generate_gadget_relin_key(&sk_top, &mut rng);
+    let pk_top = engine_top
+        .generate_public_key(&sk_top, &mut rng)
+        .expect("pk");
+    let rlk_top: RnsGadgetRelinKey<N> =
+        engine_top.generate_gadget_relin_key(&sk_top, &mut rng);
     println!("  Done.\n");
 
     // ── 3. Encrypt the initial input ─────────────────────────────────────────
@@ -169,8 +180,12 @@ fn main() {
     println!("Encrypting input x₀ ({slots} slots, values in (0, 1]) …");
     let pt_x0 = encoder.encode(&x0, basis_top.clone());
     let mut ct_x = engine_top.encrypt(&pt_x0, &pk_top, logq_top, &mut rng);
-    println!("  ct_x: logp={}, logq={}, primes={}\n",
-             ct_x.logp, ct_x.logq, ct_x.c0.basis().channel_count());
+    println!(
+        "  ct_x: logp={}, logq={}, primes={}\n",
+        ct_x.logp,
+        ct_x.logq,
+        ct_x.c0.basis().channel_count()
+    );
 
     // Plain-text reference: follow the same chain without encryption.
     let mut x_ref: Vec<f64> = x0.clone();
@@ -183,38 +198,61 @@ fn main() {
 
     // ── 4. Horner iterations ─────────────────────────────────────────────────
     for iter in 1..=ITERS {
-        println!("── Iteration {iter}/{ITERS} ──────────────────────────────────────────");
+        println!(
+            "── Iteration {iter}/{ITERS} ──────────────────────────────────────────"
+        );
         let level_before = ct_x.c0.basis().channel_count();
-        println!("  Level before mul : {level_before} primes, logq={}", ct_x.logq);
+        println!(
+            "  Level before mul : {level_before} primes, logq={}",
+            ct_x.logq
+        );
 
         // ── 4a. Multiply: ct_x ← ct_x · α ───────────────────────────────────
         let ct_alpha = encrypt_scalar(
-            ALPHA, ct_x.c0.basis().clone(), ct_x.logq,
-            &encoder, &engine_cur, &pk_cur, &mut rng,
+            ALPHA,
+            ct_x.c0.basis().clone(),
+            ct_x.logq,
+            &encoder,
+            &engine_cur,
+            &pk_cur,
+            &mut rng,
         );
-        let ct_prod =
-            CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(&ct_x, &ct_alpha, &rlk_cur);
+        let ct_prod = CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(
+            &ct_x, &ct_alpha, &rlk_cur,
+        );
 
         // ── 4b. Rescale ───────────────────────────────────────────────────────
-        ct_x = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod).expect("rescale");
+        ct_x = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod)
+            .expect("rescale");
         let level_after = ct_x.c0.basis().channel_count();
-        println!("  After mul+rescale: {level_after} primes, logp={}, logq={}",
-                 ct_x.logp, ct_x.logq);
+        println!(
+            "  After mul+rescale: {level_after} primes, logp={}, logq={}",
+            ct_x.logp, ct_x.logq
+        );
 
         // ── 4c. Derive keys at the new (lower) level ──────────────────────────
         let basis_cur = ct_x.c0.basis().clone();
         sk_cur = reduce_sk(&sk_top, basis_cur.clone());
         engine_cur = make_engine(basis_cur.clone());
-        pk_cur = engine_cur.generate_public_key(&sk_cur, &mut rng).expect("pk");
+        pk_cur = engine_cur
+            .generate_public_key(&sk_cur, &mut rng)
+            .expect("pk");
 
         // ── 4d. Add: ct_x ← ct_x + β ─────────────────────────────────────────
         let ct_beta = encrypt_scalar(
-            BETA, basis_cur.clone(), ct_x.logq,
-            &encoder, &engine_cur, &pk_cur, &mut rng,
+            BETA,
+            basis_cur.clone(),
+            ct_x.logq,
+            &encoder,
+            &engine_cur,
+            &pk_cur,
+            &mut rng,
         );
         ct_x = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_x, &ct_beta);
-        println!("  After add β      : {level_after} primes, logp={}, logq={}",
-                 ct_x.logp, ct_x.logq);
+        println!(
+            "  After add β      : {level_after} primes, logp={}, logq={}",
+            ct_x.logp, ct_x.logq
+        );
 
         // Plaintext reference step.
         for v in x_ref.iter_mut() {
@@ -230,8 +268,10 @@ fn main() {
 
     // ── 5. Decrypt ───────────────────────────────────────────────────────────
     let final_primes = ct_x.c0.basis().channel_count();
-    println!("Decrypting ({final_primes} primes remaining, Q ≈ 2^{}) …",
-             final_primes as u32 * SCALE);
+    println!(
+        "Decrypting ({final_primes} primes remaining, Q ≈ 2^{}) …",
+        final_primes as u32 * SCALE
+    );
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_x, &sk_cur);
 
     // ── 6. Decode ────────────────────────────────────────────────────────────
@@ -279,9 +319,16 @@ fn main() {
     // Fixed-point sanity: with α=0.8, β=0.1, the map f(x)=0.8x+0.1 converges
     // to 0.5.  After 5 iterations, slots starting near 1.0 should be ≈ 0.434.
     let last_slot = decoded[slots - 1];
-    println!("\nSlot {}: x₀={:.4} → x₅={last_slot:.6} (expected {:.6})",
-             slots - 1, x0[slots - 1], x_ref[slots - 1]);
-    println!("Fixed point of f(x)=αx+β: β/(1-α) = {:.6}", BETA / (1.0 - ALPHA));
+    println!(
+        "\nSlot {}: x₀={:.4} → x₅={last_slot:.6} (expected {:.6})",
+        slots - 1,
+        x0[slots - 1],
+        x_ref[slots - 1]
+    );
+    println!(
+        "Fixed point of f(x)=αx+β: β/(1-α) = {:.6}",
+        BETA / (1.0 - ALPHA)
+    );
 
     println!("\nDone.");
 }

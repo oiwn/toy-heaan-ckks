@@ -129,8 +129,8 @@ fn main() {
         "\n─── Precision vs. scale_bits (encoding π) ──────────────────────\n"
     );
     println!(
-        "{:<12} {:<18} {:<18} {}",
-        "scale_bits", "Δ", "decoded π", "|error|"
+        "{:<12} {:<18} {:<18} |error|",
+        "scale_bits", "Δ", "decoded π"
     );
 
     let pi_slice = [std::f64::consts::PI];
