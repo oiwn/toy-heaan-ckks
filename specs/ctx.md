@@ -1,101 +1,102 @@
 # Current task context
 
-## Session status (2026-04-12) — all passing (101 tests)
+  Temperature sensor, 16 readings per minute (one per ~4 seconds). Each package is one ciphertext with 16 slots. We compute std-dev of that minute's readings, fully encrypted.
 
-### What's working
-- Encode/decode: `examples/encode_decode.rs` ✓
-- Encrypt/add/decrypt: `examples/encrypt_add.rs` ✓ (errors ~1e-7 at scale 2^30)
-- Encrypt/mul/rescale/decrypt: `examples/encrypt_mul.rs` ✓ (errors ~5e-6 at scale 2^30)
-- `RnsBasis<N>` + `RnsPoly<N>`: NTT forward/inverse, CRT, `PolyRing` + `PolySampler`
-- `mul_assign`: NTT-based negacyclic convolution (pre/post-twist by ψ^j around circular NTT)
-- `mul_assign_naive`: schoolbook O(N²), kept as reference
-- Keys: `SecretKey`, `PublicKey`, `RelinearizationKey`
-- `CkksEngine`: encrypt, decrypt, add_ciphertexts, mul_ciphertexts (schoolbook path)
-- Single unified `Plaintext<P,N>` in `crypto::types`; encoder uses it directly
+  Input normalization (decided): values pre-scaled to [0, 1] before encrypting.
+  This keeps variance ∈ [0, 0.25] and makes the sqrt approximation tractable.
 
-### What's NOT working / missing
-- `PolyRescale` not implemented for `RnsPoly` — needed after multiplication
-- `PolyModSwitch` not implemented for `RnsPoly` — needed for noise management
-- `logq` in `Ciphertext` is a tag only; not yet tied to active RNS channels
-- `mul_ciphertexts` in engine uses naive relin (broken for non-trivial params); use `mul_ciphertexts_gadget` + `RnsGadgetRelinKey` instead
-- `PolyRescale` trait not wired to RNS (mismatched signature); `rescale`/`rescale_into` are direct methods on `RnsPoly`
+  package = [t0, t1, ..., t15]   (normalized, range [0, 1])
 
-## NTT implementation notes
+  Vector semantics: all CKKS operations on ct are element-wise (Hadamard).
+  ct is a 16-slot vector; mean_ct replicates the same scalar in every slot.
+  (ct - mean_ct)² = [(t0-μ)², (t1-μ)², ..., (t15-μ)²] — exactly the per-sample squared deviations.
 
-- `NttTable` stores:
-  - `forward_roots[i] = ω^i`, `inverse_roots[i] = ω^{-i}` where ω = ψ^2 (N-th root)
-  - `twist_factors[j] = ψ^j`, `untwist_factors[j] = ψ^{-j}` where ψ = primitive 2N-th root
-- `to_ntt_domain()`: pre-twist (×ψ^j) → forward NTT (circular DFT at ω^k)
-- `to_coeff_domain()`: inverse NTT → post-untwist (×ψ^{-j})
-- Pointwise multiply in NTT domain = negacyclic convolution in Z[X]/(X^N+1) ✓
-- Bug that was fixed: roots were stored as ω^{bit_rev(i)} instead of ω^i, making the butterfly compute a wrong (invertible but non-DFT) transform
+  Pipeline
 
-## Next goal: FHE multiplication
+  ct ─── sum_slots ──→ sum_ct  (same value in every slot)
+  │                       │
+  │       mean_ct = sum / 16   [mul_plain(1/16) + rescale]
+  │                       │
+  │      ct - mean_ct ←──┘
+  │           │
+  │        sq_diff = (ct - mean)²  [mul_self + rescale]
+  │           │
+  │        sum_slots(sq_diff)
+  │           │
+  │        variance = sum / 16     [mul_plain(1/16) + rescale]
+  │           │
+  │        std_dev = poly_sqrt(variance)  [2 muls + rescales]
+  └──────────────────────────────────────────────────────→ result
 
-Needed for encode → encrypt → homomorphic multiply → rescale → decrypt → decode.
+  Multiplicative depth
 
-### Phase 1 — RNS Rescaling (core missing piece)
+  ┌───────────────────────────┬─────────────────────┬─────────────────┐
+  │           step            │         op          │ levels consumed │
+  ├───────────────────────────┼─────────────────────┼─────────────────┤
+  │ mean = sum / 16           │ mul_plain + rescale │ 1               │
+  ├───────────────────────────┼─────────────────────┼─────────────────┤
+  │ squaring (ct - mean)²     │ mul + rescale       │ 1               │
+  ├───────────────────────────┼─────────────────────┼─────────────────┤
+  │ variance = sum / 16       │ mul_plain + rescale │ 1               │
+  ├───────────────────────────┼─────────────────────┼─────────────────┤
+  │ poly_sqrt degree-3 Horner │ 2× mul + rescale    │ 2               │
+  ├───────────────────────────┼─────────────────────┼─────────────────┤
+  │ rotations in sum_slots    │ level-free          │ 0               │
+  └───────────────────────────┴─────────────────────┴─────────────────┘
 
-**Math:** After multiplication `logp` doubles. Rescaling divides every coefficient by the last
-RNS prime `q_L` and drops that channel. In RNS this is done without full CRT reconstruction:
+  Total: 5 prime levels. With 7 primes (5 + 2 headroom) at SCALE=30 / 30-bit primes.
 
-```
-rescaled[i][j] = (c[i][j] - (c[L][j] mod q_i)) * inv(q_L, q_i)  mod q_i
-```
+  What needs to be built
 
-This is exact (no rounding error) because `c[L][j]` is the exact residue mod `q_L`, so
-`c - c_L` is exactly divisible by `q_L`.
+  1. neg_ciphertext(ct) and sub_ciphertexts(ct1, ct2)
+  Trivial — negate both components, then add. No key needed, no level cost.
 
-**Changes:**
-- `src/rings/backends/rns_ntt/poly.rs`: add `pub fn rescale(&self) -> Self`
-  - Works in coeff domain (auto-convert from NTT, then restore domain flag)
-  - Computes `q_L_inv[i] = mod_inverse(q_last, q_i)` inline
-  - Returns new poly with L-1 channels via `new_unchecked` + `basis.drop_last(1)`
-- `src/crypto/engine.rs`: add `pub fn rescale_ciphertext(ct: &Ciphertext<P, DEGREE>) -> Ciphertext<P, DEGREE>`
-  - Calls `c0.rescale()` and `c1.rescale()`
-  - `logp -= floor(log2(q_last))`, `logq -= floor(log2(q_last))`
-- Note: skip wiring into the `PolyRescale` trait (its `rescale_assign(scale_factor: f64)`
-  signature doesn't match the RNS drop-channel design); implement directly on `RnsPoly`
-  like `mod_drop_last` is.
+  2. mul_plain_scalar(ct, scalar: f64)  [consumes 1 level]
+  In CKKS all arithmetic lives in the scaled integer domain (coefficients ≈ Δ × message).
+  A scalar α cannot be applied as a bare float multiply. The correct steps are:
+    a. Encode α as a constant plaintext polynomial: all coefficients = round(α × Δ)
+       (same encoding step as CkksEncoder, but for a uniform scalar)
+    b. Multiply each ciphertext component by that polynomial (NTT-domain, component-wise)
+       Result scale is Δ² × m × α  →  logp doubles
+    c. Rescale: drop one RNS prime, divide by it  →  logp returns to Δ
+  No relinearization needed (result stays degree-1).
+  Reference: fhetextbook.github.io/CiphertexttoPlaintextMultiplication1.html
 
-### Phase 2 — Relinearization audit
+  3. sum_slots(ct, rotk_map: &HashMap<i32, RnsGadgetRotationKey>)  [level-free]
+  Binary tree: log₂(16) = 4 steps.
+  Needs rotation keys for offsets 1, 2, 4, 8.
+  step 1: ct += rotate(ct, 1)   → slots [0+1, 1+2, ..., 15+0]
+  step 2: ct += rotate(ct, 2)
+  step 3: ct += rotate(ct, 4)
+  step 4: ct += rotate(ct, 8)
+  → every slot now contains the sum of all 16.
+  Key management: HashMap<i32, RnsGadgetRotationKey> keyed by the offset value.
 
-The current `mul_ciphertexts` uses naive relin:
+  4. eval_poly_horner(ct, coeffs: &[f64], rlk)  [depth = coeffs.len() - 1 levels]
+  Generic Horner evaluator: a0 + ct*(a1 + ct*(a2 + ct*a3))
+  Each inner step is: mul_ciphertexts_gadget + rescale + mul_plain_scalar (for the coefficient).
+  Lives on CkksEngine; coefficients passed from the example.
 
-```
-c0_new = d0 + rk.b * d2
-c1_new = d1 + rk.a * d2
-```
+  5. Polynomial sqrt approximation  [2 levels, uses eval_poly_horner]
+  Approach: direct degree-3 Chebyshev fit to sqrt(x) on [0, 0.25].
+  - Fits the level budget (2 muls)
+  - Accurate for variance bounded away from 0 (realistic sensor data)
+  - Singularity of sqrt'(x) at x=0 causes error for near-zero variance; acceptable for demo
 
-Mathematically correct (`b + a·s ≈ s²`), but relin noise = `d2 · e_rk`. Rough estimate for
-N=16, Δ=2^30, three 31-bit primes: relin noise per decoded slot ≈ 1.5e-8 — comparable to
-encryption noise. May be acceptable for the toy setting.
+  The standard production approach (Panda 2022, eprint.iacr.org/2022/423) uses
+  Newton-Raphson for 1/sqrt(x):
+      y_{i+1} = 0.5 · y_i · (3 - x · y_i²)   (depth 2 per step)
+      sqrt(x) = x · y_final                    (1 more level)
+  This is more general and robust but costs 3–4+ levels total.
+  For this toy demo, direct Chebyshev on [0, 0.25] is the pragmatic choice.
 
-**If tests show relin noise is too large**, implement gadget decomposition:
-- Generate relin key at extended basis (L regular + K special primes), encrypting `P·s²`
-  where `P = prod(special primes)`
-- Relinearization: extend `d2` to special-prime channels, multiply vs relin key, scale down
-  by P, drop special channels
-- This requires refactoring `RelinearizationKey` and `mul_ciphertexts`
+  Chebyshev coefficients for sqrt on [0, 0.25] (to be fitted offline):
+  p(x) ≈ a0 + a1·x + a2·x² + a3·x³   (fit with numpy/scipy before coding)
 
-**Recommended order:** implement Phase 1 first, run Phase 3 example, measure actual noise,
-then decide if gadget decomp is needed.
-
-### Phase 3 — Example `examples/encrypt_mul.rs` ✅
-
-Full pipeline: encode → encrypt → mul_ciphertexts_gadget → rescale_ciphertext → decrypt → decode
-
-Implemented and passing. Key implementation notes:
-- `RnsGadgetRelinKey<DEGREE>` in `engine.rs`, one (a_i, b_i) pair per channel
-- `rescale_ciphertext` shares one `Arc<RnsBasis>` for c0 and c1 (required for `ptr_eq` checks)
-- Decryption after rescale requires reducing `sk` to the same 3-prime basis
-- `bits_dropped = bit_length(q_last)` (NOT `floor(log2)`); floor gives factor-of-2 error
-- 4 × 31-bit primes, `SCALE_BITS=30`; after rescale `logp=29`, error ≈ 5×10⁻⁶
-
-## Architecture decisions (standing)
-
-- Single `RnsPoly<const DEGREE: usize>` with `in_ntt_domain: bool`
-- Single `Plaintext<P, N>` in `crypto::types`; encoder returns it directly
-- `logq` = Σ floor(log2(qᵢ)) = bit-size of composite modulus Q
-- After rescale: drop last RNS channel, logq -= floor(log2(q_last)), logp unchanged
-- Channel i strictly aligned with modulus qᵢ and NTT table i
+  6. The demo  (examples/std_dev.rs)
+  - N=32, SLOTS=16, SCALE=30, 7 × 30-bit NTT-friendly primes
+  - Synthesize 16 sensor readings: sine wave + noise, normalized to [0, 1]
+  - Encrypt as one ciphertext
+  - Run the full pipeline homomorphically (mean → sq_diff → variance → sqrt)
+  - Decrypt, compare to plaintext std-dev
+  - Report per-slot errors and final std-dev error

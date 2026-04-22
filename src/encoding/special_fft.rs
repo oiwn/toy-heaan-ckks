@@ -285,7 +285,7 @@ mod tests {
     #[should_panic(expected = "input exceeds slot capacity")]
     fn conjugate_slots_rejects_overflow() {
         const N: usize = 8;
-        let input = vec![Complex64::new(0.0, 0.0); N];
+        let input = [Complex64::new(0.0, 0.0); N];
         // Needs N/2 + 1 entries to trigger the panic.
         let _ = build_slots_from_complex::<N>(&input[..(N / 2 + 1)]);
     }

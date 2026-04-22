@@ -118,6 +118,7 @@ pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
     /// - `variance`: Variance `σ^2` of the
     ///   noise distribution `std_dev = sqrt(variance)`
     // TODO: need to figure out if we actually need it....
+    // since we're using gaussian distribution for the noise
     fn sample_noise<R: Rng>(
         variance: f64,
         context: &Self::Context,
@@ -160,4 +161,51 @@ pub trait PolyModSwitch<const DEGREE: usize>: PolyRing<DEGREE> {
     /// # Returns
     /// New polynomial at the target modulus
     fn mod_switch(&self, new_context: &Self::Context) -> Self;
+}
+
+/// Trait for automorphism operations on polynomial rings.
+///
+/// Automorphisms are ring homomorphisms that map `X → X^k` for some integer `k`.
+/// In CKKS, the most important automorphisms are rotations of the plaintext slots,
+/// which correspond to `X → X^{5^r}` where 5 is a primitive root modulo `2N`.
+///
+/// # Mathematical Background
+/// For a polynomial ring `R = Z[X]/(X^N + 1)`:
+/// - The map `σ_k: X → X^k` is a ring automorphism when `k` is coprime to `2N`
+/// - In CKKS, slots correspond to evaluations at `ζ, ζ^5, ζ^{5^2}, ...` where `ζ` is a primitive `2N`-th root of unity
+/// - Rotation by `r` slots: `σ_{5^r}: X → X^{5^r}`
+/// - Conjugate (complex conjugation): `σ_{-1}: X → X^{-1} = X^{2N-1}`
+///
+/// # Implementation Requirements
+/// - Automorphisms must preserve the NTT domain flag (if applicable)
+/// - For real slots, conjugate symmetry must be maintained
+/// - Sign changes from `X^N = -1` reduction must be handled correctly
+pub trait PolyAutomorphism<const DEGREE: usize>: PolyRing<DEGREE> {
+    /// Apply the automorphism `X → X^exponent` to the polynomial.
+    ///
+    /// # Parameters
+    /// - `exponent`: The exponent `k` in the map `X → X^k`
+    ///
+    /// # Returns
+    /// New polynomial with coefficients permuted and signs adjusted
+    ///
+    /// # Implementation Notes
+    /// 1. For coefficient representation: coefficient `a_i` moves to position `(i * exponent) mod (2*DEGREE)`
+    /// 2. If `(i * exponent) mod (2*DEGREE) ≥ DEGREE`, apply sign change `-a_i`
+    /// 3. For NTT domain: automorphism can be applied directly in NTT domain
+    fn automorphism(&self, exponent: u64) -> Self;
+
+    /// Rotate plaintext slots by `k` positions.
+    ///
+    /// Implements CKKS slot rotation using the primitive root 5:
+    /// - Rotation by `k` slots: `X → X^{5^k mod 2*DEGREE}`
+    /// - Positive `k`: rotate left (toward higher indices)
+    /// - Negative `k`: rotate right (toward lower indices)
+    ///
+    /// # Parameters
+    /// - `k`: Number of slots to rotate (positive = left, negative = right)
+    ///
+    /// # Returns
+    /// Rotated polynomial
+    fn rotate_slots(&self, k: i32) -> Self;
 }

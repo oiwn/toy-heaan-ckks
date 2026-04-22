@@ -1,6 +1,7 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::rings::backends::rns_ntt::{RnsNttError, RnsPoly};
+use crate::rings::traits::PolyAutomorphism;
 use crate::{
     PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
     RelinearizationKey, RelinearizationKeyError, RelinearizationKeyParams,
@@ -226,6 +227,31 @@ pub struct RnsGadgetRelinKey<const DEGREE: usize> {
     pub b: Vec<RnsPoly<DEGREE>>,
 }
 
+/// Rotation key using RNS gadget decomposition.
+///
+/// Structurally identical to `RnsGadgetRelinKey` but encodes `s_k = s(X^{5^k})`
+/// (the rotated secret key) instead of `s²`. Each pair satisfies:
+///
+/// ```text
+/// b_i + a_i · s ≈ e_i · s_k   (mod Q)
+/// ```
+///
+/// After applying the automorphism σ_k to a ciphertext `(c0, c1)`, the result
+/// is encrypted under `s_k` rather than `s`. Gadget key-switching converts it
+/// back to encryption under `s`:
+///
+/// ```text
+/// c0' = σ_k(c0) + Σ_i α_i(σ_k(c1)) · b_i
+/// c1' =           Σ_i α_i(σ_k(c1)) · a_i
+/// ```
+#[derive(Clone, Debug)]
+pub struct RnsGadgetRotationKey<const DEGREE: usize> {
+    pub a: Vec<RnsPoly<DEGREE>>,
+    pub b: Vec<RnsPoly<DEGREE>>,
+    /// The slot rotation offset this key was generated for.
+    pub rotation: i32,
+}
+
 impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
     /// Drops the last RNS prime and divides coefficients by it, reducing `logp` and `logq`.
     ///
@@ -306,6 +332,134 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         }
 
         RnsGadgetRelinKey { a: a_vec, b: b_vec }
+    }
+
+    /// Generates a gadget rotation key for the given slot offset.
+    ///
+    /// Computes `s_k = s(X^{5^k mod 2N})` via the ring automorphism, then
+    /// encodes it in the same RNS gadget structure used by the relinearization
+    /// key. One `(a_i, b_i)` pair is produced per RNS channel, where:
+    ///
+    /// ```text
+    /// b_i + a_i · s ≈ e_i · s_k
+    /// ```
+    ///
+    /// Negative `rotation` rotates slots right (toward lower indices).
+    pub fn generate_gadget_rotation_key<R: Rng>(
+        &self,
+        sk: &SecretKey<RnsPoly<DEGREE>, DEGREE>,
+        rotation: i32,
+        rng: &mut R,
+    ) -> RnsGadgetRotationKey<DEGREE> {
+        let basis = sk.poly.basis().clone();
+        let l = basis.channel_count();
+
+        // s_k = s(X^{5^rotation mod 2N}) in coefficient domain.
+        // rotate_slots always returns coefficient domain.
+        let s_k = sk.poly.rotate_slots(rotation);
+
+        let mut a_vec = Vec::with_capacity(l);
+        let mut b_vec = Vec::with_capacity(l);
+
+        for i in 0..l {
+            // Build e_i · s_k: channel i gets s_k's channel, all others zero.
+            let s_k_channels = s_k.channels();
+            let mut plain_channels: Vec<[u64; DEGREE]> = vec![[0u64; DEGREE]; l];
+            plain_channels[i] = s_k_channels[i];
+            let plain_s_k_i = RnsPoly::from_channels(
+                plain_channels,
+                basis.clone(),
+                false,
+            )
+            .expect("rotation key plaintext: channel i is already reduced mod q_i");
+
+            let a_i = RnsPoly::sample_uniform(&basis, rng);
+            let e_i = RnsPoly::sample_gaussian(
+                self.params.error_variance.sqrt(),
+                &basis,
+                rng,
+            );
+
+            // b_i = -(a_i · s) + e_i + plain_s_k_i
+            let mut a_times_s = a_i.clone();
+            a_times_s *= &sk.poly;
+            let mut b_i = -a_times_s;
+            b_i += &e_i;
+            b_i += &plain_s_k_i;
+
+            a_vec.push(a_i);
+            b_vec.push(b_i);
+        }
+
+        RnsGadgetRotationKey {
+            a: a_vec,
+            b: b_vec,
+            rotation,
+        }
+    }
+
+    /// Rotate ciphertext slots by `rotk.rotation` positions using gadget key switching.
+    ///
+    /// # Steps
+    /// 1. Apply automorphism σ_k: `X → X^{5^k}` to both ciphertext components.
+    ///    This rotates the plaintext slots but changes the decryption key from `s` to `s_k`.
+    /// 2. Key-switch back to `s` using the gadget rotation key:
+    ///    - Decompose `σ_k(c1)` channel-by-channel (same gadget decomposition as relinearization)
+    ///    - Accumulate `Σ_i α_i(σ_k(c1)) · (rotk.b[i], rotk.a[i])` and add to `(σ_k(c0), 0)`
+    ///
+    /// The output is a fresh degree-1 ciphertext encrypted under `s` with the same
+    /// `logp` and `logq` as the input — no level is consumed by rotation.
+    pub fn rotate_ciphertext(
+        ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
+        rotk: &RnsGadgetRotationKey<DEGREE>,
+    ) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
+        // Step 1: apply automorphism — result is in coefficient domain.
+        let c0_rot = ct.c0.rotate_slots(rotk.rotation);
+        let mut c1_rot = ct.c1.rotate_slots(rotk.rotation);
+        c1_rot.to_coeff_domain(); // already coeff; explicit for clarity
+
+        // Step 2: gadget key switch on c1_rot.
+        let basis = ct.c0.basis().clone();
+        let l = basis.channel_count();
+        let moduli: Vec<u64> = basis.moduli().to_vec();
+
+        let mut ks_c0 = RnsPoly::zero(basis.clone());
+        let mut ks_c1 = RnsPoly::zero(basis.clone());
+
+        for i in 0..l {
+            // α_i(c1_rot): broadcast channel i across all channels, reducing mod q_j.
+            let alpha_channels: Vec<[u64; DEGREE]> = (0..l)
+                .map(|j| {
+                    let qj = moduli[j];
+                    let mut ch = [0u64; DEGREE];
+                    for (k, v) in ch.iter_mut().enumerate() {
+                        *v = c1_rot.channels()[i][k] % qj;
+                    }
+                    ch
+                })
+                .collect();
+            let alpha_i =
+                RnsPoly::from_channels(alpha_channels, basis.clone(), false)
+                    .expect("alpha_i: residues are reduced by construction");
+
+            let mut tb = alpha_i.clone();
+            tb *= &rotk.b[i];
+            ks_c0 += &tb;
+
+            let mut ta = alpha_i;
+            ta *= &rotk.a[i];
+            ks_c1 += &ta;
+        }
+
+        let mut c0_new = c0_rot;
+        c0_new += &ks_c0;
+
+        Ciphertext {
+            c0: c0_new,
+            c1: ks_c1,
+            logp: ct.logp,
+            logq: ct.logq,
+        }
     }
 
     /// Homomorphic multiplication using the RNS gadget relinearization key.
