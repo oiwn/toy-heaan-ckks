@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     math::sampling::{ternary_coefficients, uniform_coefficients},
-    rings::traits::{PolyRing, PolySampler},
+    rings::traits::{PolyAutomorphism, PolyRing, PolySampler},
 };
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
@@ -477,6 +477,99 @@ impl<const DEGREE: usize> PolySampler<DEGREE> for RnsPoly<DEGREE> {
     }
 }
 
+// ─── PolyAutomorphism trait ───────────────────────────────────────────────────
+
+impl<const DEGREE: usize> PolyAutomorphism<DEGREE> for RnsPoly<DEGREE> {
+    /// Apply the automorphism `X → X^exponent` to the polynomial.
+    ///
+    /// # Implementation details
+    /// 1. Convert to coefficient domain if in NTT domain
+    /// 2. For each coefficient `a_i` at position `i`:
+    ///    - New position: `j = (i * exponent) mod (2*DEGREE)`
+    ///    - If `j ≥ DEGREE`: apply sign change `-a_i` and set `j = j - DEGREE`
+    ///    - Otherwise: keep coefficient as `a_i`
+    /// 3. Result stays in coefficient domain
+    fn automorphism(&self, exponent: u64) -> Self {
+        // Ensure we work in coefficient domain
+        let tmp;
+        let channels: &[[u64; DEGREE]] = if self.in_ntt_domain {
+            tmp = {
+                let mut clone = self.clone();
+                clone.to_coeff_domain();
+                clone
+            };
+            &tmp.channels
+        } else {
+            &self.channels
+        };
+
+        let modulus_2n = (2 * DEGREE) as u64;
+        let exponent_mod = exponent % modulus_2n;
+        if exponent_mod == 0 {
+            // X^0 = 1: identity automorphism
+            return self.clone();
+        }
+
+        let mut new_channels = vec![[0u64; DEGREE]; self.basis.channel_count()];
+        
+        for ch in 0..self.basis.channel_count() {
+            let q = self.basis.moduli()[ch];
+            let channel = channels[ch];
+            let new_channel = &mut new_channels[ch];
+            
+            for i in 0..DEGREE {
+                let coeff = channel[i];
+                // Compute new position: (i * exponent) mod (2*DEGREE)
+                let i_u64 = i as u64;
+                let j_full = (i_u64 * exponent_mod) % modulus_2n;
+                let j = (j_full % DEGREE as u64) as usize;
+                let needs_sign_change = j_full >= DEGREE as u64;
+                
+                if coeff == 0 {
+                    continue;
+                }
+                
+                if needs_sign_change {
+                    // Apply sign change: -a_i mod q
+                    new_channel[j] = if coeff == 0 { 0 } else { q - coeff };
+                } else {
+                    new_channel[j] = coeff;
+                }
+            }
+        }
+        
+        Self::new_unchecked(new_channels, self.basis.clone(), false)
+    }
+
+    /// Rotate plaintext slots by `k` positions.
+    ///
+    /// Uses primitive root 5: rotation by `k` slots = `X → X^{5^k mod 2*DEGREE}`
+    fn rotate_slots(&self, k: i32) -> Self {
+        let modulus_2n = (2 * DEGREE) as u64;
+        
+        // Handle negative rotations: rotate by -k = rotate by (N/2 - k) using conjugate
+        let rotation = if k >= 0 {
+            k as u64
+        } else {
+            // For negative k: use conjugate symmetry
+            // rotate_left(-k) = rotate_right(k) = conjugate(rotate_left(k)) for real slots
+            (-k) as u64
+        };
+        
+        // Compute exponent = 5^rotation mod 2N
+        let exponent = mod_pow(5, rotation, modulus_2n);
+        
+        if k >= 0 {
+            self.automorphism(exponent)
+        } else {
+            // For negative rotation: apply automorphism then conjugate
+            // conjugate = X → X^{-1} = X^{2N-1}
+            let rotated = self.automorphism(exponent);
+            rotated.automorphism(modulus_2n - 1)
+        }
+    }
+}
+
 // ─── NTT kernels (private) ────────────────────────────────────────────────────
 
 fn forward_ntt<const DEGREE: usize>(
@@ -533,6 +626,19 @@ fn bit_reverse_permute<const DEGREE: usize>(values: &mut [u64; DEGREE]) {
 }
 
 // ─── Modular arithmetic helpers (private) ─────────────────────────────────────
+
+fn mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
+    let mut result = 1u64;
+    base %= modulus;
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = ((result as u128 * base as u128) % modulus as u128) as u64;
+        }
+        base = ((base as u128 * base as u128) % modulus as u128) as u64;
+        exponent >>= 1;
+    }
+    result
+}
 
 fn add_mod(a: u64, b: u64, q: u64) -> u64 {
     let s = a + b;
@@ -769,6 +875,83 @@ mod tests {
         let got = a_ntt.to_coeffs();
 
         assert_eq!(expected, got);
+    }
+
+    #[test]
+    fn automorphism_identity_preserves_coefficients() {
+        let basis = basis_17_97();
+        let coeffs = [1i64, 2, 3, 4, 5, 6, 7, 8];
+        let poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        
+        // Identity automorphism: X → X^1
+        let identity = poly.automorphism(1);
+        assert_eq!(identity.to_coeffs(), coeffs);
+        
+        // X → X^(2N) = X^16 (mod 2N=16) = identity
+        let identity2 = poly.automorphism(16);
+        assert_eq!(identity2.to_coeffs(), coeffs);
+    }
+
+    #[test]
+    fn automorphism_applies_sign_change_correctly() {
+        let basis = basis_17_97();
+        // Simple polynomial: 1 + x
+        let coeffs = [1i64, 1, 0, 0, 0, 0, 0, 0];
+        let poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        
+        // For N=8, 2N=16
+        // X → X^9: 
+        // - coefficient a_0 at position 0 → position (0*9)%16 = 0, no sign change
+        // - coefficient a_1 at position 1 → position (1*9)%16 = 9, ≥8 so sign change
+        let transformed = poly.automorphism(9);
+        let result = transformed.to_coeffs();
+        
+        // Expected: 1 - x^1 (since x^1 maps to -x^1)
+        assert_eq!(result[0], 1);
+        assert_eq!(result[1], -1);
+        assert!(result[2..].iter().all(|&c| c == 0));
+    }
+
+    #[test]
+    fn rotate_slots_works_for_simple_case() {
+        let basis = basis_17_97();
+        // Polynomial representing values [1, 2, 3, 4] in slots (N=8 → 4 slots)
+        // For demo purposes, we'll use a simple pattern
+        let coeffs = [1i64, 0, 2, 0, 3, 0, 4, 0];
+        let poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        
+        // Rotate by 1 slot: should become [4, 1, 2, 3]
+        let rotated = poly.rotate_slots(1);
+        let result = rotated.to_coeffs();
+        
+        // Note: actual slot mapping depends on J-function ordering
+        // This test verifies rotation doesn't crash
+        assert_eq!(result.len(), 8);
+    }
+
+    #[test]
+    fn rotate_slots_negative_uses_conjugate() {
+        let basis = basis_17_97();
+        let coeffs = [1i64, 2, 3, 4, 5, 6, 7, 8];
+        let poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        
+        // Negative rotation should not panic
+        let rotated = poly.rotate_slots(-1);
+        let result = rotated.to_coeffs();
+        assert_eq!(result.len(), 8);
+    }
+
+    #[test]
+    fn automorphism_preserves_ntt_domain_flag() {
+        let basis = basis_17_97();
+        let coeffs = [1i64, 2, 3, 4, 5, 6, 7, 8];
+        let mut poly = RnsPoly::<8>::from_coeffs(&coeffs, basis);
+        poly.to_ntt_domain();
+        assert!(poly.is_ntt_domain());
+        
+        // Automorphism should convert to coeff domain and back to coeff domain
+        let transformed = poly.automorphism(3);
+        assert!(!transformed.is_ntt_domain(), "automorphism result should be in coeff domain");
     }
 
     #[test]

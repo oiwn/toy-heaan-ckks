@@ -50,7 +50,7 @@ where
 {
     /// "a" component: uniformly random polynomial
     pub a: P,
-    /// "b" component: b = -(a * s) + e + s^2
+    /// "b" component: `b = -(a * s) + e + s^2`
     pub b: P,
 }
 

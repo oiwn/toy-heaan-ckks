@@ -150,8 +150,11 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
     /// where `Q = q_0 * … * q_{L-1}`, then maps values above `Q/2` to negative.
     ///
     /// # Overflow note
-    /// Uses u128 arithmetic. The intermediate product `r * (Q/q_i)` is bounded
-    /// by Q (since r < q_i and Q/q_i = Q/q_i), so this is exact for Q < 2^128.
+    /// Requires Q < 2^128. The computation avoids overflow by factoring the
+    /// CRT term as `s_i * Q_i` where `s_i = r_i · Q_i⁻¹ mod q_i < q_i` and
+    /// `Q_i = Q / q_i`. For L ≤ 2 with 61-bit primes, both `s_i` and `Q_i`
+    /// are below 2^61, so their product (< 2^122) fits in u128. For larger L
+    /// (where Q ≥ 2^128), the `q.product()` above already overflows first.
     pub fn reconstruct_centered_coeff(&self, residues: &[u64]) -> i64 {
         debug_assert_eq!(residues.len(), self.moduli.len());
         let q: u128 = self.moduli.iter().map(|&m| m as u128).product();
@@ -160,10 +163,12 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         for (&r, &m) in residues.iter().zip(&self.moduli) {
             // Q_i = Q / q_i  (exact: q_i divides Q)
             let qi = q / m as u128;
-            // r * Q_i < Q  (since r < q_i and Q_i = Q / q_i)
-            let r_qi = r as u128 * qi;
+            // qi_inv = Q_i^{-1} mod q_i  (< q_i)
             let qi_inv = mod_inverse((qi % m as u128) as u64, m);
-            let term = (r_qi % q * qi_inv as u128) % q;
+            // s = r · qi_inv mod q_i  (r < q_i, qi_inv < q_i → product < q_i² ≤ 2^122: fits u128)
+            let s = (r as u128 * qi_inv as u128) % m as u128;
+            // term = s · Q_i mod Q  (s < q_i, Q_i = Q/q_i → product ≤ (q_i-1)·Q_i < Q: fits u128)
+            let term = s * qi % q;
             acc = (acc + term) % q;
         }
 
