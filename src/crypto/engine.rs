@@ -150,6 +150,32 @@ where
         }
     }
 
+    pub fn neg_ciphertext(ct: &Ciphertext<P, DEGREE>) -> Ciphertext<P, DEGREE>
+    where
+        P: std::ops::Neg<Output = P>,
+    {
+        Ciphertext {
+            c0: -ct.c0.clone(),
+            c1: -ct.c1.clone(),
+            logp: ct.logp,
+            logq: ct.logq,
+        }
+    }
+
+    pub fn sub_ciphertexts(
+        ct1: &Ciphertext<P, DEGREE>,
+        ct2: &Ciphertext<P, DEGREE>,
+    ) -> Ciphertext<P, DEGREE>
+    where
+        P: std::ops::Neg<Output = P>,
+    {
+        assert_eq!(ct1.logp, ct2.logp, "logp mismatch in subtraction");
+        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in subtraction");
+
+        let ct2_neg = Self::neg_ciphertext(ct2);
+        Self::add_ciphertexts(ct1, &ct2_neg)
+    }
+
     pub fn mul_ciphertexts(
         ct1: &Ciphertext<P, DEGREE>,
         ct2: &Ciphertext<P, DEGREE>,
@@ -203,37 +229,58 @@ where
     }
 }
 
-/// Relinearization key using RNS gadget decomposition.
+/// Digit width for base-2^`DIGIT_BITS` gadget decomposition.
 ///
-/// Holds one `(a_i, b_i)` pair per RNS channel. Each pair satisfies
-///
-/// ```text
-/// b_i + a_i · s ≈ e_i · s²   (mod Q)
-/// ```
-///
-/// where `e_i` is the CRT basis polynomial that equals 1 in channel `i` and 0 in all
-/// other channels. The identity `d2 = Σ_i α_i(d2) · e_i` then gives
-///
-/// ```text
-/// Σ_i α_i(d2) · key_i ≈ d2 · s²
-/// ```
-///
-/// with relin noise ≈ `Σ_i α_i(d2) · e_i_rk` where `|α_i| < q_i`. For typical toy
-/// parameters (N=16, q_i ≈ 2^31, σ=3.2) the noise after rescaling is ~5 × 10⁻⁸ — comparable
-/// to the encryption noise floor.
-#[derive(Clone, Debug)]
-pub struct RnsGadgetRelinKey<const DEGREE: usize> {
-    pub a: Vec<RnsPoly<DEGREE>>,
-    pub b: Vec<RnsPoly<DEGREE>>,
+/// Each key-switch digit is bounded by `2^DIGIT_BITS`, so the noise added per
+/// accumulated term is ~`2^DIGIT_BITS · σ` instead of ~`q_i · σ` (the old
+/// CRT-channel-as-digit scheme). With 61-bit primes this gives
+/// `ceil(61 / 15) = 5` digits per channel and key-switch noise around 1e-13
+/// after rescaling, versus ~2^-29 before.
+pub const DIGIT_BITS: u32 = 15;
+
+/// Number of base-2^`DIGIT_BITS` digits needed for residues in `[0, modulus)`.
+fn digit_count(modulus: u64) -> usize {
+    let modulus_bits = u64::BITS - modulus.leading_zeros();
+    modulus_bits.div_ceil(DIGIT_BITS) as usize
 }
 
-/// Rotation key using RNS gadget decomposition.
+/// `(a, b)` polynomial matrices indexed `[channel][digit]`.
+type GadgetKeyMatrix<const DEGREE: usize> =
+    (Vec<Vec<RnsPoly<DEGREE>>>, Vec<Vec<RnsPoly<DEGREE>>>);
+
+/// Relinearization key using base-2^`DIGIT_BITS` RNS gadget decomposition.
 ///
-/// Structurally identical to `RnsGadgetRelinKey` but encodes `s_k = s(X^{5^k})`
-/// (the rotated secret key) instead of `s²`. Each pair satisfies:
+/// `a[i][j]` / `b[i][j]` hold the key for digit `j` of channel `i`:
 ///
 /// ```text
-/// b_i + a_i · s ≈ e_i · s_k   (mod Q)
+/// b[i][j] + a[i][j] · s ≈ e_i · 2^(j·DIGIT_BITS) · s²   (mod Q)
+/// ```
+///
+/// where `e_i` is the CRT basis polynomial that equals 1 in channel `i` and 0
+/// in all other channels. Writing the channel-`i` residues of `d2` as
+/// `α_i = Σ_j digit_j(α_i) · 2^(j·DIGIT_BITS)` gives
+///
+/// ```text
+/// Σ_i Σ_j digit_j(α_i(d2)) · key[i][j] ≈ d2 · s²
+/// ```
+///
+/// with every digit coefficient below `2^DIGIT_BITS`, so the relin noise is
+/// ~`num_channels · num_digits · 2^DIGIT_BITS · σ` — independent of the prime
+/// size, unlike the previous per-channel decomposition where each "digit" was
+/// a full ~61-bit residue.
+#[derive(Clone, Debug)]
+pub struct RnsGadgetRelinKey<const DEGREE: usize> {
+    pub a: Vec<Vec<RnsPoly<DEGREE>>>,
+    pub b: Vec<Vec<RnsPoly<DEGREE>>>,
+}
+
+/// Rotation key using base-2^`DIGIT_BITS` RNS gadget decomposition.
+///
+/// Structurally identical to `RnsGadgetRelinKey` but encodes `s_k = s(X^{5^k})`
+/// (the rotated secret key) instead of `s²`. Entry `[i][j]` satisfies:
+///
+/// ```text
+/// b[i][j] + a[i][j] · s ≈ e_i · 2^(j·DIGIT_BITS) · s_k   (mod Q)
 /// ```
 ///
 /// After applying the automorphism σ_k to a ciphertext `(c0, c1)`, the result
@@ -241,13 +288,13 @@ pub struct RnsGadgetRelinKey<const DEGREE: usize> {
 /// back to encryption under `s`:
 ///
 /// ```text
-/// c0' = σ_k(c0) + Σ_i α_i(σ_k(c1)) · b_i
-/// c1' =           Σ_i α_i(σ_k(c1)) · a_i
+/// c0' = σ_k(c0) + Σ_i Σ_j digit_j(α_i(σ_k(c1))) · b[i][j]
+/// c1' =           Σ_i Σ_j digit_j(α_i(σ_k(c1))) · a[i][j]
 /// ```
 #[derive(Clone, Debug)]
 pub struct RnsGadgetRotationKey<const DEGREE: usize> {
-    pub a: Vec<RnsPoly<DEGREE>>,
-    pub b: Vec<RnsPoly<DEGREE>>,
+    pub a: Vec<Vec<RnsPoly<DEGREE>>>,
+    pub b: Vec<Vec<RnsPoly<DEGREE>>>,
     /// The slot rotation offset this key was generated for.
     pub rotation: i32,
 }
@@ -283,65 +330,30 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
 
     /// Generates a gadget relinearization key from a secret key.
     ///
-    /// Produces one `(a_i, b_i)` pair per RNS channel where
-    /// `b_i + a_i·s ≈ e_i·s²` and `e_i` is the CRT basis polynomial for channel `i`.
+    /// Produces one `(a[i][j], b[i][j])` pair per RNS channel `i` and digit `j`
+    /// where `b[i][j] + a[i][j]·s ≈ e_i·2^(j·DIGIT_BITS)·s²`.
     pub fn generate_gadget_relin_key<R: Rng>(
         &self,
         sk: &SecretKey<RnsPoly<DEGREE>, DEGREE>,
         rng: &mut R,
     ) -> RnsGadgetRelinKey<DEGREE> {
-        let basis = sk.poly.basis().clone();
-        let l = basis.channel_count();
-
         // s² in coefficient domain.
         let mut s_sq = sk.poly.clone();
         s_sq *= &sk.poly;
         s_sq.to_coeff_domain();
 
-        let mut a_vec = Vec::with_capacity(l);
-        let mut b_vec = Vec::with_capacity(l);
-
-        for i in 0..l {
-            // Build the plaintext polynomial e_i · s²:
-            // channel i = s²_i (coeff-domain slice of s²), all other channels = 0.
-            let s2_ch = s_sq.channels();
-            let mut plain_channels: Vec<[u64; DEGREE]> = vec![[0u64; DEGREE]; l];
-            plain_channels[i] = s2_ch[i]; // [u64; DEGREE] is Copy
-            let plain_s2_i =
-                RnsPoly::from_channels(plain_channels, basis.clone(), false)
-                    .expect(
-                        "gadget plaintext: channel i is already reduced mod q_i",
-                    );
-
-            let a_i = RnsPoly::sample_uniform(&basis, rng);
-            let e_i = RnsPoly::sample_gaussian(
-                self.params.error_variance.sqrt(),
-                &basis,
-                rng,
-            );
-
-            // b_i = -(a_i · s) + e_i + plain_s2_i
-            let mut a_times_s = a_i.clone();
-            a_times_s *= &sk.poly;
-            let mut b_i = -a_times_s;
-            b_i += &e_i;
-            b_i += &plain_s2_i;
-
-            a_vec.push(a_i);
-            b_vec.push(b_i);
-        }
-
-        RnsGadgetRelinKey { a: a_vec, b: b_vec }
+        let (a, b) = self.generate_gadget_key_matrix(sk, &s_sq, rng);
+        RnsGadgetRelinKey { a, b }
     }
 
     /// Generates a gadget rotation key for the given slot offset.
     ///
     /// Computes `s_k = s(X^{5^k mod 2N})` via the ring automorphism, then
-    /// encodes it in the same RNS gadget structure used by the relinearization
-    /// key. One `(a_i, b_i)` pair is produced per RNS channel, where:
+    /// encodes it in the same digit × channel gadget structure used by the
+    /// relinearization key:
     ///
     /// ```text
-    /// b_i + a_i · s ≈ e_i · s_k
+    /// b[i][j] + a[i][j] · s ≈ e_i · 2^(j·DIGIT_BITS) · s_k
     /// ```
     ///
     /// Negative `rotation` rotates slots right (toward lower indices).
@@ -351,51 +363,163 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         rotation: i32,
         rng: &mut R,
     ) -> RnsGadgetRotationKey<DEGREE> {
-        let basis = sk.poly.basis().clone();
-        let l = basis.channel_count();
-
         // s_k = s(X^{5^rotation mod 2N}) in coefficient domain.
         // rotate_slots always returns coefficient domain.
         let s_k = sk.poly.rotate_slots(rotation);
 
-        let mut a_vec = Vec::with_capacity(l);
-        let mut b_vec = Vec::with_capacity(l);
+        let (a, b) = self.generate_gadget_key_matrix(sk, &s_k, rng);
+        RnsGadgetRotationKey { a, b, rotation }
+    }
+
+    /// Generates the digit × channel key matrix for gadget key switching.
+    ///
+    /// `target` (e.g. `s²` or a rotated secret key) must be in coefficient
+    /// domain. Entry `[i][j]` satisfies:
+    ///
+    /// ```text
+    /// b[i][j] + a[i][j] · s ≈ e_i · 2^(j·DIGIT_BITS) · target   (mod Q)
+    /// ```
+    ///
+    /// Channel `i` gets `digit_count(q_i)` pairs, enough to cover any residue
+    /// in `[0, q_i)` with base-2^`DIGIT_BITS` digits.
+    fn generate_gadget_key_matrix<R: Rng>(
+        &self,
+        sk: &SecretKey<RnsPoly<DEGREE>, DEGREE>,
+        target: &RnsPoly<DEGREE>,
+        rng: &mut R,
+    ) -> GadgetKeyMatrix<DEGREE> {
+        debug_assert!(
+            !target.is_ntt_domain(),
+            "gadget key target must be in coefficient domain"
+        );
+
+        let basis = sk.poly.basis().clone();
+        let l = basis.channel_count();
+        let moduli: Vec<u64> = basis.moduli().to_vec();
+
+        let mut a_matrix = Vec::with_capacity(l);
+        let mut b_matrix = Vec::with_capacity(l);
 
         for i in 0..l {
-            // Build e_i · s_k: channel i gets s_k's channel, all others zero.
-            let s_k_channels = s_k.channels();
-            let mut plain_channels: Vec<[u64; DEGREE]> = vec![[0u64; DEGREE]; l];
-            plain_channels[i] = s_k_channels[i];
-            let plain_s_k_i = RnsPoly::from_channels(
-                plain_channels,
-                basis.clone(),
-                false,
-            )
-            .expect("rotation key plaintext: channel i is already reduced mod q_i");
+            let q_i = moduli[i];
+            let digits = digit_count(q_i);
+            let mut a_row = Vec::with_capacity(digits);
+            let mut b_row = Vec::with_capacity(digits);
+            let mut pow2 = 1u64; // 2^(j·DIGIT_BITS) mod q_i
 
-            let a_i = RnsPoly::sample_uniform(&basis, rng);
-            let e_i = RnsPoly::sample_gaussian(
-                self.params.error_variance.sqrt(),
-                &basis,
-                rng,
+            for _ in 0..digits {
+                // Plaintext for this digit: channel i = target_i · pow2,
+                // all other channels = 0 (that is e_i · 2^(j·DIGIT_BITS) · target).
+                let mut plain_channels: Vec<[u64; DEGREE]> =
+                    vec![[0u64; DEGREE]; l];
+                for (coeff, &t) in
+                    plain_channels[i].iter_mut().zip(&target.channels()[i])
+                {
+                    *coeff = ((t as u128 * pow2 as u128) % q_i as u128) as u64;
+                }
+                let plain =
+                    RnsPoly::from_channels(plain_channels, basis.clone(), false)
+                        .expect("gadget plaintext: channel i is reduced mod q_i");
+
+                let a_ij = RnsPoly::sample_uniform(&basis, rng);
+                let e_ij = RnsPoly::sample_gaussian(
+                    self.params.error_variance.sqrt(),
+                    &basis,
+                    rng,
+                );
+
+                // b = -(a · s) + e + plain
+                let mut a_times_s = a_ij.clone();
+                a_times_s *= &sk.poly;
+                let mut b_ij = -a_times_s;
+                b_ij += &e_ij;
+                b_ij += &plain;
+
+                a_row.push(a_ij);
+                b_row.push(b_ij);
+
+                pow2 = (((pow2 as u128) << DIGIT_BITS) % q_i as u128) as u64;
+            }
+
+            a_matrix.push(a_row);
+            b_matrix.push(b_row);
+        }
+
+        (a_matrix, b_matrix)
+    }
+
+    /// Gadget key switch: computes the accumulated key contributions for `src`.
+    ///
+    /// `src` must be in coefficient domain. For each channel `i`, splits the
+    /// residues into base-2^`DIGIT_BITS` digit polynomials and accumulates:
+    ///
+    /// ```text
+    /// ks_c0 = Σ_i Σ_j digit_j(α_i(src)) · key_b[i][j]
+    /// ks_c1 = Σ_i Σ_j digit_j(α_i(src)) · key_a[i][j]
+    /// ```
+    ///
+    /// Every digit coefficient is below `2^DIGIT_BITS`, which keeps the noise
+    /// picked up from the key errors small regardless of prime size.
+    fn gadget_key_switch(
+        src: &RnsPoly<DEGREE>,
+        key_a: &[Vec<RnsPoly<DEGREE>>],
+        key_b: &[Vec<RnsPoly<DEGREE>>],
+    ) -> (RnsPoly<DEGREE>, RnsPoly<DEGREE>) {
+        debug_assert!(
+            !src.is_ntt_domain(),
+            "gadget key switch source must be in coefficient domain"
+        );
+
+        let basis = src.basis().clone();
+        let l = basis.channel_count();
+        let moduli: Vec<u64> = basis.moduli().to_vec();
+        let mask = (1u64 << DIGIT_BITS) - 1;
+
+        let mut ks_c0 = RnsPoly::zero(basis.clone());
+        let mut ks_c1 = RnsPoly::zero(basis.clone());
+
+        for i in 0..l {
+            debug_assert_eq!(
+                key_a[i].len(),
+                digit_count(moduli[i]),
+                "gadget key digit count mismatch for channel {i}"
             );
 
-            // b_i = -(a_i · s) + e_i + plain_s_k_i
-            let mut a_times_s = a_i.clone();
-            a_times_s *= &sk.poly;
-            let mut b_i = -a_times_s;
-            b_i += &e_i;
-            b_i += &plain_s_k_i;
+            for (j, (a_ij, b_ij)) in key_a[i].iter().zip(&key_b[i]).enumerate() {
+                // digit_j(α_i): the j-th base-2^DIGIT_BITS digit of each
+                // channel-i residue.
+                let shift = j as u32 * DIGIT_BITS;
+                let mut digit_coeffs = [0u64; DEGREE];
+                for (d, &c) in digit_coeffs.iter_mut().zip(&src.channels()[i]) {
+                    *d = (c >> shift) & mask;
+                }
 
-            a_vec.push(a_i);
-            b_vec.push(b_i);
+                // Broadcast the digit polynomial to every channel.
+                let alpha_channels: Vec<[u64; DEGREE]> = moduli
+                    .iter()
+                    .map(|&q| {
+                        let mut ch = [0u64; DEGREE];
+                        for (v, &d) in ch.iter_mut().zip(&digit_coeffs) {
+                            *v = d % q;
+                        }
+                        ch
+                    })
+                    .collect();
+                let alpha =
+                    RnsPoly::from_channels(alpha_channels, basis.clone(), false)
+                        .expect("gadget digits are reduced by construction");
+
+                let mut tb = alpha.clone();
+                tb *= b_ij;
+                ks_c0 += &tb;
+
+                let mut ta = alpha;
+                ta *= a_ij;
+                ks_c1 += &ta;
+            }
         }
 
-        RnsGadgetRotationKey {
-            a: a_vec,
-            b: b_vec,
-            rotation,
-        }
+        (ks_c0, ks_c1)
     }
 
     /// Rotate ciphertext slots by `rotk.rotation` positions using gadget key switching.
@@ -404,8 +528,9 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
     /// 1. Apply automorphism σ_k: `X → X^{5^k}` to both ciphertext components.
     ///    This rotates the plaintext slots but changes the decryption key from `s` to `s_k`.
     /// 2. Key-switch back to `s` using the gadget rotation key:
-    ///    - Decompose `σ_k(c1)` channel-by-channel (same gadget decomposition as relinearization)
-    ///    - Accumulate `Σ_i α_i(σ_k(c1)) · (rotk.b[i], rotk.a[i])` and add to `(σ_k(c0), 0)`
+    ///    - Decompose `σ_k(c1)` into base-2^`DIGIT_BITS` digits per channel
+    ///    - Accumulate `Σ_i Σ_j digit_j(α_i(σ_k(c1))) · (rotk.b[i][j], rotk.a[i][j])`
+    ///      and add to `(σ_k(c0), 0)`
     ///
     /// The output is a fresh degree-1 ciphertext encrypted under `s` with the same
     /// `logp` and `logq` as the input — no level is consumed by rotation.
@@ -419,37 +544,7 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         c1_rot.to_coeff_domain(); // already coeff; explicit for clarity
 
         // Step 2: gadget key switch on c1_rot.
-        let basis = ct.c0.basis().clone();
-        let l = basis.channel_count();
-        let moduli: Vec<u64> = basis.moduli().to_vec();
-
-        let mut ks_c0 = RnsPoly::zero(basis.clone());
-        let mut ks_c1 = RnsPoly::zero(basis.clone());
-
-        for i in 0..l {
-            // α_i(c1_rot): broadcast channel i across all channels, reducing mod q_j.
-            let alpha_channels: Vec<[u64; DEGREE]> = (0..l)
-                .map(|j| {
-                    let qj = moduli[j];
-                    let mut ch = [0u64; DEGREE];
-                    for (k, v) in ch.iter_mut().enumerate() {
-                        *v = c1_rot.channels()[i][k] % qj;
-                    }
-                    ch
-                })
-                .collect();
-            let alpha_i =
-                RnsPoly::from_channels(alpha_channels, basis.clone(), false)
-                    .expect("alpha_i: residues are reduced by construction");
-
-            let mut tb = alpha_i.clone();
-            tb *= &rotk.b[i];
-            ks_c0 += &tb;
-
-            let mut ta = alpha_i;
-            ta *= &rotk.a[i];
-            ks_c1 += &ta;
-        }
+        let (ks_c0, ks_c1) = Self::gadget_key_switch(&c1_rot, &rotk.a, &rotk.b);
 
         let mut c0_new = c0_rot;
         c0_new += &ks_c0;
@@ -465,8 +560,9 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
     /// Homomorphic multiplication using the RNS gadget relinearization key.
     ///
     /// Computes the tensor product `(c0 + c1·s)(c0' + c1'·s) = d0 + d1·s + d2·s²`,
-    /// then replaces the `d2·s²` term with `Σ_i α_i(d2)·rlk_i`, yielding a valid
-    /// degree-1 ciphertext.
+    /// then replaces the `d2·s²` term with
+    /// `Σ_i Σ_j digit_j(α_i(d2))·rlk[i][j]`, yielding a valid degree-1
+    /// ciphertext.
     ///
     /// The output has `logp = ct1.logp + ct2.logp`; call `rescale_ciphertext` afterwards
     /// to bring it back to `ct1.logp`.
@@ -493,39 +589,9 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         d2.to_coeff_domain(); // must read channels[i] below
 
         // ── Gadget relinearization: replace d2·s² ────────────────────────────
-        // c0 += Σ_i α_i(d2) · rlk.b[i]
-        // c1 += Σ_i α_i(d2) · rlk.a[i]
-        let basis = d2.basis().clone();
-        let l = basis.channel_count();
-        let moduli: Vec<u64> = basis.moduli().to_vec();
-
-        let mut relin_c0 = RnsPoly::zero(basis.clone());
-        let mut relin_c1 = RnsPoly::zero(basis.clone());
-
-        for i in 0..l {
-            // α_i(d2): broadcast channel i of d2 to all channels (reduce mod q_j).
-            let alpha_channels: Vec<[u64; DEGREE]> = (0..l)
-                .map(|j| {
-                    let qj = moduli[j];
-                    let mut ch = [0u64; DEGREE];
-                    for (k, slot) in ch.iter_mut().enumerate() {
-                        *slot = d2.channels()[i][k] % qj;
-                    }
-                    ch
-                })
-                .collect();
-            let alpha_i =
-                RnsPoly::from_channels(alpha_channels, basis.clone(), false)
-                    .expect("alpha_i: residues are reduced by construction");
-
-            let mut tb = alpha_i.clone();
-            tb *= &rlk.b[i];
-            relin_c0 += &tb;
-
-            let mut ta = alpha_i;
-            ta *= &rlk.a[i];
-            relin_c1 += &ta;
-        }
+        // c0 += Σ_i Σ_j digit_j(α_i(d2)) · rlk.b[i][j]
+        // c1 += Σ_i Σ_j digit_j(α_i(d2)) · rlk.a[i][j]
+        let (relin_c0, relin_c1) = Self::gadget_key_switch(&d2, &rlk.a, &rlk.b);
 
         d0 += &relin_c0;
         d1 += &relin_c1;

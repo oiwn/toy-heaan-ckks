@@ -1,3 +1,6 @@
+use num_bigint::BigUint;
+use num_traits::ToPrimitive;
+
 use crate::math::is_ntt_friendly_prime;
 
 use super::errors::{RnsNttError, RnsNttResult};
@@ -149,35 +152,53 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
     /// Given per-channel residues `r[i] = a mod q_i`, recovers `a mod Q`
     /// where `Q = q_0 * … * q_{L-1}`, then maps values above `Q/2` to negative.
     ///
-    /// # Overflow note
-    /// Requires Q < 2^128. The computation avoids overflow by factoring the
-    /// CRT term as `s_i * Q_i` where `s_i = r_i · Q_i⁻¹ mod q_i < q_i` and
-    /// `Q_i = Q / q_i`. For L ≤ 2 with 61-bit primes, both `s_i` and `Q_i`
-    /// are below 2^61, so their product (< 2^122) fits in u128. For larger L
-    /// (where Q ≥ 2^128), the `q.product()` above already overflows first.
+    /// Uses `num_bigint::BigUint` internally, so large RNS chains are not
+    /// limited by `u128` during reconstruction. The final centered coefficient
+    /// must still fit in `i64`, because the current encoder/decoder interface
+    /// returns integer coefficients as `[i64; DEGREE]`.
+    ///
+    /// # Panics
+    /// Panics if the centered reconstructed coefficient does not fit in `i64`.
     pub fn reconstruct_centered_coeff(&self, residues: &[u64]) -> i64 {
         debug_assert_eq!(residues.len(), self.moduli.len());
-        let q: u128 = self.moduli.iter().map(|&m| m as u128).product();
-        let mut acc = 0u128;
 
-        for (&r, &m) in residues.iter().zip(&self.moduli) {
-            // Q_i = Q / q_i  (exact: q_i divides Q)
-            let qi = q / m as u128;
-            // qi_inv = Q_i^{-1} mod q_i  (< q_i)
-            let qi_inv = mod_inverse((qi % m as u128) as u64, m);
-            // s = r · qi_inv mod q_i  (r < q_i, qi_inv < q_i → product < q_i² ≤ 2^122: fits u128)
-            let s = (r as u128 * qi_inv as u128) % m as u128;
-            // term = s · Q_i mod Q  (s < q_i, Q_i = Q/q_i → product ≤ (q_i-1)·Q_i < Q: fits u128)
-            let term = s * qi % q;
-            acc = (acc + term) % q;
+        let mut value = BigUint::from(residues[0]);
+        let mut prefix_product = BigUint::from(self.moduli[0]);
+
+        for (idx, &prime) in self.moduli.iter().enumerate().skip(1) {
+            let current_mod = (&value % prime)
+                .to_u64()
+                .expect("value mod u64 prime always fits in u64");
+            let delta = sub_mod(residues[idx], current_mod, prime);
+            if delta != 0 {
+                let prefix_mod = (&prefix_product % prime)
+                    .to_u64()
+                    .expect("prefix_product mod u64 prime always fits in u64");
+                let prefix_inv = mod_inverse(prefix_mod, prime);
+                let adjustment =
+                    ((delta as u128 * prefix_inv as u128) % prime as u128) as u64;
+                if adjustment != 0 {
+                    value += &prefix_product * BigUint::from(adjustment);
+                }
+            }
+            prefix_product *= prime;
         }
 
-        if acc > q / 2 {
-            (acc as i128 - q as i128) as i64
+        let half_modulus = &prefix_product >> 1usize;
+
+        if value > half_modulus {
+            let magnitude = prefix_product - value;
+            -biguint_to_i64(&magnitude)
         } else {
-            acc as i64
+            biguint_to_i64(&value)
         }
     }
+}
+
+fn biguint_to_i64(value: &BigUint) -> i64 {
+    value
+        .to_i64()
+        .expect("reconstructed coefficient exceeds i64 range")
 }
 
 // ─── Private number-theory helpers ───────────────────────────────────────────
@@ -193,6 +214,14 @@ fn mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
         exponent >>= 1;
     }
     result
+}
+
+fn sub_mod(value: u64, subtrahend: u64, modulus: u64) -> u64 {
+    if value >= subtrahend {
+        (value - subtrahend) % modulus
+    } else {
+        (value + modulus - subtrahend) % modulus
+    }
 }
 
 pub(super) fn mod_inverse(value: u64, modulus: u64) -> u64 {
@@ -321,5 +350,31 @@ mod tests {
         assert_eq!(basis.reconstruct_centered_coeff(&[3, 3]), 3);
         // value = -7: 17-7=10, 97-7=90
         assert_eq!(basis.reconstruct_centered_coeff(&[10, 90]), -7);
+    }
+
+    #[test]
+    fn reconstruct_centered_many_channels_exceeds_u128_modulus() {
+        let primes = crate::math::generate_primes(30, 5, 8);
+        let basis = RnsBasis::<8>::new(primes.clone()).unwrap();
+
+        let positive = 1_234_567i64;
+        let positive_residues: Vec<u64> = primes
+            .iter()
+            .map(|&prime| positive.rem_euclid(prime as i64) as u64)
+            .collect();
+        assert_eq!(
+            basis.reconstruct_centered_coeff(&positive_residues),
+            positive
+        );
+
+        let negative = -987_654i64;
+        let negative_residues: Vec<u64> = primes
+            .iter()
+            .map(|&prime| negative.rem_euclid(prime as i64) as u64)
+            .collect();
+        assert_eq!(
+            basis.reconstruct_centered_coeff(&negative_residues),
+            negative
+        );
     }
 }

@@ -18,6 +18,8 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 crypto-bigint = { version = "0.6", features = ["alloc"] }
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
 
 [dev-dependencies]
 approx = "0.5"

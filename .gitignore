@@ -25,9 +25,9 @@ Cargo.lock
 dhat-heap.json
 
 # misc
-.amc.toml
 .tmuxp.yaml
 *.txt
+.claude/
 data/*.py
 .DS_Store
 .demo_sum_db/

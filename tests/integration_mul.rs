@@ -269,7 +269,49 @@ fn add_then_multiply() {
     assert!(err < 1e-8, "(a+b)×c: max error {err:.2e} exceeds 1e-8");
 }
 
-// ── Test 4: multiplication followed by addition ───────────────────────────────
+// ── Test 4: subtraction ──────────────────────────────────────────────────────
+
+/// Verify ciphertext subtraction decrypts to element-wise differences without
+/// consuming a level.
+#[test]
+fn subtract_ciphertexts() {
+    let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
+    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
+    let logq = basis.total_bits();
+
+    let engine = make_engine(basis.clone(), SCALE_LARGE);
+    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let mut rng = ChaCha20Rng::seed_from_u64(6);
+
+    let sk = engine.generate_secret_key(&mut rng).expect("keygen");
+    let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
+
+    let a: Vec<f64> = vec![0.8, -0.3, 0.5, -0.7, 0.2, 0.9, -0.4, 0.1];
+    let b: Vec<f64> = vec![0.1, 0.4, -0.2, -0.5, 0.7, -0.6, -0.3, 0.8];
+    let expected: Vec<f64> = a.iter().zip(&b).map(|(x, y)| x - y).collect();
+
+    let pt_a = encoder.encode(&a, basis.clone());
+    let pt_b = encoder.encode(&b, basis.clone());
+    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+
+    let ct_diff = CkksEngine::<RnsPoly<N>, N>::sub_ciphertexts(&ct_a, &ct_b);
+    assert_eq!(ct_diff.logp, ct_a.logp);
+    assert_eq!(ct_diff.logq, ct_a.logq);
+    assert_eq!(
+        ct_diff.c0.basis().channel_count(),
+        ct_a.c0.basis().channel_count()
+    );
+
+    let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_diff, &sk);
+    let decoded = encoder.decode(&pt_out);
+    let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
+
+    let err = max_abs_err(&expected, &result);
+    assert!(err < 1e-8, "a-b: max error {err:.2e} exceeds 1e-8");
+}
+
+// ── Test 5: multiplication followed by addition ───────────────────────────────
 
 /// Verify that (a × b) + c decrypts correctly with 40-bit primes.
 ///
@@ -333,7 +375,7 @@ fn multiply_then_add() {
     assert!(err < 1e-4, "(a×b)+c: max error {err:.2e} exceeds 1e-4");
 }
 
-// ── Test 5: full-slot single multiplication ───────────────────────────────────
+// ── Test 6: full-slot single multiplication ───────────────────────────────────
 
 /// Verify a single multiplication over all N/2 = 512 slots with large primes.
 ///
