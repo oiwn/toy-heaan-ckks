@@ -375,6 +375,66 @@ fn multiply_then_add() {
     assert!(err < 1e-4, "(a×b)+c: max error {err:.2e} exceeds 1e-4");
 }
 
+// ── Test 7: ciphertext x plaintext multiplication ─────────────────────────────
+
+/// Verify `mul_plaintext` (no relinearization / key switch) decrypts to
+/// element-wise products within the expected noise bound, and that its error
+/// is no worse than the ct x ct gadget path on the same inputs.
+#[test]
+fn mul_plaintext_matches_ct_mul() {
+    let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
+    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
+    let logq = basis.total_bits();
+
+    let engine = make_engine(basis.clone(), SCALE_LARGE);
+    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let mut rng = ChaCha20Rng::seed_from_u64(7);
+
+    let sk = engine.generate_secret_key(&mut rng).expect("keygen");
+    let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
+    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+
+    let a: Vec<f64> = vec![0.5, -0.25, 0.75, -0.125, 0.9, -0.6, 0.3, -0.8];
+    let b: Vec<f64> = vec![0.4, 0.8, -0.2, 0.6, -0.5, 0.35, -0.7, 0.15];
+    let expected: Vec<f64> = a.iter().zip(&b).map(|(x, y)| x * y).collect();
+
+    let pt_a = encoder.encode(&a, basis.clone());
+    let pt_b = encoder.encode(&b, basis.clone());
+    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
+
+    // ct x pt: multiply, then rescale to bring logp back to SCALE.
+    let ct_pt_prod = CkksEngine::<RnsPoly<N>, N>::mul_plaintext(&ct_a, &pt_b);
+    assert_eq!(ct_pt_prod.logp, ct_a.logp + pt_b.scale_bits);
+    let ct_rs = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_pt_prod)
+        .expect("rescale");
+
+    let sk_l1 = reduce_sk(&sk, ct_rs.c0.basis().clone());
+    let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rs, &sk_l1);
+    let decoded = encoder.decode(&pt_out);
+    let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
+
+    let err_pt = max_abs_err(&expected, &result);
+
+    // Reference: the ct x ct gadget path on identical inputs. Note each
+    // rescale mints its own Arc, so ct_ct needs its own pointer-matched key.
+    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_ct = mul_and_rescale(&ct_a, &ct_b, &rlk);
+    let sk_l1_ct = reduce_sk(&sk, ct_ct.c0.basis().clone());
+    let pt_out_ct = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_ct, &sk_l1_ct);
+    let decoded_ct = encoder.decode(&pt_out_ct);
+    let result_ct: Vec<f64> = decoded_ct.into_iter().take(a.len()).collect();
+    let err_ct = max_abs_err(&expected, &result_ct);
+
+    assert!(
+        err_pt < 1e-8,
+        "ct x pt mul: max error {err_pt:.2e} exceeds 1e-8"
+    );
+    assert!(
+        err_pt <= err_ct * 10.0,
+        "ct x pt error {err_pt:.2e} unexpectedly larger than ct x ct {err_ct:.2e}"
+    );
+}
+
 // ── Test 6: full-slot single multiplication ───────────────────────────────────
 
 /// Verify a single multiplication over all N/2 = 512 slots with large primes.

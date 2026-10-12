@@ -214,7 +214,7 @@ fn section1() {
         println!();
 
         for &deg in degrees.iter() {
-            if lower <= 0.0 && lower != 0.0 {
+            if lower < 0.0 {
                 continue; // negative lower makes no sense for sqrt
             }
             let actual_lower = if lower == 0.0 { 1e-12 } else { lower };

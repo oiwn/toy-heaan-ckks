@@ -101,7 +101,7 @@ fn main() {
 
     // ── 3. Encode + encrypt ───────────────────────────────────────────────────
     let input: Vec<f64> = (1..=SLOTS).map(|i| i as f64).collect();
-    println!("Input slots: {:?}\n", &input);
+    println!("Input slots: {input:?}\n");
 
     let pt_in = encoder.encode(&input, basis.clone());
     let ct = engine.encrypt(&pt_in, &pk, logq, &mut rng);

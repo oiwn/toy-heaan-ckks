@@ -1,121 +1,39 @@
-# Current task: demo pre-requisites (Phase A)
+# Current Task Context: Sensor std-dev end-to-end (CKKS green + native demo)
 
-Make the library ready for the browser std-dev demo. Demo architecture, UI,
-and phases B–D live in `specs/demo.md` — this file is only the working
-context for the pre-requisite tasks below.
+State: in progress. Design steps below come first, then task files 0001 -> 0002 -> 0003. Roadmap M1 + M2.
 
-## Target pipeline
+## Plan
 
-The end state of this phase is a library-level `encrypted_std_dev`:
+- [x] Range contract: fix the fields, the demo values, and how out-of-range readings are clamped.
+- [x] Degree vs accuracy: choose the Chebyshev degree and set the std error budget for the demo.
+- [x] Level/prime budget: recount levels for the chosen degree and set the prime count for N = 8192.
+- [x] Record the decisions in `specs/overview.md` (gotchas) and `specs/demo.md`; move tasks 0002-0003 from draft to ready.
+- [x] Task 0001-green-baseline (fmt, clippy, scratch cleanup).
+- [x] Task 0004-encoder-wide-staging (no silent i64 cap in encode/decode).
+- [x] Task 0002-range-contract-std-dev (fixes the red test).
+- [ ] Task 0003-sensor-demo-example (native N = 8192 demo).
 
-```text
-ct = Enc([x0, x1, ..., x_{SLOTS-1}])
-  -> sum_ct      = sum_slots(ct)                    -- rotation tree
-  -> mean_ct     = sum_ct * (1/SLOTS)                -- mul_plain + rescale
-  -> centered_ct = ct - mean_ct                      -- sub (scale-aligned)
-  -> sq_diff_ct  = centered_ct * centered_ct          -- mul + rescale
-  -> var_sum_ct  = sum_slots(sq_diff_ct)             -- rotation tree
-  -> variance_ct = var_sum_ct * (1/SLOTS)            -- mul_plain + rescale
-  -> v_norm_ct   = variance_ct * (1/B)               -- mul_plain + rescale
-  -> std_dev_ct  = eval_chebyshev(v_norm_ct) * sqrt(B) -- poly eval
-```
+## Findings
 
-## Constants
+- **Why `encrypted_std_dev_end_to_end` was red** (wrong sign: -2.2256 vs 2.2214): the direct fit on variance [1, 100] has c0 ~ 6.5, and `6.5 * 2^61 > 2^63` saturated in the encoder's old i64 staging. Confirmed: task 0004 alone turns the test green. The "wraps past q0" diagnosis was wrong.
+- **Encoder fixed (task 0004):** coefficients are staged in f64 and reduced straight into RNS; the limit is now |coeff| < 2^(total_bits - 1) (~Q/2), with `try_encode` returning an error instead of saturating. Precision is ~2^-52 relative to the largest coefficient.
+- **Small values cost approximation accuracy, not CKKS precision.** sqrt near 0 is hard for a polynomial; CKKS noise stays ~1e-12 absolute.
+- **Decided 2026-10-12 — sensor range contract** (replaces the 1/B normalization):
+  - `SensorContract { lo: -40.0, hi: 60.0, std_min: 1.0, std_max: 8.0 }`, `W = hi - lo = 100`.
+  - Client clamps readings to `[lo, hi]`, sends `x_n = (x - lo) / W` (in [0, 1], under the encoder's i64 cap), and asserts its plaintext std is inside `[std_min, std_max]`.
+  - Fit sqrt on `[(std_min/W)^2, (std_max/W)^2]` = [1e-4, 6.4e-3]; max coefficient ~0.05, so nothing wraps.
+  - Client restores `std = std_n * W` in f64 after decrypt: no 1/B level, no encrypted x10.
+- **Why a std envelope, not the 0.25 Popoviciu bound:** sqrt is homogeneous, so the error in degC depends only on `std_max/std_min` and the degree, not on `W`. Sweep (max error over the envelope): [1, 8] degree 7 -> 0.055, degree 9 -> 0.025; [1, 10] degree 7 -> 0.107; [0.5, 8] degree 7 -> 0.170.
+- **Realistic data:** outdoor daily swing 3-20 degC, daily std ~0.35 x swing = 1-7 degC; indoor 0.2-1.5 degC (outside the envelope).
+- **Population std (divide by n)** is the computed statistic, kept deliberately (operator, 2026-10-12); sample std would only change the `1/n` constant to `1/(n-1)`.
+- **Degree 7, budget:** std error < 0.1 degC (expect <= 0.055), intermediate variance error < 1e-9.
+- **Levels:** 3 + (degree + 1) = 11; the final Clenshaw mul needs >= 3 channels, so 13 x 61-bit primes at N = 8192.
+- **For 0002:** the affine slope `4 / (v_hi - v_lo)` ~ 630 no longer hits an encoder cap; drop `clamped_scalar_bits` and the i64 asserts in `pipeline.rs`, and keep the range contract for sqrt accuracy (the std envelope), not for encoder limits.
 
-Demo parameters (acceptance example; rationale in demo.md):
+## Context
 
-```text
-N = 8192 (4096 slots, 32 used: 24h of readings, one per 45 min)
-primes = 12 x 61-bit, scale = 2^61
-DIGIT_BITS = 20 (4 digits/prime)
-```
+Next task: `specs/tasks/0003-sensor-demo-example.md`. Demo code: `examples/sensor_std_dev/`; generic fitter `fit_chebyshev` in `src/crypto/pipeline.rs`.
 
-Toy parameters (unit tests): N = 16, 5 primes, as today.
+## Next
 
-Sqrt approximation (decided 2026-07-04):
-
-```text
-Chebyshev fit of sqrt, degree 7, interval [0.01, 1.0], B = 100
-std envelope [1, 10] degC; error ~0.107 degC worst (std=1), ~0.01 typical
-below interval: graceful high-biased extrapolation; v_norm > 1: explodes
--> envelope is a client-side contract (clamp before encryption)
-```
-
-## Library status
-
-Working, verified 2026-07-04 after the base-β gadget key-switch fix
-(`DIGIT_BITS` decomposition, keys indexed `[channel][digit]`):
-encrypt/decrypt, add/sub, mul + relin + rescale, rotation, CRT wide
-reconstruction. Numbers: all tests pass (110 unit + 6 integration);
-`horner_chain` max error 7.9e-10; `std_dev_8` variance error 2.5e-13 at
-61-bit primes. Plaintext Chebyshev reference: `examples/sensor_std_plain.rs`.
-
-## Pre-requisite tasks
-
-1. **DIGIT_BITS 15 → 20** (`src/crypto/engine.rs`), then re-verify:
-   `cargo test`, `horner_chain`, `std_dev_8`.
-
-2. **Serialization.** Serde derives for `RnsPoly`, `Ciphertext`, `Plaintext`,
-   secret/public/gadget keys. `RnsBasis` is not serialized wholesale: encode
-   the prime list, rebuild tables (and the `Arc`) on deserialize — polys in a
-   ciphertext must share one `Arc<RnsBasis>` after load (`Arc::ptr_eq` checks
-   in ops). Postcard round-trip test; assert byte sizes ≈ demo.md table
-   (ciphertext ~1.6 MB, gadget key ~75 MB at demo params).
-
-3. **Pipeline ops into the library** (`src/crypto/pipeline.rs`), extracted
-   from `examples/std_dev_8.rs`:
-   - `sum_slots` (power-of-two rotation tree)
-   - `mul_plain_scalar` (encode scalar, mul, rescale)
-   - `align_level` (generalizes example-local `reduce_ct_to_basis` +
-     `reduce_sk`: drop channels to a target basis)
-   - wide f64 decode (BigUint mixed-radix path from example `decode_wide`;
-     the `[i64; DEGREE]` plaintext API overflows at high levels)
-   - `fit_sqrt_chebyshev` (Chebyshev-basis fitter, move from
-     `examples/sensor_std_plain.rs`) so coefficients are computed, not
-     hardcoded.
-
-4. **Encrypted Chebyshev eval** — Clenshaw in **Chebyshev basis** (never
-   convert to power basis: ill-conditioned for small interval lower bound):
-   - domain map `t = (2v - (hi+lo))/(hi-lo)`: plaintext affine op
-   - recurrence `b_k = 2t·b_{k+1} - b_{k+2} + c_k`: one ct×ct mul per step;
-     `b_{k+2}` must be mod-switched down to match `2t·b_{k+1}` after rescale
-   - ~7–8 levels for degree 7
-   - test: decrypt/decode vs plaintext Clenshaw on the same inputs.
-
-5. **`encrypted_std_dev`** composing tasks 3 + 4 per the target pipeline.
-
-6. **Acceptance example** `examples/std_dev_demo_params.rs`: N=8192,
-   12 × 61-bit primes, 32 diurnal readings (std ≈ 2–3 °C). Asserts:
-   - std-dev error < 0.11 °C (expect ~1e-2 at std ≈ 2.8)
-   - intermediate variance error < 1e-9 (expect ~1e-13)
-
-7. **Cargo/wasm hygiene**: move `dhat`, `comfy-table`, `tracing-subscriber`
-   from `[dependencies]` to dev-dependencies (grep lib usage first);
-   getrandom wasm backend feature; gate:
-   `cargo build --target wasm32-unknown-unknown` green.
-
-## Key files
-
-| Path | Role |
-|------|------|
-| `specs/demo.md` | Demo spec + phases B–D |
-| `src/crypto/engine.rs` | `DIGIT_BITS`, gadget keys, `gadget_key_switch`, mul/rotate |
-| `src/crypto/pipeline.rs` | NEW — pipeline ops (task 3), Chebyshev eval (4), `encrypted_std_dev` (5) |
-| `src/rings/backends/rns_ntt/poly.rs` | `RnsPoly` — storage, NTT, arithmetic |
-| `src/rings/backends/rns_ntt/basis.rs` | `RnsBasis` — primes, tables, CRT |
-| `examples/std_dev_8.rs` | Source of the ops to extract (task 3) |
-| `examples/sensor_std_plain.rs` | Plaintext reference + Chebyshev fitter |
-| `Cargo.toml` | Task 7 |
-
-## Notes
-
-- `errors_variance` on `CkksParams` is actually a std_dev (all call sites
-  pass it to `sample_gaussian(std_dev, ...)`). Rename when touching it.
-- `src/crypto/operations.rs` is a stale duplicate of `engine.rs`, tagged
-  FIXME for removal.
-- `PolyRescale` / `PolyModSwitch` traits are declared but unimplemented;
-  real rescaling is `RnsPoly::rescale()` / `CkksEngine::rescale_ciphertext()`.
-
-Later (not blocking): repair `sqrt_chebyshev_plain.rs` (negative LOWER →
-NaN), retarget `sensor_std_plain.rs` to the B=100 envelope, update
-`scripts/fit_sqrt_chebyshev.sage` to emit Chebyshev-basis coefficients.
+Start task 0003 (`specdev task advance 3`).

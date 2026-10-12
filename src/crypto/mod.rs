@@ -7,6 +7,7 @@ pub mod builder;
 pub mod engine;
 pub mod errors;
 pub mod operations;
+pub mod pipeline;
 pub mod types;
 
 // Re-export the main types users need

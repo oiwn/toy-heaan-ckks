@@ -160,6 +160,37 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
     /// # Panics
     /// Panics if the centered reconstructed coefficient does not fit in `i64`.
     pub fn reconstruct_centered_coeff(&self, residues: &[u64]) -> i64 {
+        let (negative, magnitude) = self.reconstruct_centered_magnitude(residues);
+        if negative {
+            let magnitude = biguint_to_i64(&magnitude);
+            -magnitude
+        } else {
+            biguint_to_i64(&magnitude)
+        }
+    }
+
+    /// Like [`RnsBasis::reconstruct_centered_coeff`] but returns an `f64`,
+    /// so it also works when the full modulus `Q` exceeds the `i64` range
+    /// (high-level ciphertexts in deep pipelines).
+    ///
+    /// The returned value is exact for every coefficient that fits in the
+    /// 53-bit mantissa of `f64`; larger ones are rounded.
+    ///
+    /// # Panics
+    /// Panics if the centered magnitude does not fit in `f64`.
+    pub fn reconstruct_centered_coeff_f64(&self, residues: &[u64]) -> f64 {
+        let (negative, magnitude) = self.reconstruct_centered_magnitude(residues);
+        let magnitude = magnitude
+            .to_f64()
+            .expect("reconstructed coefficient exceeds f64 range");
+        if negative { -magnitude } else { magnitude }
+    }
+
+    /// Mixed-radix CRT reconstruction shared by the `i64` / `f64` variants.
+    ///
+    /// Returns `(is_negative, |value|)` where `value` is the centered
+    /// representative in `(-Q/2, Q/2]` of the residue vector.
+    fn reconstruct_centered_magnitude(&self, residues: &[u64]) -> (bool, BigUint) {
         debug_assert_eq!(residues.len(), self.moduli.len());
 
         let mut value = BigUint::from(residues[0]);
@@ -187,10 +218,9 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         let half_modulus = &prefix_product >> 1usize;
 
         if value > half_modulus {
-            let magnitude = prefix_product - value;
-            -biguint_to_i64(&magnitude)
+            (true, prefix_product - value)
         } else {
-            biguint_to_i64(&value)
+            (false, value)
         }
     }
 }

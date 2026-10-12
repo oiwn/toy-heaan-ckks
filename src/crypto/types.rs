@@ -23,7 +23,7 @@ where
 /// # Reference
 /// - HEAAN implementation: https://github.com/kimandrik/HEAAN
 /// - FHE Textbook: c04-glwe-modulus-switch.tex
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Ciphertext<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE>,

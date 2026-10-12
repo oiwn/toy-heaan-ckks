@@ -1,0 +1,3 @@
+[files]
+# Closed task logs quote operator approvals verbatim; never spell-check them.
+extend-exclude = ["specs/tasks/done/"]

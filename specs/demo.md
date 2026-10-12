@@ -9,8 +9,7 @@ A single-page browser demo, fully client-side, telling one story end to end:
 > ciphertext** — the "server" code never sees a plaintext value. The result is
 > decrypted and compared against canonical f64 math, digit by digit.
 
-Everything runs in the browser via WASM: key generation, encryption, the
-homomorphic pipeline, decryption. No server, no network calls.
+Everything runs in the browser via WASM: key generation, encryption, the homomorphic pipeline, decryption. No server, no network calls.
 
 ```text
 ct = Enc([t0 .. t31])
@@ -71,21 +70,11 @@ scale (·√B)        folded into last plaintext mul
 
 ## UI flow (one page, staged top to bottom)
 
-1. **Data panel.** Seeded generator produces 32 readings from a diurnal
-   curve + jitter (std ≈ 2–3 °C, inside the [1, 10] °C envelope); readings
-   editable by hand; regenerate button. Shows canonical f64 mean / variance /
-   std-dev alongside.
-2. **Parameters panel.** N, prime list, logQ, scale, slot count, expected key
-   sizes, and the security banner.
-3. **Key generation.** Button starts the worker; progress bar per key
-   (sk, pk, relin, rot×5). After: table of actual byte sizes + generation time
-   per key.
-4. **Encrypt.** Encode + encrypt in the worker. Display: ciphertext byte size,
-   first-bytes hex preview, logp / logq / level, wall time. Export button
-   (download binary file).
-5. **Compute.** Runs the pipeline stage by stage; each stage row shows the
-   operation, level before → after, scale bits, wall time. The intent is that
-   the level-consumption table above becomes *visible live*.
+1. **Data panel.** Seeded generator produces 32 readings from a diurnal curve + jitter (std ≈ 2–3 °C, inside the [1, 10] °C envelope); readings editable by hand; regenerate button. Shows canonical f64 mean / variance / std-dev alongside.
+2. **Parameters panel.** N, prime list, logQ, scale, slot count, expected key sizes, and the security banner.
+3. **Key generation.** Button starts the worker; progress bar per key (sk, pk, relin, rot×5). After: table of actual byte sizes + generation time per key.
+4. **Encrypt.** Encode + encrypt in the worker. Display: ciphertext byte size, first-bytes hex preview, logp / logq / level, wall time. Export button (download binary file).
+5. **Compute.** Runs the pipeline stage by stage; each stage row shows the operation, level before → after, scale bits, wall time. The intent is that the level-consumption table above becomes *visible live*.
 6. **Decrypt & compare.** Decrypt + decode in the worker. Comparison table:
 
    | | value |
@@ -95,10 +84,8 @@ scale (·√B)        folded into last plaintext mul
    | absolute error | ~1e-2 max (Chebyshev-dominated) |
    | encrypted-variance error (intermediate) | ~1e-13 (CKKS noise floor) |
 
-   The two error rows are the punchline: crypto noise is invisible; the
-   polynomial approximation is the entire error budget.
-7. **Export / import.** Download ciphertext / result as files; upload a
-   previously exported ciphertext and continue from step 5.
+   The two error rows are the punchline: crypto noise is invisible; the polynomial approximation is the entire error budget.
+7. **Export / import.** Download ciphertext / result as files; upload a previously exported ciphertext and continue from step 5.
 
 ## Crate layout
 
@@ -115,9 +102,7 @@ demo-web/
     messages.rs            worker protocol (serde), progress events
 ```
 
-Built with `trunk serve` / `trunk build --release` inside `demo-web/`;
-the root workspace never builds it (excluded), so `cargo test --workspace`
-stays native-only.
+Built with `trunk serve` / `trunk build --release` inside `demo-web/`; the root workspace never builds it (excluded), so `cargo test --workspace` stays native-only.
 
 ## Gap analysis — missing puzzle pieces
 
@@ -128,11 +113,11 @@ Status of every part the demo needs:
 | Encrypt/decrypt, add/sub, mul+relin+rescale, rotate | ✅ works (61-bit verified) |
 | Base-β gadget key switch | ✅ done 2026-07-04 |
 | Chebyshev sqrt coefficients + envelope | ✅ decided, plaintext-verified |
-| **Encrypted Chebyshev eval (Clenshaw)** | ❌ not implemented |
-| **Pipeline ops as library API** | ❌ example-local only (`std_dev_8.rs`: `sum_slots_power_of_two`, `mul_plain_scalar`, `reduce_ct_to_basis`, `reduce_sk`, `decode_wide`) |
+| Encrypted Chebyshev eval (Clenshaw) | ✅ done 2026-08-17 |
+| Pipeline ops as library API | ✅ `src/crypto/pipeline.rs` |
 | **Serialization (serde) for ct/keys** | ❌ no derives yet (serde already a dep) |
 | **wasm32 build of the lib** | ❌ untested; `dhat`/`comfy-table`/`tracing-subscriber` sit in `[dependencies]`, getrandom needs the wasm backend |
-| DIGIT_BITS = 20 | ❌ one-line change + re-verify |
+| DIGIT_BITS = 20 | ✅ done 2026-08-15 |
 | Browser performance numbers | ❓ unmeasured (estimates below) |
 
 Performance estimates to validate in the spike (Phase B):
@@ -144,36 +129,25 @@ keygen      ≈ 288 key-poly muls + 450 MB alloc          → ~10-30 s wasm
 encode/decode (O(N²) special DFT)                       → ~1-2 s each, rare
 ```
 
-Contingency if too slow: keep gadget keys and key-switch accumulators in NTT
-domain (saves ~3× NTTs per key-switch). Only implement if the spike says so.
+Contingency if too slow: keep gadget keys and key-switch accumulators in NTT domain (saves ~3× NTTs per key-switch). Only implement if the spike says so.
 
 ## Work plan
 
 ### Phase A — library gaps (native, testable without any browser)
 
+Status 2026-10-12: steps 1, 3, 4 done (see CHANGELOG). Steps 5–6 are now tasks 0002/0003 (roadmap M1/M2); step 2 moved to roadmap M3. The 1/B normalization and the 12-prime count below are superseded by the sensor range contract (2026-10-12): range [-40, 60] degC, std envelope [1, 8] degC, degree 7, 13 x 61-bit primes, std restored on the client (see `specs/overview.md` gotchas).
+
 1. `DIGIT_BITS` 15 → 20; re-run `cargo test`, `horner_chain`, `std_dev_8`.
-2. Serde derives for `RnsPoly`, `Ciphertext`, `Plaintext`, key types
-   (`RnsBasis` reconstructed from prime list, not serialized wholesale);
-   postcard round-trip test asserting exact byte sizes from the table above.
-3. Extract pipeline ops from `examples/std_dev_8.rs` into the library
-   (`src/crypto/pipeline.rs`): `sum_slots`, `mul_plain_scalar`,
-   `align_level` (ct+sk reduction), wide f64 decode.
-4. Encrypted Chebyshev eval via Clenshaw in Chebyshev basis (ctx.md Phase 2):
-   domain map is a plaintext affine op; each recurrence step one ct×ct mul;
-   b-terms mod-switched to stay aligned. Test vs plaintext Clenshaw.
-5. Library `encrypted_std_dev(ct, keys, envelope) -> ct` composing 3+4.
-6. New native example `std_dev_demo_params.rs`: N=8192, 12 × 61-bit primes,
-   32 diurnal readings — asserts std-dev error < 0.11 °C (expect ~1e-2)
-   and variance error < 1e-9. This is the acceptance gate for Phase A.
+2. Serde derives for `RnsPoly`, `Ciphertext`, `Plaintext`, key types (`RnsBasis` reconstructed from prime list, not serialized wholesale); postcard round-trip test asserting exact byte sizes from the table above.
+3. Extract pipeline ops from `examples/std_dev_8.rs` into the library (`src/crypto/pipeline.rs`): `sum_slots`, `mul_plain_scalar`, `align_level` (ct+sk reduction), wide f64 decode.
+4. Encrypted Chebyshev eval via Clenshaw in Chebyshev basis (ctx.md Phase 2): domain map is a plaintext affine op; each recurrence step one ct×ct mul; b-terms mod-switched to stay aligned. Test vs plaintext Clenshaw.
+5. `encrypted_std_dev` composing 3+4 (lives in `examples/sensor_std_dev/`, not the library).
+6. New native example `std_dev_demo_params.rs`: N=8192, 12 × 61-bit primes, 32 diurnal readings — asserts std-dev error < 0.11 °C (expect ~1e-2) and variance error < 1e-9. This is the acceptance gate for Phase A.
 
 ### Phase B — wasm spike (go/no-go data, no UI)
 
-1. Cargo cleanup: move `dhat`, `comfy-table`, `tracing-subscriber` to
-   dev-dependencies (grep first — lib must not use them); add getrandom wasm
-   backend feature; `cargo build --target wasm32-unknown-unknown` green.
-2. Minimal wasm-bindgen harness (no Leptos): run keygen / encrypt / one
-   rotation / one mul / full pipeline in the browser console; record timings
-   and peak memory next to the estimates table.
+1. Cargo cleanup: move `dhat`, `comfy-table`, `tracing-subscriber` to dev-dependencies (grep first — lib must not use them); add getrandom wasm backend feature; `cargo build --target wasm32-unknown-unknown` green.
+2. Minimal wasm-bindgen harness (no Leptos): run keygen / encrypt / one rotation / one mul / full pipeline in the browser console; record timings and peak memory next to the estimates table.
 3. Decide on the NTT-domain-keys optimization based on the numbers.
 
 ### Phase C — demo app
@@ -184,15 +158,10 @@ domain (saves ~3× NTTs per key-switch). Only implement if the spike says so.
 
 ### Phase D — polish
 
-Progress instrumentation granularity, security banner copy, README with
-screenshots, `trunk build --release` artifact check.
+Progress instrumentation granularity, security banner copy, README with screenshots, `trunk build --release` artifact check.
 
 ## Verification
 
-- **Phase A**: `cargo test --all --workspace` green; `std_dev_demo_params`
-  example prints and asserts the error budget (std < 0.11 °C, variance < 1e-9).
-- **Phase B**: wasm32 target builds; browser console benchmark table recorded
-  in this file (replace the estimates).
-- **Phase C/D**: manual walkthrough — generate → keygen → encrypt → compute →
-  decrypt shows both error rows within budget; export then import a ciphertext
-  and re-run compute to the same result; page stays responsive during compute.
+- **Phase A**: `cargo test --all --workspace` green; `std_dev_demo_params` example prints and asserts the error budget (std < 0.11 °C, variance < 1e-9).
+- **Phase B**: wasm32 target builds; browser console benchmark table recorded in this file (replace the estimates).
+- **Phase C/D**: manual walkthrough — generate → keygen → encrypt → compute → decrypt shows both error rows within budget; export then import a ciphertext and re-run compute to the same result; page stays responsive during compute.

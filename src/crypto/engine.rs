@@ -234,9 +234,10 @@ where
 /// Each key-switch digit is bounded by `2^DIGIT_BITS`, so the noise added per
 /// accumulated term is ~`2^DIGIT_BITS · σ` instead of ~`q_i · σ` (the old
 /// CRT-channel-as-digit scheme). With 61-bit primes this gives
-/// `ceil(61 / 15) = 5` digits per channel and key-switch noise around 1e-13
-/// after rescaling, versus ~2^-29 before.
-pub const DIGIT_BITS: u32 = 15;
+/// `ceil(61 / 20) = 4` digits per channel (one fewer gadget key entry than
+/// DIGIT_BITS = 15) at moderately higher noise per switch; demo params
+/// (12 primes) have headroom for it.
+pub const DIGIT_BITS: u32 = 20;
 
 /// Number of base-2^`DIGIT_BITS` digits needed for residues in `[0, modulus)`.
 fn digit_count(modulus: u64) -> usize {
@@ -326,6 +327,33 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
             logp: ct.logp - bits_dropped,
             logq: ct.logq - bits_dropped,
         })
+    }
+
+    /// Ciphertext x plaintext multiplication: `(c0, c1) -> (c0*p, c1*p)`.
+    ///
+    /// Since `p` is known, the product `(m*p)` still decrypts under the same
+    /// key — no `s^2` term appears, so **no relinearization or key switch**
+    /// is needed (cheaper and lower-noise than `mul_ciphertexts_gadget`).
+    ///
+    /// `pt` must be encoded in the ciphertext's current basis (NTT domain
+    /// matching `ct.c0`'s channels). The scale doubles: `logp + pt.scale_bits`;
+    /// call `rescale_ciphertext` afterwards to bring it back down.
+    pub fn mul_plaintext(
+        ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
+        pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>,
+    ) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
+        let mut c0 = ct.c0.clone();
+        c0 *= &pt.poly;
+
+        let mut c1 = ct.c1.clone();
+        c1 *= &pt.poly;
+
+        Ciphertext {
+            c0,
+            c1,
+            logp: ct.logp + pt.scale_bits,
+            logq: ct.logq,
+        }
     }
 
     /// Generates a gadget relinearization key from a secret key.

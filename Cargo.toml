@@ -43,3 +43,8 @@ dhat-ad-hoc = []  # if you are doing ad hoc profiling
 [[bench]]
 name = "primes"
 harness = false
+
+[[example]]
+name = "sensor_std_dev"
+# Run the example's unit tests (contract, encrypted std-dev) with `cargo test`.
+test = true

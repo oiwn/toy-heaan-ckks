@@ -10,10 +10,10 @@ homomorphic encryption scheme with multiple backends.
 cargo build && cargo test                    # build and run tests
 cargo clippy --all-targets -- -D warnings  # lint
 cargo clippy -- -D clippy::pedantic -D clippy::nursery  # also lint
-cargo run --example rns                     # end-to-end CKKS flow
-cargo run --example ntt                     # verbose domain logging
-cargo run --example rns_mod_switch          # modulus-switching demo
-cargo bench --bench end_to_end              # benchmarks
+cargo run --example encrypt_mul             # mul + relin + rescale flow
+cargo run --example rotation_demo           # slot rotation demo
+cargo run --example std_dev_8               # encrypted std-dev scaffold
+cargo bench --bench primes                  # benchmarks
 ```
 
 **Pre-commit Setup**
@@ -68,3 +68,12 @@ pre-commit install                          # install git hooks
   - `q`, `Q` -> `modulus`, `extended_modulus`
   - `alpha`, `beta` -> use descriptive names like `base`, `digit`
 - This ensures code readability and avoids encoding issues
+
+<!-- BEGIN specdev -->
+## specdev
+
+This project uses **specdev** (specification-driven development). Load the
+specdev skill when starting a session, continuing from specs, or picking up a
+task. Always read `specs/overview.md` and `specs/ctx.md` before coding.
+<!-- END specdev -->
+
