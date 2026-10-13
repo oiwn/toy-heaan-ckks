@@ -1,407 +1,191 @@
-//! Plaintext sensor std-dev pipeline with Chebyshev sqrt approximation.
+//! Plaintext reference for the sensor std-dev design (no encryption).
 //!
-//! Answers: can Chebyshev degree-7 sqrt on [LOWER, 1.0] serve a sensor
-//! std-dev pipeline, and what normalization strategy works?
+//! The encrypted demo (`examples/sensor_std_dev/`) normalizes readings with
+//! a range contract and approximates sqrt with a Chebyshev polynomial fitted
+//! on the contract's std envelope. This example checks that design in plain
+//! f64 using the same library fitter and evaluator.
 //!
 //! Three sections:
-//!   1. Chebyshev fit quality sweep (LOWER x DEGREE, probe at key x-values)
-//!   2. Full sensor std-dev pipeline (multiple normalization bounds)
-//!   3. Edge cases (zero variance, extreme variance, tiny jitter)
+//!   1. Envelope x degree sweep: max std error in degC over the envelope
+//!   2. The demo pipeline in plaintext (normalize -> variance -> sqrt ->
+//!      restore)
+//!   3. Behavior outside the envelope (why the client checks it)
 
-// ── Sensor parameters ────────────────────────────────────────────────────
+use toy_heaan_ckks::crypto::pipeline::{
+    eval_chebyshev_clenshaw, fit_chebyshev, to_chebyshev_domain,
+};
 
-const SENSOR_LO: f64 = -50.0;
-const SENSOR_HI: f64 = 100.0;
-const SENSOR_COUNT: usize = 16;
+// ── Contract (matches `SensorContract::demo()`) ──────────────────────────
 
-const SENSOR_DATA: [f64; SENSOR_COUNT] = [
-    14.0, 14.0, 15.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 20.0, 20.0, 17.0,
-    16.0, 15.0, 14.0,
+const RANGE_LO: f64 = -40.0;
+const RANGE_HI: f64 = 60.0;
+const STD_MIN: f64 = 1.0;
+const STD_MAX: f64 = 8.0;
+const DEGREE: usize = 7;
+
+const WIDTH: f64 = RANGE_HI - RANGE_LO;
+
+// ── Sweep parameters ─────────────────────────────────────────────────────
+
+const GRID_POINTS: usize = 2_001;
+const ENVELOPES: [(f64, f64); 5] =
+    [(1.0, 10.0), (1.0, 8.0), (0.5, 8.0), (2.0, 10.0), (1.0, 6.0)];
+const DEGREES: [usize; 4] = [5, 7, 9, 11];
+
+/// 32 readings, one per 45 min: a fixed diurnal day (std ~2.9 degC).
+const READINGS: [f64; 32] = [
+    11.4, 11.0, 10.9, 11.2, 11.6, 12.4, 13.2, 14.3, 15.2, 16.3, 17.1, 18.0, 18.6,
+    19.0, 19.2, 19.1, 18.8, 18.1, 17.5, 16.6, 15.7, 14.8, 13.9, 13.2, 12.6, 12.1,
+    11.8, 11.5, 11.3, 11.2, 11.3, 11.4,
 ];
 
-/// Theoretical maximum variance: (hi - lo)^2 / 4  (population / N denominator).
-const MAX_VAR_POP: f64 = {
-    let range = SENSOR_HI - SENSOR_LO;
-    range * range / 4.0
-};
+// ── Helpers ──────────────────────────────────────────────────────────────
 
-/// Theoretical maximum sample variance: N/(N-1) × population max.
-const MAX_VAR_SAMPLE: f64 = {
-    let range = SENSOR_HI - SENSOR_LO;
-    let n = SENSOR_COUNT as f64;
-    (n / (n - 1.0)) * (range * range / 4.0)
-};
-
-// ── Chebyshev parameters ─────────────────────────────────────────────────
-
-const GRID_POINTS: usize = 20_001;
-const SWEEP_LOWERS: [f64; 7] = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 0.01, 0.1];
-const SWEEP_DEGREES: [usize; 5] = [3, 5, 7, 9, 11];
-const PROBE_X: [f64; 4] = [0.001, 0.01, 0.1, 0.5];
-
-/// Normalization bounds to test in Section 2.
-const NORM_BOUNDS: [f64; 4] = [10.0, 50.0, 100.0, MAX_VAR_SAMPLE];
-
-/// Default Chebyshev interval for the pipeline.
-const CHEBY_LO_DEFAULT: f64 = 0.01;
-const CHEBY_HI_DEFAULT: f64 = 1.0;
-const CHEBY_DEGREE_DEFAULT: usize = 7;
-
-const ERROR_THRESHOLD: f64 = 1e-3;
-
-// ── Statistics ────────────────────────────────────────────────────────────
-
-fn sample_mean(data: &[f64]) -> f64 {
-    data.iter().sum::<f64>() / data.len() as f64
+/// Population std (divide by n), matching the encrypted pipeline.
+fn population_std(values: &[f64]) -> f64 {
+    let n = values.len() as f64;
+    let mean = values.iter().sum::<f64>() / n;
+    (values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n).sqrt()
 }
 
-fn sample_variance(data: &[f64]) -> f64 {
-    let n = data.len() as f64;
-    let mean = sample_mean(data);
-    let sum_sq = data.iter().map(|x| (x - mean).powi(2)).sum::<f64>();
-    sum_sq / (n - 1.0)
+fn normalize(reading: f64) -> f64 {
+    (reading.clamp(RANGE_LO, RANGE_HI) - RANGE_LO) / WIDTH
 }
 
-fn sample_std_dev(data: &[f64]) -> f64 {
-    sample_variance(data).sqrt()
+/// Normalized variance interval the sqrt is fitted on.
+fn variance_interval(std_min: f64, std_max: f64) -> (f64, f64) {
+    ((std_min / WIDTH).powi(2), (std_max / WIDTH).powi(2))
 }
 
-// ── Chebyshev math ───────────────────────────────────────────────────────
-
-fn to_chebyshev_domain(x: f64, lower: f64, upper: f64) -> f64 {
-    (2.0 * x - (upper + lower)) / (upper - lower)
+/// Approximate std in degC from a std in degC, through the normalized
+/// variance and the Chebyshev sqrt (what the encrypted pipeline computes).
+fn approx_std(std_dev: f64, interval: (f64, f64), coeffs: &[f64]) -> f64 {
+    let (lo, hi) = interval;
+    let variance_normalized = (std_dev / WIDTH).powi(2);
+    let t = to_chebyshev_domain(variance_normalized, lo, hi);
+    eval_chebyshev_clenshaw(t, coeffs) * WIDTH
 }
 
-fn from_chebyshev_domain(t: f64, lower: f64, upper: f64) -> f64 {
-    0.5 * ((upper - lower) * t + upper + lower)
+/// Max |approx - true| std error over the envelope, and where it occurs.
+fn max_envelope_error(std_min: f64, std_max: f64, degree: usize) -> (f64, f64) {
+    let interval = variance_interval(std_min, std_max);
+    let coeffs = fit_chebyshev(f64::sqrt, interval.0, interval.1, degree);
+    (0..GRID_POINTS)
+        .map(|i| {
+            let std_dev =
+                std_min + (std_max - std_min) * i as f64 / (GRID_POINTS - 1) as f64;
+            (
+                (approx_std(std_dev, interval, &coeffs) - std_dev).abs(),
+                std_dev,
+            )
+        })
+        .fold(
+            (0.0, std_min),
+            |worst, item| {
+                if item.0 > worst.0 { item } else { worst }
+            },
+        )
 }
 
-fn fit_sqrt_chebyshev(lower: f64, upper: f64, degree: usize) -> Vec<f64> {
-    let node_count = degree + 1;
-    let mut values = Vec::with_capacity(node_count);
-
-    for j in 0..node_count {
-        let theta = std::f64::consts::PI * (j as f64 + 0.5) / node_count as f64;
-        let t = theta.cos();
-        let x = from_chebyshev_domain(t, lower, upper);
-        values.push(x.sqrt());
-    }
-
-    let mut coeffs = vec![0.0; node_count];
-    for (k, coeff) in coeffs.iter_mut().enumerate() {
-        let sum = values
-            .iter()
-            .enumerate()
-            .map(|(j, value)| {
-                let theta =
-                    std::f64::consts::PI * (j as f64 + 0.5) / node_count as f64;
-                value * (k as f64 * theta).cos()
-            })
-            .sum::<f64>();
-
-        *coeff = if k == 0 {
-            sum / node_count as f64
-        } else {
-            2.0 * sum / node_count as f64
-        };
-    }
-
-    coeffs
-}
-
-fn eval_chebyshev_clenshaw(t: f64, coeffs: &[f64]) -> f64 {
-    assert!(!coeffs.is_empty(), "coefficients must not be empty");
-
-    let mut b_next = 0.0;
-    let mut b_next_next = 0.0;
-
-    for &coeff in coeffs.iter().skip(1).rev() {
-        let b = 2.0 * t * b_next - b_next_next + coeff;
-        b_next_next = b_next;
-        b_next = b;
-    }
-
-    t * b_next - b_next_next + coeffs[0]
-}
-
-fn approx_sqrt(x: f64, lower: f64, upper: f64, coeffs: &[f64]) -> f64 {
-    let t = to_chebyshev_domain(x, lower, upper);
-    eval_chebyshev_clenshaw(t, coeffs)
-}
-
-fn max_grid_error(lower: f64, upper: f64, coeffs: &[f64]) -> (f64, f64) {
-    let mut max_error = 0.0;
-    let mut max_x = lower;
-
-    for i in 0..GRID_POINTS {
-        let ratio = i as f64 / (GRID_POINTS - 1) as f64;
-        let x = lower + (upper - lower) * ratio;
-        let got = approx_sqrt(x, lower, upper, coeffs);
-        let error = (got - x.sqrt()).abs();
-
-        if error > max_error {
-            max_error = error;
-            max_x = x;
-        }
-    }
-
-    (max_error, max_x)
-}
-
-fn point_error(x: f64, lower: f64, upper: f64, coeffs: &[f64]) -> f64 {
-    (approx_sqrt(x, lower, upper, coeffs) - x.sqrt()).abs()
-}
-
-// ── Pipeline helpers ─────────────────────────────────────────────────────
-
-struct SqrtApproximator {
-    lower: f64,
-    upper: f64,
-    coeffs: Vec<f64>,
-}
-
-impl SqrtApproximator {
-    fn new(lower: f64, upper: f64, degree: usize) -> Self {
-        let coeffs = fit_sqrt_chebyshev(lower, upper, degree);
-        Self {
-            lower,
-            upper,
-            coeffs,
-        }
-    }
-
-    fn eval(&self, x: f64) -> f64 {
-        if x <= 0.0 {
-            return 0.0;
-        }
-        let clipped = if x < self.lower { self.lower } else { x };
-        approx_sqrt(clipped, self.lower, self.upper, &self.coeffs)
-    }
-}
-
-fn pipeline_std(
-    data: &[f64],
-    norm_bound: f64,
-    approx: &SqrtApproximator,
-) -> (f64, f64) {
-    let var = sample_variance(data);
-    let var_norm = var / norm_bound;
-    let sqrt_norm = approx.eval(var_norm);
-    let std_approx = sqrt_norm * norm_bound.sqrt();
-    let std_true = sample_std_dev(data);
-    (std_approx, std_true)
-}
-
-// ── Section 1: Chebyshev fit quality sweep ───────────────────────────────
+// ── Section 1: envelope x degree sweep ───────────────────────────────────
 
 fn section1() {
-    println!("=== Section 1: Chebyshev fit quality sweep ===\n");
-    println!("Sweep: LOWER x DEGREE, max error + probe points\n");
+    println!("=== Section 1: envelope x degree sweep (W = {WIDTH}) ===\n");
+    println!("Max std error (degC) over the envelope. Accuracy depends only on");
+    println!("std_max / std_min and the degree, not on the range width.\n");
 
-    let degrees = &SWEEP_DEGREES;
-    let lowers = &SWEEP_LOWERS;
-    let probes = &PROBE_X;
-
-    for &lower in lowers.iter() {
-        println!("LOWER = {lower:.0e}");
-
-        // header
-        print!("{:>7} ", "degree");
-        print!("{:>12} ", "max_err");
-        for &px in probes.iter() {
-            print!("err@{px:.3}  ");
-        }
-        println!();
-
-        for &deg in degrees.iter() {
-            if lower < 0.0 {
-                continue; // negative lower makes no sense for sqrt
-            }
-            let actual_lower = if lower == 0.0 { 1e-12 } else { lower };
-            let coeffs = fit_sqrt_chebyshev(actual_lower, CHEBY_HI_DEFAULT, deg);
-            let (max_err, _) =
-                max_grid_error(actual_lower, CHEBY_HI_DEFAULT, &coeffs);
-
-            print!("{deg:>7} ",);
-            print!("{max_err:>12.3e} ",);
-            for &px in probes.iter() {
-                if px < actual_lower {
-                    print!("{:>10} ", "N/A");
-                } else {
-                    let err =
-                        point_error(px, actual_lower, CHEBY_HI_DEFAULT, &coeffs);
-                    print!("{err:>10.3e} ",);
-                }
-            }
-            println!();
-        }
-        println!();
-    }
-
-    println!("(N/A = probe point below fit interval lower bound)\n");
-}
-
-// ── Section 2: Sensor std-dev pipeline ───────────────────────────────────
-
-fn section2() {
-    println!("=== Section 2: Sensor std-dev pipeline ===\n");
-
-    let data: Vec<f64> = SENSOR_DATA.to_vec();
-    let mean = sample_mean(&data);
-    let var = sample_variance(&data);
-    let std_true = sample_std_dev(&data);
-
-    println!("Input ({SENSOR_COUNT} sensors, range [{SENSOR_LO}, {SENSOR_HI}]):");
-    println!("  {SENSOR_DATA:?}\n");
-    println!("  true mean     = {mean:.8}");
-    println!("  true variance = {var:.8}  (sample, N-1 denominator)");
-    println!("  true std_dev  = {std_true:.8}\n");
-
-    println!("Theoretical bounds:");
-    println!("  max variance = {MAX_VAR_POP:.1} (population)");
-    println!("  max variance = {MAX_VAR_SAMPLE:.3} (sample, N={SENSOR_COUNT})");
-    println!("  max std_dev  = {:.3}", MAX_VAR_POP.sqrt());
-    println!("  max std_dev  = {:.3} (sample)\n", MAX_VAR_SAMPLE.sqrt());
-
-    println!(
-        "Chebyshev fit: [{CHEBY_LO_DEFAULT}, {CHEBY_HI_DEFAULT}], \
-         degree {CHEBY_DEGREE_DEFAULT}\n",
-    );
-
-    let approx = SqrtApproximator::new(
-        CHEBY_LO_DEFAULT,
-        CHEBY_HI_DEFAULT,
-        CHEBY_DEGREE_DEFAULT,
-    );
-
-    println!(
-        "{:>8}  {:>12}  {:>12}  {:>12}  {:>16}  {:>10}",
-        "B", "var_norm", "sqrt_norm_c", "sqrt_norm_t", "std_approx", "err"
-    );
-    println!(
-        "{:>8}  {:>12}  {:>12}  {:>12}  {:>16}  {:>10}",
-        "", "", "(cheb)", "(true)", "", ""
-    );
-
-    for &b in NORM_BOUNDS.iter() {
-        let var_norm = var / b;
-        let sqrt_norm_ch = approx.eval(var_norm);
-        let sqrt_norm_tr = var_norm.sqrt();
-        let std_approx = sqrt_norm_ch * b.sqrt();
-        let err = (std_approx - std_true).abs();
-
-        // Check if var_norm is inside fit interval
-        let clipped = if var_norm < CHEBY_LO_DEFAULT {
-            format!("(clipped @ {CHEBY_LO_DEFAULT}) {var_norm:.6e}")
-        } else if var_norm > CHEBY_HI_DEFAULT {
-            format!("(out of range!) {var_norm:.2e}")
-        } else {
-            format!("{var_norm:.6}")
-        };
-
-        let status = if err < ERROR_THRESHOLD { "OK" } else { "FAIL" };
-
-        println!(
-            "{b:>8.1}  {clipped:>12}  {sqrt_norm_ch:>12.8}  \
-             {sqrt_norm_tr:>12.8}  {std_approx:>16.10}  {err:>8.1e}  {status}"
-        );
+    print!("{:>14} {:>7}", "envelope", "ratio");
+    for degree in DEGREES {
+        print!("  {:>10}", format!("deg {degree}"));
     }
     println!();
+
+    for (std_min, std_max) in ENVELOPES {
+        let ratio = (std_max / std_min).powi(2);
+        print!("{:>14} {ratio:>7.0}", format!("[{std_min}, {std_max}]"));
+        for degree in DEGREES {
+            let (error, _) = max_envelope_error(std_min, std_max, degree);
+            print!("  {error:>10.3e}");
+        }
+        println!();
+    }
+
+    let (error, at) = max_envelope_error(STD_MIN, STD_MAX, DEGREE);
+    println!(
+        "\nDemo choice: [{STD_MIN}, {STD_MAX}] degC, degree {DEGREE} -> max error \
+         {error:.3} degC at std = {at:.2} degC\n"
+    );
 }
 
-// ── Section 3: Edge cases ────────────────────────────────────────────────
+// ── Section 2: demo pipeline in plaintext ────────────────────────────────
+
+fn section2() {
+    println!("=== Section 2: demo pipeline in plaintext ===\n");
+
+    let interval = variance_interval(STD_MIN, STD_MAX);
+    let coeffs = fit_chebyshev(f64::sqrt, interval.0, interval.1, DEGREE);
+    let max_coeff = coeffs.iter().fold(0.0f64, |m, c| m.max(c.abs()));
+
+    let normalized: Vec<f64> = READINGS.iter().map(|&x| normalize(x)).collect();
+    let std_normalized = population_std(&normalized);
+    let std_true = population_std(&READINGS);
+
+    let t = to_chebyshev_domain(std_normalized.powi(2), interval.0, interval.1);
+    let std_approx = eval_chebyshev_clenshaw(t, &coeffs) * WIDTH;
+
+    println!(
+        "Contract:     range [{RANGE_LO}, {RANGE_HI}] degC, envelope [{STD_MIN}, {STD_MAX}] degC"
+    );
+    println!(
+        "Fit interval: [{:.2e}, {:.2e}] (normalized variance)",
+        interval.0, interval.1
+    );
+    println!("Max |coeff|:  {max_coeff:.4} (small: no encoding limits in play)");
+    println!(
+        "Affine slope: {:.1} (4 / interval width)\n",
+        4.0 / (interval.1 - interval.0)
+    );
+    println!("Readings:     32 x 45 min, std {std_true:.6} degC");
+    println!("Normalized:   std {std_normalized:.6e} (= std / {WIDTH})");
+    println!(
+        "Chebyshev:    std {std_approx:.6} degC, error {:.2e} degC\n",
+        (std_approx - std_true).abs()
+    );
+}
+
+// ── Section 3: outside the envelope ──────────────────────────────────────
 
 fn section3() {
-    println!("=== Section 3: Edge cases ===\n");
+    println!("=== Section 3: behavior outside the envelope ===\n");
 
-    let approx = SqrtApproximator::new(
-        CHEBY_LO_DEFAULT,
-        CHEBY_HI_DEFAULT,
-        CHEBY_DEGREE_DEFAULT,
+    let interval = variance_interval(STD_MIN, STD_MAX);
+    let coeffs = fit_chebyshev(f64::sqrt, interval.0, interval.1, DEGREE);
+
+    println!(
+        "{:>12}  {:>12}  {:>10}  note",
+        "true std", "approx std", "error"
     );
-
-    // Case A: all same (variance = 0)
-    {
-        let data: Vec<f64> = vec![20.0; SENSOR_COUNT];
-        let var = sample_variance(&data);
-        let std_true = sample_std_dev(&data);
-        println!("Case A: all sensors = 20.0");
-        println!("  true variance = {var:.8}");
-        println!("  true std_dev  = {std_true:.8}");
-        for &b in NORM_BOUNDS.iter() {
-            let (std_approx, _) = pipeline_std(&data, b, &approx);
-            let err = (std_approx - std_true).abs();
-            let status = if err < ERROR_THRESHOLD { "OK" } else { "FAIL" };
-            println!(
-                "  B={b:>8.1}: std_approx={std_approx:.6}, \
-                 err={err:.2e}  {status}"
-            );
-        }
-        println!();
-    }
-
-    // Case B: extreme (half at min, half at max)
-    {
-        let half = SENSOR_COUNT / 2;
-        let other_half = SENSOR_COUNT - half;
-        let mut data = vec![SENSOR_LO; half];
-        data.extend(vec![SENSOR_HI; other_half]);
-        let var = sample_variance(&data);
-        let std_true = sample_std_dev(&data);
+    for (std_dev, note) in [
+        (0.0, "constant readings"),
+        (0.3, "indoor sensor"),
+        (STD_MIN, "envelope lower bound"),
+        (3.0, "typical outdoor day"),
+        (STD_MAX, "envelope upper bound"),
+        (10.0, "above envelope"),
+        (15.0, "far above envelope"),
+    ] {
+        let approx = approx_std(std_dev, interval, &coeffs);
         println!(
-            "Case B: extreme [{SENSOR_LO} x {half}, \
-             {SENSOR_HI} x {other_half}]"
+            "{std_dev:>12.2}  {approx:>12.4}  {:>10.2e}  {note}",
+            (approx - std_dev).abs()
         );
-        println!("  true variance = {var:.4}");
-        println!("  true std_dev  = {std_true:.4}");
-        for &b in NORM_BOUNDS.iter() {
-            let (std_approx, _) = pipeline_std(&data, b, &approx);
-            let err = (std_approx - std_true).abs();
-            let status = if err < ERROR_THRESHOLD { "OK" } else { "FAIL" };
-            let var_norm = var / b;
-            println!(
-                "  B={b:>8.1}: var_norm={var_norm:.4e}, std_approx={std_approx:.4}, \
-                 err={err:.2e}  {status}"
-            );
-        }
-        println!();
     }
-
-    // Case C: tiny jitter around 20
-    {
-        let mut data = Vec::with_capacity(SENSOR_COUNT);
-        for i in 0..SENSOR_COUNT {
-            if i % 2 == 0 {
-                data.push(20.0);
-            } else {
-                data.push(20.1);
-            }
-        }
-        let var = sample_variance(&data);
-        let std_true = sample_std_dev(&data);
-        println!("Case C: tiny jitter [20.0, 20.1, 20.0, 20.1, ...]");
-        println!("  true variance = {var:.8}");
-        println!("  true std_dev  = {std_true:.8}");
-        for &b in NORM_BOUNDS.iter() {
-            let (std_approx, _) = pipeline_std(&data, b, &approx);
-            let err = (std_approx - std_true).abs();
-            let var_norm = var / b;
-            let clipped = if var_norm < CHEBY_LO_DEFAULT {
-                "[clipped]"
-            } else {
-                ""
-            };
-            let status = if err < ERROR_THRESHOLD { "OK" } else { "FAIL" };
-            println!(
-                "  B={b:>8.1}: var_norm={var_norm:.6e} {clipped}, \
-                 std_approx={std_approx:.6}, err={err:.2e}  {status}"
-            );
-        }
-        println!();
-    }
+    println!(
+        "\nBelow the envelope the result is biased high; above it the \
+         polynomial diverges.\nThe client checks its plaintext std against \
+         the envelope before encrypting.\n"
+    );
 }
-
-// ── main ──────────────────────────────────────────────────────────────────
 
 fn main() {
     section1();

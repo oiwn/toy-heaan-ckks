@@ -164,15 +164,66 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
 
         // Coefficients are real by Hermitian symmetry; round to integers but
         // keep them in f64 so they may exceed the i64 range.
-        let max_bits = basis.total_bits().saturating_sub(1);
-        let limit = 2f64.powi(max_bits as i32);
         let mut rounded = [0f64; DEGREE];
         for (slot, c) in rounded.iter_mut().zip(coeff_vec.iter()) {
-            let value = c.re.round();
-            if !value.is_finite() || value.abs() >= limit {
-                return Err(EncodingError::CoefficientTooLarge { value, max_bits });
-            }
-            *slot = value;
+            *slot = c.re.round();
+        }
+        self.plaintext_from_rounded(&rounded, slots, basis)
+    }
+
+    // ── Scalar encoding ──────────────────────────────────────────────────────
+
+    /// Encodes one real value into every slot (SEAL-style scalar encode).
+    ///
+    /// Panicking wrapper around [`CkksEncoder::try_encode_constant`].
+    ///
+    /// # Panics
+    /// Panics if `value * 2^scale_bits` does not fit the basis modulus.
+    pub fn encode_constant(
+        &self,
+        value: f64,
+        basis: Arc<RnsBasis<DEGREE>>,
+    ) -> Plaintext<RnsPoly<DEGREE>, DEGREE> {
+        self.try_encode_constant(value, basis)
+            .unwrap_or_else(|err| panic!("encode_constant: {err}"))
+    }
+
+    /// Encodes one real value into every slot (SEAL-style scalar encode).
+    ///
+    /// A value repeated in all `DEGREE/2` slots is the constant polynomial
+    /// `round(value * 2^scale_bits)`, so this skips the DFT entirely: it is
+    /// exact and O(DEGREE). Scalars must always fill every slot — spreading
+    /// a constant over fewer slots gives a non-constant polynomial whose
+    /// coefficients can round away (e.g. `0.5` at 1 bit).
+    ///
+    /// # Errors
+    /// Returns [`EncodingError::CoefficientTooLarge`] under the same rule as
+    /// [`CkksEncoder::try_encode`].
+    pub fn try_encode_constant(
+        &self,
+        value: f64,
+        basis: Arc<RnsBasis<DEGREE>>,
+    ) -> EncodingResult<Plaintext<RnsPoly<DEGREE>, DEGREE>> {
+        let mut rounded = [0f64; DEGREE];
+        rounded[0] = (value * self.scale_factor()).round();
+        self.plaintext_from_rounded(&rounded, DEGREE / 2, basis)
+    }
+
+    /// Checks rounded coefficients against the basis modulus and reduces
+    /// them into per-prime residues.
+    fn plaintext_from_rounded(
+        &self,
+        rounded: &[f64; DEGREE],
+        slots: usize,
+        basis: Arc<RnsBasis<DEGREE>>,
+    ) -> EncodingResult<Plaintext<RnsPoly<DEGREE>, DEGREE>> {
+        let max_bits = basis.total_bits().saturating_sub(1);
+        let limit = 2f64.powi(max_bits as i32);
+        if let Some(&value) = rounded
+            .iter()
+            .find(|value| !value.is_finite() || value.abs() >= limit)
+        {
+            return Err(EncodingError::CoefficientTooLarge { value, max_bits });
         }
 
         let channels: Vec<[u64; DEGREE]> = basis
@@ -449,6 +500,45 @@ mod tests {
         assert_eq!(bits, max_bits);
         assert!(value.abs() >= 2f64.powi(max_bits as i32));
         assert!(encoder.try_encode(&[-limit_value; 8], basis).is_err());
+    }
+
+    /// A scalar fills every slot and is exactly the constant polynomial.
+    #[test]
+    fn encode_constant_is_exact_constant_polynomial() {
+        let basis = wide_basis();
+        let encoder = CkksEncoder::<16>::new(1);
+
+        // 0.5 at 1 bit -> the integer 1 in coefficient 0, zeros elsewhere.
+        let pt = encoder.encode_constant(0.5, basis.clone());
+        let mut poly = pt.poly.clone();
+        poly.to_coeff_domain();
+        let mut residues = vec![0u64; basis.channel_count()];
+        for idx in 0..16 {
+            for (residue, channel) in residues.iter_mut().zip(poly.channels()) {
+                *residue = channel[idx];
+            }
+            let want = if idx == 0 { 1.0 } else { 0.0 };
+            assert_eq!(basis.reconstruct_centered_coeff_f64(&residues), want);
+        }
+
+        let encoder = CkksEncoder::<16>::new(61);
+        let decoded = encoder.decode(&encoder.encode_constant(-635.25, basis));
+        assert_eq!(decoded.len(), 8, "a scalar fills all DEGREE/2 slots");
+        for got in decoded {
+            assert!((got + 635.25).abs() < 1e-9, "decoded {got}");
+        }
+    }
+
+    #[test]
+    fn encode_constant_rejects_out_of_range() {
+        let basis = wide_basis();
+        let encoder = CkksEncoder::<16>::new(61);
+        assert!(
+            encoder
+                .try_encode_constant(2f64.powi(200), basis.clone())
+                .is_err()
+        );
+        assert!(encoder.try_encode_constant(f64::NAN, basis).is_err());
     }
 
     #[test]

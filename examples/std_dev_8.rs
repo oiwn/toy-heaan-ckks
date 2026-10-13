@@ -302,8 +302,7 @@ fn main() {
     );
     println!();
 
-    let ct_mean =
-        mul_plain_scalar(&ct_sum, 1.0 / SLOTS as f64, SCALAR_SCALE, SLOTS);
+    let ct_mean = mul_plain_scalar(&ct_sum, 1.0 / SLOTS as f64, SCALAR_SCALE);
     println!(
         "After mean = sum * 1/{SLOTS}: logp={}, logq={}, primes={}",
         ct_mean.logp,
@@ -352,7 +351,7 @@ fn main() {
     let rotkeys_sq = make_rotkeys(&engine_sq, &sk_sq, &mut rng);
     let ct_var_sum = sum_slots(&ct_sq_diff, SLOTS, &rotkeys_sq);
     let ct_variance =
-        mul_plain_scalar(&ct_var_sum, 1.0 / SLOTS as f64, SCALAR_SCALE, SLOTS);
+        mul_plain_scalar(&ct_var_sum, 1.0 / SLOTS as f64, SCALAR_SCALE);
     println!(
         "After variance = sum_sq_diff * 1/{SLOTS}: logp={}, logq={}, primes={}",
         ct_variance.logp,

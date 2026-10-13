@@ -32,6 +32,13 @@ pre-commit install                          # install git hooks
 - Clippy: fix warnings; allow specific lints only when necessary
 - prefer to use plain ascii instead of unicode for math!
 
+**File Editing (agents)**
+- Edit files with the dedicated edit/patch tool (exact, reviewable diffs)
+- Never edit files through Python, sed, awk, or shell heredoc scripts
+- Never delete files: move them into `tmp/` at the project root (gitignored),
+  keeping their relative path, e.g. `tmp/src/encoding/fft.rs`; the operator
+  deletes for real
+
 **Key File Paths**
 - `src/crypto/` - engine, builder, operations, types
 - `src/rings/backends/` - Naive, RNS, BigInt, NTT backends

@@ -70,11 +70,14 @@ pub fn generate_rotation_key_set<R: rand::Rng, const DEGREE: usize>(
         .collect()
 }
 
-/// Sums all packed slots into every slot via a binary rotation tree.
+/// Sums windows of `slots` consecutive slots via a binary rotation tree.
 ///
-/// `ct = Enc([x0, ..., x_{slots-1}])` becomes
-/// `Enc([sum, ..., sum])` with `sum = x0 + ... + x_{slots-1}`.
-/// Consumes no levels; the level and basis are unchanged.
+/// Slot `i` of the result holds `x_i + ... + x_{i+slots-1}` (indices mod
+/// `DEGREE / 2`, since rotations wrap over all CKKS slots). So
+/// `Enc([x0, ..., x_{slots-1}])` becomes `Enc([sum, ..., sum])` in every
+/// slot only if `slots == DEGREE / 2` or the input is tiled (slot `i` holds
+/// `x_{i mod slots}`). With unfilled slots left at zero, only slot 0 holds
+/// the full sum. Consumes no levels; the level and basis are unchanged.
 ///
 /// # Panics
 /// Panics if `slots` is not a power of two, exceeds `DEGREE / 2`, or a
@@ -107,23 +110,24 @@ pub fn sum_slots<const DEGREE: usize>(
 
 // ── Scalar multiplication ────────────────────────────────────────────────────
 
-/// Multiplies every one of `slots` packed slots by a known constant and
-/// rescales back to one scale.
+/// Multiplies every slot by a known constant and rescales back to one scale.
 ///
-/// The scalar is broadcast to all `slots` before encoding (CKKS plaintext
-/// multiplication is slot-wise), encoded at `scalar_scale_bits` precision in
-/// the ciphertext's current basis, multiplied via
-/// [`CkksEngine::mul_plaintext`] (no relinearization needed), then rescaled.
+/// The scalar is encoded into all slots ([`CkksEncoder::encode_constant`],
+/// an exact constant polynomial) at `scalar_scale_bits` precision in the
+/// ciphertext's current basis, multiplied via [`CkksEngine::mul_plaintext`]
+/// (no relinearization needed), then rescaled.
 ///
 /// # Panics
-/// Panics if `slots` exceeds `DEGREE / 2` or the rescale fails.
+/// Panics if `scalar * 2^scalar_scale_bits` does not fit the basis modulus
+/// or the rescale fails.
 pub fn mul_plain_scalar<const DEGREE: usize>(
     ct: &Ct<DEGREE>,
     scalar: f64,
     scalar_scale_bits: u32,
-    slots: usize,
 ) -> Ct<DEGREE> {
-    mul_plain_slots(ct, &vec![scalar; slots], scalar_scale_bits)
+    let encoder = CkksEncoder::<DEGREE>::new(scalar_scale_bits);
+    let pt = encoder.encode_constant(scalar, ct.c0.basis().clone());
+    mul_plaintext_and_rescale(ct, &pt, "mul_plain_scalar")
 }
 
 /// [`mul_plain_scalar`] for a full slot vector of plaintext constants
@@ -149,17 +153,25 @@ pub fn mul_plain_slots<const DEGREE: usize>(
 
     let encoder = CkksEncoder::<DEGREE>::new(scalar_scale_bits);
     let pt = encoder.encode(constants, ct.c0.basis().clone());
+    mul_plaintext_and_rescale(ct, &pt, "mul_plain_slots")
+}
 
-    let product = CkksEngine::<RnsPoly<DEGREE>, DEGREE>::mul_plaintext(ct, &pt);
+/// `ct * pt`, rescaled, with logp lifted back to `ct.logp` if needed.
+fn mul_plaintext_and_rescale<const DEGREE: usize>(
+    ct: &Ct<DEGREE>,
+    pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>,
+    caller: &str,
+) -> Ct<DEGREE> {
+    let product = CkksEngine::<RnsPoly<DEGREE>, DEGREE>::mul_plaintext(ct, pt);
     let rescaled =
         CkksEngine::<RnsPoly<DEGREE>, DEGREE>::rescale_ciphertext(&product)
-            .expect("mul_plain_slots: rescale");
+            .unwrap_or_else(|err| panic!("{caller}: rescale: {err}"));
 
-    // A scalar encoded with fewer bits than the dropped prime leaves logp
+    // A plaintext encoded with fewer bits than the dropped prime leaves logp
     // short after the rescale; lift it back so callers see an unchanged
     // scale. Level-free.
     if rescaled.logp < ct.logp {
-        mul_plain_exact(&rescaled, 1.0, ct.logp - rescaled.logp, constants.len())
+        mul_plain_exact(&rescaled, 1.0, ct.logp - rescaled.logp)
     } else {
         rescaled
     }
@@ -168,10 +180,12 @@ pub fn mul_plain_slots<const DEGREE: usize>(
 /// Plaintext multiplication **without** the rescale: `logp` grows by
 /// `scalar_scale_bits` and one prime is NOT consumed.
 ///
-/// Encoding scalar `1.0` at `k` bits rounds to the integer `2^k`, so the
-/// slot values are unchanged while `logp += k` — a level-free scale lift.
-/// Encoding `0.5` at 1 bit rounds to `1`, halving the slot values — the
-/// level-free way to fold the `t = two_t / 2` of the Clenshaw final step.
+/// Encoding scalar `1.0` at `k` bits gives the constant polynomial `2^k`, so
+/// the slot values are unchanged while `logp += k` — a level-free scale
+/// lift. Encoding `0.5` at 1 bit gives the constant `1`, halving the slot
+/// values — the level-free way to fold the `t = two_t / 2` of the Clenshaw
+/// final step. Both rely on the scalar filling every slot
+/// ([`CkksEncoder::encode_constant`]).
 ///
 /// # Panics
 /// Panics if `scalar * 2^scalar_scale_bits` does not fit the basis modulus.
@@ -179,11 +193,9 @@ pub fn mul_plain_exact<const DEGREE: usize>(
     ct: &Ct<DEGREE>,
     scalar: f64,
     scalar_scale_bits: u32,
-    slots: usize,
 ) -> Ct<DEGREE> {
     let encoder = CkksEncoder::<DEGREE>::new(scalar_scale_bits);
-    let values = vec![scalar; slots];
-    let pt = encoder.encode(&values, ct.c0.basis().clone());
+    let pt = encoder.encode_constant(scalar, ct.c0.basis().clone());
     CkksEngine::<RnsPoly<DEGREE>, DEGREE>::mul_plaintext(ct, &pt)
 }
 
@@ -361,10 +373,10 @@ impl<const DEGREE: usize> LeveledEvaluator<DEGREE> {
 /// shifts every slot by `value` without a level or fresh encryption.
 ///
 /// # Panics
-/// Panics if `value` is not finite.
+/// Panics if `value` is not finite or `value * 2^scale_bits` does not fit
+/// the basis modulus.
 pub fn trivial_constant_ct<const DEGREE: usize>(
     value: f64,
-    slots: usize,
     scale_bits: u32,
     basis: Arc<RnsBasis<DEGREE>>,
     logq: u32,
@@ -375,8 +387,7 @@ pub fn trivial_constant_ct<const DEGREE: usize>(
     );
 
     let encoder = CkksEncoder::<DEGREE>::new(scale_bits);
-    let values = vec![value; slots];
-    let pt = encoder.encode(&values, basis.clone());
+    let pt = encoder.encode_constant(value, basis.clone());
 
     let zeros = vec![[0u64; DEGREE]; basis.channel_count()];
     let c1 = RnsPoly::from_channels(zeros, basis, false)
@@ -421,7 +432,6 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
     coeffs: &[f64],
     lower: f64,
     upper: f64,
-    slots: usize,
     evaluator: &mut LeveledEvaluator<DEGREE>,
     rng: &mut R,
 ) -> Ct<DEGREE> {
@@ -431,8 +441,8 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
     // two_t = 4/(hi-lo) * v - 2*(hi+lo)/(hi-lo), then Clenshaw needs only
     // ciphertext multiplications by two_t.
     let span = upper - lower;
-    let two_t = mul_plain_scalar(v_ct, 4.0 / span, v_ct.logp, slots);
-    let two_t = sub_constant(&two_t, 2.0 * (upper + lower) / span, slots);
+    let two_t = mul_plain_scalar(v_ct, 4.0 / span, v_ct.logp);
+    let two_t = sub_constant(&two_t, 2.0 * (upper + lower) / span);
 
     // b_n = c_n (constant), b_{n+1} = 0 — both as trivial ciphertexts at
     // two_t's level.
@@ -440,8 +450,8 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
     let logq = two_t.logq;
     let scale_bits = two_t.logp;
     let mut b_next =
-        trivial_constant_ct(coeffs[degree], slots, scale_bits, basis.clone(), logq);
-    let mut b_next_next = trivial_constant_ct(0.0, slots, scale_bits, basis, logq);
+        trivial_constant_ct(coeffs[degree], scale_bits, basis.clone(), logq);
+    let mut b_next_next = trivial_constant_ct(0.0, scale_bits, basis, logq);
 
     // b_k = two_t * b_{k+1} - b_{k+2} + c_k, for k = n-1 down to 1.
     // (c_0 is NOT a recurrence term; it enters only the final step.)
@@ -459,7 +469,7 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
             &b_k,
             &b_next_next,
         );
-        b_k = add_constant(&b_k, c_k, slots);
+        b_k = add_constant(&b_k, c_k);
 
         b_next_next = b_next;
         b_next = b_k;
@@ -474,38 +484,27 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
     let two_t_aligned = align_level(&two_t, target, b_next.logq);
     let product = evaluator.mul(&two_t_aligned, &b_next, rng);
 
-    let t_times_b0 = mul_plain_exact(&product, 0.5, 1, slots);
+    let t_times_b0 = mul_plain_exact(&product, 0.5, 1);
 
     let b_one =
         align_level(&b_next_next, t_times_b0.c0.basis().clone(), t_times_b0.logq);
-    let b_one = mul_plain_exact(&b_one, 1.0, 1, slots);
+    let b_one = mul_plain_exact(&b_one, 1.0, 1);
 
     let result =
         CkksEngine::<RnsPoly<DEGREE>, DEGREE>::sub_ciphertexts(&t_times_b0, &b_one);
-    add_constant(&result, coeffs[0], slots)
+    add_constant(&result, coeffs[0])
 }
 
 /// Shifts every slot down by `value` using a trivial ciphertext; consumes no
 /// level.
-fn sub_constant<const DEGREE: usize>(
-    ct: &Ct<DEGREE>,
-    value: f64,
-    slots: usize,
-) -> Ct<DEGREE> {
-    let neg =
-        trivial_constant_ct(-value, slots, ct.logp, ct.c0.basis().clone(), ct.logq);
-    CkksEngine::<RnsPoly<DEGREE>, DEGREE>::add_ciphertexts(ct, &neg)
+fn sub_constant<const DEGREE: usize>(ct: &Ct<DEGREE>, value: f64) -> Ct<DEGREE> {
+    add_constant(ct, -value)
 }
 
 /// Shifts every slot up by `value` using a trivial ciphertext; consumes no
 /// level.
-fn add_constant<const DEGREE: usize>(
-    ct: &Ct<DEGREE>,
-    value: f64,
-    slots: usize,
-) -> Ct<DEGREE> {
-    let pos =
-        trivial_constant_ct(value, slots, ct.logp, ct.c0.basis().clone(), ct.logq);
+fn add_constant<const DEGREE: usize>(ct: &Ct<DEGREE>, value: f64) -> Ct<DEGREE> {
+    let pos = trivial_constant_ct(value, ct.logp, ct.c0.basis().clone(), ct.logq);
     CkksEngine::<RnsPoly<DEGREE>, DEGREE>::add_ciphertexts(ct, &pos)
 }
 
@@ -652,7 +651,6 @@ mod tests {
             &coeffs,
             lower,
             upper,
-            SLOTS,
             &mut evaluator,
             &mut rng,
         );
@@ -668,6 +666,60 @@ mod tests {
             assert!(
                 (got - want).abs() < 1e-3,
                 "slot {slot}: encrypted {got} vs plaintext {want}"
+            );
+        }
+    }
+
+    /// Regression: the input fills only 2 of 8 slots (zero-padded). Scalars
+    /// used to be broadcast to just the filled slots, which made the
+    /// level-free `0.5 @ 1 bit` halving round to the zero polynomial.
+    #[test]
+    fn encrypted_clenshaw_with_partially_filled_slots() {
+        const N: usize = 16;
+        const SCALE: u32 = 61;
+
+        let (lower, upper) = (1e-4, 6.4e-3);
+        let degree = 3;
+        let coeffs = fit_chebyshev(f64::sqrt, lower, upper, degree);
+        let input = [8.2e-4, 3.0e-3];
+
+        let primes = generate_primes(SCALE as usize, degree + 4, N as u64);
+        let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
+        let logq = basis.total_bits();
+        let params = CkksParams {
+            error_variance: 3.2,
+            hamming_weight: N / 2,
+            scale_bits: SCALE,
+        };
+        let engine =
+            CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params.clone());
+        let mut rng = ChaCha20Rng::seed_from_u64(99);
+        let sk = engine.generate_secret_key(&mut rng).expect("sk");
+        let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
+
+        let pt = CkksEncoder::<N>::new(SCALE).encode(&input, basis);
+        let ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+
+        let mut evaluator = LeveledEvaluator::new(params, sk);
+        let result = eval_chebyshev_encrypted(
+            &ct,
+            &coeffs,
+            lower,
+            upper,
+            &mut evaluator,
+            &mut rng,
+        );
+
+        let decoded = decode_wide(&evaluator.decrypt(&result));
+        for (slot, &x) in input.iter().enumerate() {
+            let want = eval_chebyshev_clenshaw(
+                to_chebyshev_domain(x, lower, upper),
+                &coeffs,
+            );
+            assert!(
+                (decoded[slot] - want).abs() < 1e-9,
+                "slot {slot}: encrypted {} vs plaintext {want}",
+                decoded[slot]
             );
         }
     }

@@ -1,6 +1,8 @@
 //! Encrypted standard deviation over range-normalized sensor readings,
 //! composed from the library's generic pipeline ops.
 
+use std::time::{Duration, Instant};
+
 use rand::Rng;
 use toy_heaan_ckks::crypto::CkksEngine;
 use toy_heaan_ckks::crypto::pipeline::{
@@ -10,6 +12,41 @@ use toy_heaan_ckks::crypto::pipeline::{
 use toy_heaan_ckks::rings::backends::rns_ntt::RnsPoly;
 
 use crate::contract::SensorContract;
+
+/// One pipeline stage as observed after it ran.
+#[derive(Clone, Debug)]
+pub struct Stage {
+    pub name: &'static str,
+    /// RNS channels left in the stage's output ciphertext.
+    pub channels: usize,
+    /// Scale bits of the stage's output ciphertext.
+    pub logp: u32,
+    pub elapsed: Duration,
+}
+
+/// Result of [`encrypted_std_dev`] plus what the demo wants to show.
+pub struct StdDevRun<const DEGREE: usize> {
+    /// Std in normalized units (restore with `SensorContract::restore_std`).
+    pub std_normalized: Ct<DEGREE>,
+    /// Intermediate encrypted variance in normalized units.
+    pub variance: Ct<DEGREE>,
+    pub stages: Vec<Stage>,
+}
+
+/// Records `ct`'s level and scale under `name`, timed from `started`.
+fn record<const DEGREE: usize>(
+    stages: &mut Vec<Stage>,
+    name: &'static str,
+    ct: &Ct<DEGREE>,
+    started: Instant,
+) {
+    stages.push(Stage {
+        name,
+        channels: ct.c0.basis().channel_count(),
+        logp: ct.logp,
+        elapsed: started.elapsed(),
+    });
+}
 
 /// Full encrypted standard deviation over packed, normalized slots:
 ///
@@ -22,9 +59,12 @@ use crate::contract::SensorContract;
 /// std_n    = Chebyshev-sqrt(variance)          -- encrypted Clenshaw
 /// ```
 ///
-/// `ct` must hold readings normalized with [`SensorContract::normalize`].
-/// The result is the std in normalized units; decrypt and map it back with
-/// [`SensorContract::restore_std`]. The sqrt is fitted on
+/// `ct` must hold readings normalized with [`SensorContract::normalize`],
+/// tiled over all `DEGREE / 2` slots (slot `i` = reading `i mod slots`) so
+/// the rotation tree puts the full sum, and hence the mean, in every slot.
+/// The result holds the std in normalized units (decrypt and map it back
+/// with [`SensorContract::restore_std`]), the intermediate variance, and a
+/// per-stage trace. The sqrt is fitted on
 /// [`SensorContract::variance_interval`].
 ///
 /// Levels consumed: 3 + degree + 1 (mean, square, variance, affine map,
@@ -41,31 +81,54 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     degree: usize,
     evaluator: &mut LeveledEvaluator<DEGREE>,
     rng: &mut R,
-) -> Ct<DEGREE> {
+) -> StdDevRun<DEGREE> {
     let (var_lo, var_hi) = contract.variance_interval();
     let coeffs = fit_chebyshev(f64::sqrt, var_lo, var_hi, degree);
+    let mut stages = Vec::new();
 
     // mean = sum * 1/slots
+    let started = Instant::now();
     let sum_ct = evaluator.sum_slots(ct, slots, rng);
-    let mean_ct = mul_plain_scalar(&sum_ct, 1.0 / slots as f64, ct.logp, slots);
+    record(&mut stages, "sum readings", &sum_ct, started);
+
+    let started = Instant::now();
+    let mean_ct = mul_plain_scalar(&sum_ct, 1.0 / slots as f64, ct.logp);
+    record(&mut stages, "mean (x 1/n)", &mean_ct, started);
 
     // centered = input - mean, at the mean's level
+    let started = Instant::now();
     let ct_aligned = align_level(ct, mean_ct.c0.basis().clone(), mean_ct.logq);
     let centered = CkksEngine::<RnsPoly<DEGREE>, DEGREE>::sub_ciphertexts(
         &ct_aligned,
         &mean_ct,
     );
+    record(&mut stages, "center", &centered, started);
 
     // variance = sum of squared deviations * 1/slots
+    let started = Instant::now();
     let sq_diff = evaluator.mul(&centered, &centered, rng);
+    record(&mut stages, "square", &sq_diff, started);
+
+    let started = Instant::now();
     let var_sum = evaluator.sum_slots(&sq_diff, slots, rng);
-    let variance =
-        mul_plain_scalar(&var_sum, 1.0 / slots as f64, sq_diff.logp, slots);
+    record(&mut stages, "sum squares", &var_sum, started);
+
+    let started = Instant::now();
+    let variance = mul_plain_scalar(&var_sum, 1.0 / slots as f64, sq_diff.logp);
+    record(&mut stages, "variance (x 1/n)", &variance, started);
 
     // std_n = sqrt(variance) via encrypted Clenshaw on the contract envelope
-    eval_chebyshev_encrypted(
-        &variance, &coeffs, var_lo, var_hi, slots, evaluator, rng,
-    )
+    let started = Instant::now();
+    let std_normalized = eval_chebyshev_encrypted(
+        &variance, &coeffs, var_lo, var_hi, evaluator, rng,
+    );
+    record(&mut stages, "chebyshev sqrt", &std_normalized, started);
+
+    StdDevRun {
+        std_normalized,
+        variance,
+        stages,
+    }
 }
 
 #[cfg(test)]
@@ -141,12 +204,22 @@ mod tests {
             &mut rng,
         );
         assert_eq!(
-            result.c0.basis().channel_count(),
+            result.std_normalized.c0.basis().channel_count(),
             2,
             "13 primes - 11 levels = 2 channels left"
         );
+        assert_eq!(result.stages.len(), 7, "one trace entry per stage");
 
-        let decoded = decode_wide(&evaluator.decrypt(&result));
+        // Intermediate variance: CKKS noise only, restored to degC^2.
+        let variance = std_dev * std_dev;
+        let variance_got = decode_wide(&evaluator.decrypt(&result.variance))[0]
+            * contract.width().powi(2);
+        assert!(
+            (variance_got - variance).abs() < 1e-6,
+            "encrypted variance {variance_got} vs plaintext {variance}"
+        );
+
+        let decoded = decode_wide(&evaluator.decrypt(&result.std_normalized));
 
         // Encryption fidelity: match the plaintext Chebyshev evaluation.
         let (var_lo, var_hi) = contract.variance_interval();

@@ -9,6 +9,16 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-10-13 — Sensor std-dev end-to-end (M1 CKKS green + M2 native demo)
+
+- Roadmap M1 + M2 closed through tasks 0001, 0004, 0002, 0003.
+- Decisions locked: sensor range contract `[-40, 60]` degC with std envelope `[1, 8]` degC, Chebyshev degree 7, 13 x 61-bit primes at N = 8192, 32 readings (one per 45 min) tiled over all slots, population std. Durable notes live in `specs/overview.md` gotchas.
+
+## 2026-10-13 — sensor demo example
+
+- Native N = 8192 sensor demo: 32 readings, std within 1.1e-2 degC of plaintext in ~25 s; scalars now fill all slots (`encode_constant`), fixing a slot-broadcast bug.
+- Task `0003-sensor-demo-example`; source: user request 2026-10-12: revive project, CKKS green + native sensor demo with range normalization
+
 ## 2026-10-12 — range contract std dev
 
 - Sensor std-dev demo moved to `examples/sensor_std_dev/` (`SensorContract` + `encrypted_std_dev`); library keeps generic ops with `fit_chebyshev`; i64-era scalar clamp removed.
