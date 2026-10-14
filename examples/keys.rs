@@ -13,11 +13,11 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::keys::public_key::{PublicKey, PublicKeyParams};
-use toy_heaan_ckks::keys::relin_key::{
+use toy_heaan_ckks::ckks::keys::public_key::{PublicKey, PublicKeyParams};
+use toy_heaan_ckks::ckks::keys::relin_key::{
     RelinearizationKey, RelinearizationKeyParams,
 };
-use toy_heaan_ckks::keys::secret_key::{SecretKey, SecretKeyParams};
+use toy_heaan_ckks::ckks::keys::secret_key::{SecretKey, SecretKeyParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::rings::traits::PolyRing;

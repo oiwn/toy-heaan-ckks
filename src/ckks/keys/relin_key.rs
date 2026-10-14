@@ -102,7 +102,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::SecretKeyParams;
+    use crate::ckks::keys::SecretKeyParams;
     use crate::math::generate_primes;
     use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
     use rand::SeedableRng;

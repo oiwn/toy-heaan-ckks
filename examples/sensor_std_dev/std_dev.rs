@@ -4,8 +4,8 @@
 use std::time::{Duration, Instant};
 
 use rand::Rng;
-use toy_heaan_ckks::crypto::CkksEngine;
-use toy_heaan_ckks::crypto::pipeline::{
+use toy_heaan_ckks::ckks::CkksEngine;
+use toy_heaan_ckks::ckks::pipeline::{
     Ct, LeveledEvaluator, align_level, eval_chebyshev_encrypted, fit_chebyshev,
     mul_plain_scalar,
 };
@@ -137,11 +137,11 @@ mod tests {
 
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
-    use toy_heaan_ckks::crypto::engine::CkksParams;
-    use toy_heaan_ckks::crypto::pipeline::{
+    use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+    use toy_heaan_ckks::ckks::engine::CkksParams;
+    use toy_heaan_ckks::ckks::pipeline::{
         decode_wide, eval_chebyshev_clenshaw, to_chebyshev_domain,
     };
-    use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
     use toy_heaan_ckks::math::generate_primes;
     use toy_heaan_ckks::rings::backends::rns_ntt::RnsBasis;
 

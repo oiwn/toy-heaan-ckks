@@ -1,5 +1,5 @@
 use super::{CkksEngine, CkksError};
-use crate::crypto::engine::CkksParams;
+use crate::ckks::engine::CkksParams;
 use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use std::sync::Arc;
 

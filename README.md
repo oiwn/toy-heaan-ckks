@@ -86,9 +86,9 @@ which parameter sets currently behave well.
 ## Project Layout
 
 ```text
-src/crypto/              CKKS engine, pipeline, ciphertext types
-src/encoding/            CKKS encoder and special FFT
-src/keys/                Secret, public, relinearization, rotation keys
+src/ckks/                CKKS engine, pipeline, ciphertext types
+src/ckks/encoding/       CKKS encoder and special FFT
+src/ckks/keys/           Secret, public, relinearization, rotation keys
 src/math/                Prime generation, sampling, utility math
 src/rings/backends/      RNS-NTT polynomial backend
 src/rings/traits.rs      Backend traits used by the engine
@@ -112,8 +112,8 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 

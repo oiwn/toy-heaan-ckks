@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use rustfft::num_complex::Complex64;
 
-use crate::crypto::types::Plaintext;
+use crate::ckks::types::Plaintext;
 use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
 use super::special_fft::{

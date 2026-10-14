@@ -38,7 +38,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ### RNS-NTT Implementation
 
-- **Basis Management**: `src/rings/backends/rns` owns modulus-chain construction, CRT reduction, and per-prime tables built from `src/math/primes.rs`.
+- **Basis Management**: `src/rings/backends/rns_ntt` owns modulus-chain construction, CRT reduction, and per-prime tables built from `src/math/primes.rs`.
 - **NTT Domain Storage**: Polynomials are kept in NTT form by default and lazily converted back when needed (e.g., decoding, CRT inspection).
 - **Sampling**: Error and ternary samplers operate channel-wise to stay compatible with the NTT layout.
 - **Diagnostics**: Helper utilities expose per-prime residues and CRT reconstructions for encode/decode testing.
@@ -120,7 +120,7 @@ Experimental library: ring backends are pluggable and the scheme sees the ring o
 
 ## Pipeline API
 
-`src/crypto/pipeline.rs` holds generic building blocks only: `sum_slots`, `mul_plain_scalar`/`mul_plain_slots`/`mul_plain_exact`, `align_level`, `decode_wide`, `LeveledEvaluator`, `eval_chebyshev_encrypted`, and the plaintext references `fit_chebyshev` and `eval_chebyshev_clenshaw`. Application code (the sensor std-dev demo: `SensorContract`, `encrypted_std_dev`) lives in `examples/sensor_std_dev/`; `[[example]] test = true` in Cargo.toml runs its tests under `cargo test`.
+`src/ckks/pipeline.rs` holds generic building blocks only: `sum_slots`, `mul_plain_scalar`/`mul_plain_slots`/`mul_plain_exact`, `align_level`, `decode_wide`, `LeveledEvaluator`, `eval_chebyshev_encrypted`, and the plaintext references `fit_chebyshev` and `eval_chebyshev_clenshaw`. Application code (the sensor std-dev demo: `SensorContract`, `encrypted_std_dev`) lives in `examples/sensor_std_dev/`; `[[example]] test = true` in Cargo.toml runs its tests under `cargo test`.
 
 Direction and active work: `specs/roadmap.md`, `specs/ctx.md`, `specs/tasks/`.
 
@@ -129,7 +129,7 @@ Direction and active work: `specs/roadmap.md`, `specs/ctx.md`, `specs/tasks/`.
 Verified against fhetextbook D-3.1/D-3.6/D-3.7 during the Phase A work (2026-08-17):
 
 - **Polynomials live in the coefficient domain at rest.** Encrypt, rotate, and all pipeline ops keep ciphertexts in coefficient domain; `mul_assign` requires both operands to share the domain flag. A trivial ciphertext built in NTT domain will trip `add_assign` domain asserts.
-- **Operations require `Arc::ptr_eq` bases.** Each `rescale_ciphertext` mints a fresh `Arc<RnsBasis>` for the dropped basis — two content-equal bases from separate rescales are NOT compatible. Align with the target ciphertext's own basis Arc (see `crypto::pipeline::align_level`).
+- **Operations require `Arc::ptr_eq` bases.** Each `rescale_ciphertext` mints a fresh `Arc<RnsBasis>` for the dropped basis — two content-equal bases from separate rescales are NOT compatible. Align with the target ciphertext's own basis Arc (see `ckks::pipeline::align_level`).
 - **Encoding limit is the modulus, not i64** (fixed in task 0004): a scaled coefficient must satisfy |coeff| < Q/2 for the plaintext's basis (checked as `2^(total_bits - 1)`; `try_encode` returns `EncodingError::CoefficientTooLarge`, `encode` panics). The final result must also fit the modulus left after all rescales.
 - **The encoder stages coefficients in f64**: precision is ~2^-52 relative to the largest scaled coefficient, so mixing huge and tiny slots costs the tiny ones absolute accuracy. Before task 0004 the staging was i64 (|slot| < 4 at scale 61, silent saturation); the scalar clamp in `mul_plain_slots` and the 1/10 pre-scaling date from that era.
 - **Gadget keys are level-bound**: a relin/rotation key only works at the channel count it was generated for. `LeveledEvaluator` regenerates and caches per level from the master secret key.

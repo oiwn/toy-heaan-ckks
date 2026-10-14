@@ -35,9 +35,9 @@ use std::sync::Arc;
 
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::keys::SecretKey;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
+use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -81,10 +81,10 @@ fn make_engine(
 
 /// One homomorphic multiplication + rescale.
 fn mul_and_rescale(
-    ct_a: &toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N>,
-    ct_b: &toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N>,
-    rlk: &toy_heaan_ckks::crypto::engine::RnsGadgetRelinKey<N>,
-) -> toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N> {
+    ct_a: &toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>,
+    ct_b: &toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>,
+    rlk: &toy_heaan_ckks::ckks::engine::RnsGadgetRelinKey<N>,
+) -> toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N> {
     let ct_prod =
         CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(ct_a, ct_b, rlk);
     CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod).expect("rescale")

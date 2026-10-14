@@ -40,10 +40,12 @@ pre-commit install                          # install git hooks
   deletes for real
 
 **Key File Paths**
-- `src/crypto/` - engine, builder, pipeline, types
-- `src/rings/backends/` - RNS-NTT backend
-- `src/encoding/` - CKKS encoder, special FFT
-- `src/keys/` - secret/public/relinearization/rotation keys
+- `src/ckks.rs`, `src/ckks/` - engine, builder, pipeline, types
+- `src/ckks/encoding/` - CKKS encoder, special FFT
+- `src/ckks/keys/` - secret/public/relinearization/rotation keys
+- `src/rings/backends/rns_ntt/` - RNS-NTT backend
+- `src/math/` - primes, sampling, utils
+- Module layout: `foo.rs` + `foo/`, never `mod.rs`
 - `examples/` - runnable demos
 - `tests/` - integration tests
 - `src/rings/traits.rs` - ring traits: `PolyRing`, `PolySampler`, `PolyAutomorphism`

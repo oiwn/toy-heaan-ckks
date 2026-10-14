@@ -1,11 +1,10 @@
-//! High-level CKKS cryptographic operations
-//!
-//! This module provides the main user-facing API for CKKS operations,
-//! including key generation, encryption, decryption, and homomorphic operations.
+//! CKKS scheme: encoding, keys, encryption and homomorphic operations.
 
 pub mod builder;
+pub mod encoding;
 pub mod engine;
 pub mod errors;
+pub mod keys;
 pub mod pipeline;
 pub mod types;
 

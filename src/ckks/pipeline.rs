@@ -22,12 +22,12 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use crate::crypto::engine::{
+use crate::ckks::encoding::ckks_encoder::CkksEncoder;
+use crate::ckks::engine::{
     CkksEngine, CkksParams, RnsGadgetRelinKey, RnsGadgetRotationKey,
 };
-use crate::crypto::types::{Ciphertext, Plaintext};
-use crate::encoding::ckks_encoder::CkksEncoder;
-use crate::keys::SecretKey;
+use crate::ckks::keys::SecretKey;
+use crate::ckks::types::{Ciphertext, Plaintext};
 use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
 /// Rotation keys indexed by (positive) slot offset.

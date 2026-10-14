@@ -48,9 +48,9 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::keys::SecretKey;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::table;
@@ -82,7 +82,7 @@ const BETA: f64 = 0.1;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-type Ct = toy_heaan_ckks::crypto::types::Ciphertext<RnsPoly<N>, N>;
+type Ct = toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>;
 type Sk = SecretKey<RnsPoly<N>, N>;
 type Basis = Arc<RnsBasis<N>>;
 
@@ -114,7 +114,7 @@ fn encrypt_scalar(
     logq: u32,
     encoder: &CkksEncoder<N>,
     engine: &CkksEngine<RnsPoly<N>, N>,
-    pk: &toy_heaan_ckks::keys::PublicKey<RnsPoly<N>, N>,
+    pk: &toy_heaan_ckks::ckks::keys::PublicKey<RnsPoly<N>, N>,
     rng: &mut ChaCha20Rng,
 ) -> Ct {
     let slots = N / 2;

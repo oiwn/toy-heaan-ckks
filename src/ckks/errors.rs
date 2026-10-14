@@ -14,7 +14,7 @@ pub enum CkksError {
     // #[error("Key operation failed: {source}")]
     // KeyError {
     //     #[from]
-    //     source: crate::keys::KeyError,
+    //     source: crate::ckks::keys::KeyError,
     // },
     #[error("Scale mismatch: expected {expected:.2}, got {actual:.2}")]
     ScaleMismatch { expected: f64, actual: f64 },

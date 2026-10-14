@@ -1,6 +1,6 @@
 //! Client-side sensor contract: reading range plus std envelope.
 
-use toy_heaan_ckks::crypto::{CkksError, CkksResult};
+use toy_heaan_ckks::ckks::{CkksError, CkksResult};
 
 /// Client-side contract for the sensor std-dev pipeline.
 ///
@@ -104,7 +104,7 @@ impl SensorContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toy_heaan_ckks::crypto::pipeline::fit_chebyshev;
+    use toy_heaan_ckks::ckks::pipeline::fit_chebyshev;
 
     #[test]
     fn sensor_contract_validates() {

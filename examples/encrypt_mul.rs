@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::keys::SecretKey;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 

@@ -19,10 +19,10 @@ use std::time::Instant;
 
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::CkksEngine;
-use toy_heaan_ckks::crypto::engine::CkksParams;
-use toy_heaan_ckks::crypto::pipeline::{LeveledEvaluator, decode_wide};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::CkksEngine;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::CkksParams;
+use toy_heaan_ckks::ckks::pipeline::{LeveledEvaluator, decode_wide};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 

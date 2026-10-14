@@ -114,7 +114,7 @@ Status of every part the demo needs:
 | Base-β gadget key switch | ✅ done 2026-07-04 |
 | Chebyshev sqrt coefficients + envelope | ✅ decided, plaintext-verified |
 | Encrypted Chebyshev eval (Clenshaw) | ✅ done 2026-08-17 |
-| Pipeline ops as library API | ✅ `src/crypto/pipeline.rs` |
+| Pipeline ops as library API | ✅ `src/ckks/pipeline.rs` |
 | **Serialization (serde) for ct/keys** | ❌ no derives yet (serde already a dep) |
 | **wasm32 build of the lib** | ❌ untested; `dhat`/`comfy-table`/`tracing-subscriber` sit in `[dependencies]`, getrandom needs the wasm backend |
 | DIGIT_BITS = 20 | ✅ done 2026-08-15 |
@@ -139,7 +139,7 @@ Status 2026-10-12: steps 1, 3, 4 done (see CHANGELOG). Steps 5–6 are now tasks
 
 1. `DIGIT_BITS` 15 → 20; re-run `cargo test`, `horner_chain`, `std_dev_8`.
 2. Serde derives for `RnsPoly`, `Ciphertext`, `Plaintext`, key types (`RnsBasis` reconstructed from prime list, not serialized wholesale); postcard round-trip test asserting exact byte sizes from the table above.
-3. Extract pipeline ops from `examples/std_dev_8.rs` into the library (`src/crypto/pipeline.rs`): `sum_slots`, `mul_plain_scalar`, `align_level` (ct+sk reduction), wide f64 decode.
+3. Extract pipeline ops from `examples/std_dev_8.rs` into the library (`src/ckks/pipeline.rs`): `sum_slots`, `mul_plain_scalar`, `align_level` (ct+sk reduction), wide f64 decode.
 4. Encrypted Chebyshev eval via Clenshaw in Chebyshev basis (ctx.md Phase 2): domain map is a plaintext affine op; each recurrence step one ct×ct mul; b-terms mod-switched to stay aligned. Test vs plaintext Clenshaw.
 5. `encrypted_std_dev` composing 3+4 (lives in `examples/sensor_std_dev/`, not the library).
 6. New native example `std_dev_demo_params.rs`: N=8192, 12 × 61-bit primes, 32 diurnal readings — asserts std-dev error < 0.11 °C (expect ~1e-2) and variance error < 1e-9. This is the acceptance gate for Phase A.
