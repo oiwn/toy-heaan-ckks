@@ -10,11 +10,12 @@ depends: [0007-module-layout]
 
 ## Plan
 
-- [ ] `RnsPoly::mod_switch_to(basis)`: keep the first channels of a prefix basis (replaces private `reduce_poly_to_basis`).
-- [ ] `Ciphertext::rescale()` (moves `CkksEngine::rescale_ciphertext`; shared basis `Arc`) and `Ciphertext::mod_switch_to(target: &Ciphertext)` (drops primes, computes `logq` itself; `logp` unchanged).
+- [ ] Context chain (fhe.rs): `RnsBasis` gets `next() -> Option<&Arc<RnsBasis>>`, the whole chain built once from the prime list; `rescale_into`/`drop_last` callers use `next()` instead of minting a fresh `Arc`.
+- [ ] `RnsPoly::mod_switch_to(basis)`: keep the first channels of a basis further down the same chain (replaces private `reduce_poly_to_basis`).
+- [ ] `Ciphertext::rescale()` (moves `CkksEngine::rescale_ciphertext`) and `Ciphertext::mod_switch_to(target: &Ciphertext)` (drops primes, computes `logq` itself; `logp` unchanged).
 - [ ] `SecretKey::mod_switch_to(basis)` replaces `reduce_secret_key`.
 - [ ] Remove `PolyRescale`, `PolyModSwitch`, the generic `Ciphertext::mod_switch`, `align_level`, `decode_wide` (callers use `CkksEncoder::decode`) and their re-exports.
-- [ ] Update callers (pipeline, examples); tests: rescale divides by the last prime, `mod_switch_to` keeps decrypting to the same slots.
+- [ ] Update callers (pipeline, examples); tests: two rescales of different ciphertexts land on the same basis `Arc`, rescale divides by the last prime, `mod_switch_to` keeps decrypting to the same slots; update the `Arc::ptr_eq` gotcha in `specs/overview.md`.
 
 ## Acceptance
 
@@ -27,7 +28,7 @@ depends: [0007-module-layout]
 
 ## Context
 
-On hold: revised after the backend design in `specs/ctx.md` is agreed (rescale/mod switch become backend trait ops). Terms (HEAAN/fhe.rs): rescale = divide by the last prime and drop it (`logp`, `logq` shrink); mod switch = drop primes without dividing (`logp` stays). Exact RNS methods, no trait while there is one backend.
+Terms (HEAAN/fhe.rs): rescale = divide by the last prime and drop it (`logp`, `logq` shrink); mod switch = drop primes without dividing (`logp` stays). Concrete `RnsPoly` methods here; 0011 lifts them into the backend trait.
 
 ## Log
 

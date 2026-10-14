@@ -14,9 +14,6 @@ The codebase currently centers on one concrete backend:
 - plaintext/ciphertext operations that keep polynomial channels in NTT form
   where possible
 
-Older README notes about separate naive, BigInt, and non-NTT backends are stale.
-The active path is the RNS-NTT backend used by the examples and tests.
-
 ## Build And Test
 
 ```bash
@@ -89,8 +86,8 @@ which parameter sets currently behave well.
 ## Project Layout
 
 ```text
-src/crypto/              CKKS engine, operations, ciphertext types
-src/encoding/            CKKS encoders and FFT helpers
+src/crypto/              CKKS engine, pipeline, ciphertext types
+src/encoding/            CKKS encoder and special FFT
 src/keys/                Secret, public, relinearization, rotation keys
 src/math/                Prime generation, sampling, utility math
 src/rings/backends/      RNS-NTT polynomial backend

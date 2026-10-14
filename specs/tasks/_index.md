@@ -3,12 +3,13 @@
 
 ## Draft
 
-- **0005-remove-dead-code** — draft — remove dead code (user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout)
-- **0006-trim-dependencies** — draft — trim dependencies (user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout)
 - **0007-module-layout** — draft — module layout (user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout)
 - **0008-ciphertext-levels** — draft — ciphertext levels (user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs)
 - **0009-ops-composition** — draft — ops composition (user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs)
 - **0010-chebyshev-module** — draft — chebyshev module (user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs)
+- **0011-backend-trait** — draft — backend trait (user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture))
+- **0012-generic-key-switching** — draft — generic key switching (user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture))
+- **0013-sage-education-scripts** — draft — sage education scripts (user request 2026-10-14: revive educational sage scripts demonstrating properties like Chebyshev polynomials)
 
 ## Done
 
@@ -16,3 +17,5 @@
 - **0002-range-contract-std-dev** — done — range contract std dev (user request 2026-10-12: revive project, CKKS green + native sensor demo with range normalization)
 - **0003-sensor-demo-example** — done — sensor demo example (user request 2026-10-12: revive project, CKKS green + native sensor demo with range normalization)
 - **0004-encoder-wide-staging** — done — encoder wide staging (user request 2026-10-12: encoder i64 staging caps |x| < 4 and saturates silently; widen like SEAL, keep f64 FFT)
+- **0005-remove-dead-code** — done — remove dead code (user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout)
+- **0006-trim-dependencies** — done — trim dependencies (user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout)

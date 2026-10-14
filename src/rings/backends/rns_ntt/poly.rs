@@ -120,14 +120,6 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
         &self.channels
     }
 
-    /// Mutable access to the raw per-channel residues.
-    ///
-    /// Callers must keep every coefficient reduced (`< q_i`); recombination
-    /// via [`RnsPoly::from_channels`] validates this, raw mutation does not.
-    pub fn channels_mut(&mut self) -> &mut [[u64; DEGREE]] {
-        &mut self.channels
-    }
-
     pub fn basis(&self) -> &Arc<RnsBasis<DEGREE>> {
         &self.basis
     }

@@ -40,22 +40,22 @@ pre-commit install                          # install git hooks
   deletes for real
 
 **Key File Paths**
-- `src/crypto/` - engine, builder, operations, types
-- `src/rings/backends/` - Naive, RNS, BigInt, NTT backends
-- `src/encoding/` - FFT, BigInt HEAAN-style, naive encoders
-- `src/keys/` - secret/public/relinearization keys
-- `examples/` - runnable demos per backend
-- `tests/` - encoder tables, properties, e2e tests
-- `src/rings/traits.rs` - abstract traits: `PolyRing`, `PolySampler`, `PolyRescale`
+- `src/crypto/` - engine, builder, pipeline, types
+- `src/rings/backends/` - RNS-NTT backend
+- `src/encoding/` - CKKS encoder, special FFT
+- `src/keys/` - secret/public/relinearization/rotation keys
+- `examples/` - runnable demos
+- `tests/` - integration tests
+- `src/rings/traits.rs` - ring traits: `PolyRing`, `PolySampler`, `PolyAutomorphism`
 
 **Scope**
 - Applies to entire repository; follow conventions for any files you touch
-- Targets CKKS/HEAAN development with Naive, RNS, and BigInt (U256) backends
+- Targets CKKS/HEAAN over pluggable ring backends (RNS-NTT today)
 - Educational implementation - not production-ready
 
 ## Documentation Links
 - Project Architecture: `specs/overview.md`
-- Current Tasks & Specifications: `specs/current_task.md`
+- Task files: `specs/tasks/`
 - Running task context: `specs/ctx.md` (keep this file up to date and remind the operator to record every active-task decision there)
 - FHE Textbook: https://fhetextbook.github.io - Comprehensive reference for FHE schemes
 - Build and test all examples to verify implementation

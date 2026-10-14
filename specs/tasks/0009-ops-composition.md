@@ -11,7 +11,7 @@ depends: [0008-ciphertext-levels]
 ## Plan
 
 - [ ] `src/ckks/ops.rs`: `std::ops` Add/Sub/Neg for ct+ct and ct+pt (fhe.rs style), replacing `add_ciphertexts`/`sub_ciphertexts`/`neg_ciphertext`.
-- [ ] Same file: `mul(ct, ct, relin_key)`, `mul_plain(ct, pt)`, `rotate(ct, k, rot_key)` moved out of `CkksEngine`; `sum_slots(ct, window, keys)` = rotate + add.
+- [ ] Same file: `mul(ct, ct, relin_key)`, `mul_plain(ct, pt)`, `rotate(ct, k, rot_key)` moved out of `CkksEngine`.
 - [ ] Remove `mul_plain_scalar`/`mul_plain_slots`/`mul_plain_exact`, `trivial_constant_ct`, `add_constant`/`sub_constant`: callers write `mul_plain(ct, &encode_constant(..))` + `rescale`, or `ct + &pt`.
 - [ ] Move `LeveledEvaluator` (per-level key cache) and the rotation-key helpers to `src/ckks/evaluator.rs`.
 - [ ] Update examples (sensor_std_dev, std_dev_8, rotation_*, encrypt_*) and tests; behavior unchanged (demo std error stays ~1e-2 degC).
@@ -28,7 +28,7 @@ depends: [0008-ciphertext-levels]
 
 ## Context
 
-On hold: revised after the backend design in `specs/ctx.md` is agreed. Keygen, encrypt and decrypt stay on `CkksEngine` here; whether the engine stays generic over `P` is an audit question.
+Ops stay concrete on `RnsPoly`; 0012 makes them generic. Keygen, encrypt and decrypt stay on `CkksEngine` for now. `sum_slots` moves in 0010 (algorithms).
 
 ## Log
 

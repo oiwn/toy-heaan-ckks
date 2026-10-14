@@ -32,6 +32,5 @@ dhat-heap.json
 .tmuxp.yaml
 *.txt
 .claude/
-data/*.py
 .DS_Store
 .demo_sum_db/

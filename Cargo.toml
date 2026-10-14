@@ -8,37 +8,23 @@ rand = "0.10"
 rand_chacha = "0.10"
 rand_distr = "0.6"
 rustfft = "6"
-dhat = "0.3"
 comfy-table = "7.2.2"
 thiserror = "2"
 num-complex = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_with = { version = "3", features = ["macros"] }
-serde_json = "1"
+# Planned: structured logging in the ckks ops.
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Planned: the M2.6 reference backend (one big modulus).
 crypto-bigint = { version = "0.6", features = ["alloc"] }
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 
 [dev-dependencies]
 approx = "0.5"
-axum = "0.8"
-tower = "0.5"
-base64 = "0.22"
-reqwest = { version = "0.13", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-fjall = "3"
-paste = "1"
-proptest = "1.10"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 debug = 1
-
-[features]
-dhat-heap = []    # if you are doing heap profiling
-dhat-ad-hoc = []  # if you are doing ad hoc profiling
 
 [[bench]]
 name = "primes"

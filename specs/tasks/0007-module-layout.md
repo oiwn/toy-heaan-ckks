@@ -10,13 +10,13 @@ depends: [0006-trim-dependencies]
 
 ## Plan
 
-Target layout (see `specs/ctx.md` Findings); `foo.rs` + `foo/` everywhere, no `mod.rs`.
+Layers from `specs/overview.md` Target architecture; `foo.rs` + `foo/` everywhere, no `mod.rs`.
 
 - [ ] `src/math.rs` + `math/{primes, sampling, utils}` (only the `mod.rs` move).
-- [ ] `src/rings.rs` + `rings/{basis, poly, errors, traits}`: flatten `rings/backends/rns_ntt/` (one backend).
+- [ ] `src/rings.rs` + `rings/traits.rs` + `rings/backends.rs` + `rings/backends/rns_ntt.rs` + `rns_ntt/{basis, poly, errors}` (keeps `backends/` for pluggable backends).
 - [ ] `src/ckks.rs` + `ckks/`: move in `crypto/*` (engine, builder, errors, pipeline, types), `encoding/*` (`ckks_encoder` -> `encoding`, `special_fft`) and `keys/*` -> `ckks/keys/`.
 - [ ] Update `use` paths in src, examples, tests, benches; `lib.rs` declares `math`, `rings`, `ckks`, `table`.
-- [ ] Mechanical only: no logic, item, or signature changes; module paths change (`crypto::` -> `ckks::`, `rings::rns_ntt::` -> `rings::`).
+- [ ] Mechanical only: no logic, item, or signature changes; only module paths change (`crypto::`, `encoding::`, `keys::` -> `ckks::...`).
 - [ ] No `mod.rs` left anywhere; update paths in specs/overview.md and AGENTS.md (Key File Paths).
 
 ## Acceptance
@@ -30,7 +30,7 @@ Target layout (see `specs/ctx.md` Findings); `foo.rs` + `foo/` everywhere, no `m
 
 ## Context
 
-On hold: revised after the backend design in `specs/ctx.md` is agreed (keeps `rings/backends/`). Moves are plain file moves; the operator stages them in git. All moves happen here once, so 0008-0010 only change code inside the new layout.
+Moves are plain file moves; the operator stages them in git. All moves happen here once, so 0008-0012 only change code inside the new layout.
 
 ## Log
 

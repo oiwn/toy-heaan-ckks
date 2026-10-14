@@ -96,6 +96,28 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 - Encoder i64 staging caps |slot| at ~4 at scale 2^61.
 - Demo parameters (N = 8192, 61-bit primes) are below 128-bit security; see `specs/demo.md`.
 
+## Target architecture (agreed 2026-10-13, M2.5)
+
+Experimental library: ring backends are pluggable and the scheme sees the ring only through one trait. Concepts borrowed from fhe.rs and tfhe-rs.
+
+- **Layers:**
+  1. `math/`: modular arithmetic, primes, distributions, NTT tables.
+  2. `rings/`: the backend trait, the level context chain, `backends/{rns_ntt, reference (M2.6)}`.
+  3. `ckks/`, generic over the backend: `params`, `encoding`, `plaintext`, `ciphertext`, `keys/` (secret, public, key_switching, relin, rotation), `ops`, `evaluator` (per-level key cache).
+  4. `ckks/algorithms`: `sum_slots`, Chebyshev; built only on `ops`. Applications (sensor std-dev) live in `examples/`.
+- **Backend trait** (ring `Z_Q[X]/(X^N + 1)` at a level; degree is a compile-time `const N`):
+  - arithmetic: `zero`, `add`, `sub`, `neg`, `mul` (negacyclic), `mul_small(i64)`;
+  - sampling: `uniform`, `gaussian(std_dev)`, `ternary(hamming_weight)`;
+  - automorphism `X -> X^k` (rotation, conjugation);
+  - modulus chain: `level()`, `rescale()` (divide by the last prime), `mod_switch_down(level)` (drop primes);
+  - encoding boundary: `from_rounded_f64`, `to_centered_f64`;
+  - gadget: `decompose(digit_bits)`, `gadget_scale(i, digit_bits)`.
+  - NTT vs coefficient domain is private to the backend.
+- **Context chain** (fhe.rs): every level's context is built once and shared (`next()`); polys at the same level share it, so there are no fresh-basis mismatches.
+- **Keys** (fhe.rs): one `KeySwitchingKey`, wrapped by the relin key and the rotation key.
+- **Ciphertext** (fhe.rs): level changes are methods (`rescale`, `mod_switch_to`); Add/Sub/Neg are `std::ops` impls.
+- **Style** (tfhe-rs): data types separate from algorithms; typed parameter newtypes (`DecompositionBaseLog`, `LevelCount`) where raw integers are ambiguous.
+
 ## Pipeline API
 
 `src/crypto/pipeline.rs` holds generic building blocks only: `sum_slots`, `mul_plain_scalar`/`mul_plain_slots`/`mul_plain_exact`, `align_level`, `decode_wide`, `LeveledEvaluator`, `eval_chebyshev_encrypted`, and the plaintext references `fit_chebyshev` and `eval_chebyshev_clenshaw`. Application code (the sensor std-dev demo: `SensorContract`, `encrypted_std_dev`) lives in `examples/sensor_std_dev/`; `[[example]] test = true` in Cargo.toml runs its tests under `cargo test`.

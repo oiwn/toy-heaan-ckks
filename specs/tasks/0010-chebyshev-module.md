@@ -10,7 +10,8 @@ depends: [0009-ops-composition]
 
 ## Plan
 
-- [ ] `src/ckks/chebyshev.rs`: encrypted Clenshaw (`eval_chebyshev_encrypted`) rewritten on `ops` + `Ciphertext::rescale`/`mod_switch_to`, plus `fit_chebyshev`, plaintext `eval_chebyshev_clenshaw` and the domain maps.
+- [ ] `src/ckks/algorithms.rs` + `algorithms/sum_slots.rs`: `sum_slots(ct, window, evaluator)` = rotate + add, with its rotation-offset helper.
+- [ ] `src/ckks/algorithms/chebyshev.rs`: encrypted Clenshaw (`eval_chebyshev_encrypted`) rewritten on `ops` + `Ciphertext::rescale`/`mod_switch_to`, plus `fit_chebyshev`, plaintext `eval_chebyshev_clenshaw` and the domain maps.
 - [ ] Move whatever remains of `src/ckks/pipeline.rs` to its home; move the empty file into `tmp/`.
 - [ ] Update examples (sensor_std_dev, sensor_std_plain, sqrt_chebyshev_plain); Chebyshev tests move with the code and stay green.
 
@@ -26,7 +27,7 @@ depends: [0009-ops-composition]
 
 ## Context
 
-On hold: revised after the backend design in `specs/ctx.md` is agreed.
+Algorithms use only `ops`, `Ciphertext` methods and the evaluator, never the ring directly (`specs/overview.md` Target architecture).
 
 ## Log
 

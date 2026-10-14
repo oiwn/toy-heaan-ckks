@@ -9,6 +9,16 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-10-14 — trim dependencies
+
+- Trimmed `Cargo.toml`: removed dhat, serde stack and 8 unused dev-dependencies plus the dhat features; `tracing-subscriber` moved to dev; `tracing` and `crypto-bigint` kept for planned work.
+- Task `0006-trim-dependencies`; source: user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout
+
+## 2026-10-14 — remove dead code
+
+- Moved dead code and stale artifacts (golden vectors, scripts, uncompiled encoders, `operations.rs`) into `tmp/`; removed commented-out code and `channels_mut`; fixed stale references.
+- Task `0005-remove-dead-code`; source: user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout
+
 ## 2026-10-13 — Sensor std-dev end-to-end (M1 CKKS green + M2 native demo)
 
 - Roadmap M1 + M2 closed through tasks 0001, 0004, 0002, 0003.
