@@ -63,15 +63,15 @@
 //! Required operations:
 //!
 //! ```text
-//! rotate_ciphertext(ct, offset)
-//! add_ciphertexts(ct1, ct2)
+//! ct.rotate(&rotk)
+//! &ct1 + &ct2
 //! rotation keys for offsets 1, 2, 4
 //! ```
 //!
 //! 3. Compute the encrypted mean.
 //!
 //! ```text
-//! mean_ct = mul_plain_scalar(sum_ct, 1.0 / 8.0)
+//! mean_ct = sum_ct.mul_const(1.0 / 8.0, logp).rescale()
 //! ```
 //!
 //! After this step:
@@ -83,14 +83,14 @@
 //! Required operations:
 //!
 //! ```text
-//! mul_plain_scalar(ct, scalar)
+//! ct.mul_const(scalar, scale_bits)
 //! rescale
 //! ```
 //!
 //! 4. Subtract the mean from the original input.
 //!
 //! ```text
-//! centered_ct = sub_ciphertexts(ct, mean_ct)
+//! centered_ct = &ct.match_level(&mean_ct) - &mean_ct
 //! ```
 //!
 //! After this step:
@@ -102,17 +102,14 @@
 //! Required operations:
 //!
 //! ```text
-//! neg_ciphertext(ct)
-//! add_ciphertexts(ct1, ct2)
-//! sub_ciphertexts(ct1, ct2)
-//! level/scale alignment before subtraction
+//! &ct1 - &ct2
+//! match_level before subtraction
 //! ```
 //!
 //! 5. Square each centered value.
 //!
 //! ```text
-//! sq_diff_ct = mul_ciphertexts_gadget(centered_ct, centered_ct, rlk)
-//! sq_diff_ct = rescale(sq_diff_ct)
+//! sq_diff_ct = centered_ct.mul(&centered_ct, &rlk).rescale()
 //! ```
 //!
 //! After this step:
@@ -129,7 +126,7 @@
 //! Required operations:
 //!
 //! ```text
-//! mul_ciphertexts_gadget(ct1, ct2, rlk)
+//! ct1.mul(&ct2, &rlk)
 //! rescale
 //! ```
 //!
@@ -152,7 +149,7 @@
 //! 7. Divide by 8 to get encrypted variance.
 //!
 //! ```text
-//! variance_ct = mul_plain_scalar(var_sum_ct, 1.0 / 8.0)
+//! variance_ct = var_sum_ct.mul_const(1.0 / 8.0, logp).rescale()
 //! ```
 //!
 //! This is the first implementation milestone:
@@ -174,15 +171,13 @@
 //! ## Minimum operation set for encrypted variance
 //!
 //! ```text
-//! add_ciphertexts
-//! neg_ciphertext
-//! sub_ciphertexts
-//! rotate_ciphertext
-//! sum_slots_power_of_two
-//! mul_plain_scalar
-//! mul_ciphertexts_gadget
+//! + / - / neg (std::ops)
+//! rotate
+//! sum_slots (power-of-two window)
+//! mul_const
+//! mul (gadget relinearization)
 //! rescale
-//! level/scale alignment helper
+//! match_level
 //! ```
 //!
 //! ## Depth budget
@@ -200,13 +195,11 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::algorithms::sum_slots::sum_slots;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::evaluator::{RotationKeyMap, generate_rotation_key_set};
 use toy_heaan_ckks::ckks::keys::SecretKey;
-use toy_heaan_ckks::ckks::pipeline::{
-    RotationKeyMap, align_level, decode_wide, generate_rotation_key_set,
-    mul_plain_scalar, reduce_secret_key, sum_slots,
-};
 use toy_heaan_ckks::ckks::types::Ciphertext;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
@@ -243,10 +236,20 @@ fn make_rotkeys(
 }
 
 fn mul_and_rescale(ct_a: &Ct, ct_b: &Ct, rlk: &RnsGadgetRelinKey<N>) -> Ct {
-    let product =
-        CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(ct_a, ct_b, rlk);
-    CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&product)
+    ct_a.mul(ct_b, rlk)
+        .rescale()
         .expect("mul_and_rescale: rescale")
+}
+
+/// Multiplies every slot by `1 / SLOTS` and rescales.
+fn divide_by_slots(ct: &Ct) -> Ct {
+    ct.mul_const(1.0 / SLOTS as f64, SCALAR_SCALE)
+        .rescale()
+        .expect("divide_by_slots: rescale")
+}
+
+fn sk_at(sk: &Sk, ct: &Ct) -> Sk {
+    sk.mod_switch_to(ct.level()).expect("sk level")
 }
 
 fn main() {
@@ -272,7 +275,6 @@ fn main() {
 
     let primes = generate_primes(SCALE as usize, NUM_PRIMES, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
     let engine = make_engine(basis.clone());
     let encoder = CkksEncoder::<N>::new(SCALE);
     let mut rng = ChaCha20Rng::seed_from_u64(42);
@@ -282,59 +284,51 @@ fn main() {
     let rotkeys = make_rotkeys(&engine, &sk, &mut rng);
 
     let pt_input = encoder.encode(&INPUT, basis);
-    let ct_input = engine.encrypt(&pt_input, &pk, logq, &mut rng);
+    let ct_input = engine.encrypt(&pt_input, &pk, &mut rng);
     let ct_sum = sum_slots(&ct_input, SLOTS, &rotkeys);
     println!(
         "After sum_slots: logp={}, logq={}, primes={}",
         ct_sum.logp,
-        ct_sum.logq,
-        ct_sum.c0.basis().channel_count()
+        ct_sum.logq(),
+        ct_sum.level()
     );
-    let pt_sum = CkksEngine::<RnsPoly<N>, N>::decrypt(
-        &ct_sum,
-        &reduce_secret_key(&sk, ct_sum.c0.basis().clone()),
-    );
-    let decoded_sum = decode_wide(&pt_sum);
+    let pt_sum =
+        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk_at(&sk, &ct_sum));
+    let decoded_sum = encoder.decode(&pt_sum);
     println!(
-        "  decoded sum (wide): {:.8}, expected {sum:.8}, err={:.2e}",
+        "  decoded sum: {:.8}, expected {sum:.8}, err={:.2e}",
         decoded_sum[0],
         (decoded_sum[0] - sum).abs()
     );
     println!();
 
-    let ct_mean = mul_plain_scalar(&ct_sum, 1.0 / SLOTS as f64, SCALAR_SCALE);
+    let ct_mean = divide_by_slots(&ct_sum);
     println!(
         "After mean = sum * 1/{SLOTS}: logp={}, logq={}, primes={}",
         ct_mean.logp,
-        ct_mean.logq,
-        ct_mean.c0.basis().channel_count()
+        ct_mean.logq(),
+        ct_mean.level()
     );
-    let pt_mean = CkksEngine::<RnsPoly<N>, N>::decrypt(
-        &ct_mean,
-        &reduce_secret_key(&sk, ct_mean.c0.basis().clone()),
-    );
-    let decoded_mean = decode_wide(&pt_mean);
+    let pt_mean =
+        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_mean, &sk_at(&sk, &ct_mean));
+    let decoded_mean = encoder.decode(&pt_mean);
     println!(
-        "  decoded mean (wide): {:.8}, expected {mean:.8}, err={:.2e}",
+        "  decoded mean: {:.8}, expected {mean:.8}, err={:.2e}",
         decoded_mean[0],
         (decoded_mean[0] - mean).abs()
     );
     println!();
 
-    let ct_input_mean_level =
-        align_level(&ct_input, ct_mean.c0.basis().clone(), ct_mean.logq);
-    let ct_centered = CkksEngine::<RnsPoly<N>, N>::sub_ciphertexts(
-        &ct_input_mean_level,
-        &ct_mean,
-    );
+    let ct_input_mean_level = ct_input.match_level(&ct_mean).expect("level");
+    let ct_centered = &ct_input_mean_level - &ct_mean;
     println!(
         "After centered = input - mean: logp={}, logq={}, primes={}",
         ct_centered.logp,
-        ct_centered.logq,
-        ct_centered.c0.basis().channel_count()
+        ct_centered.logq(),
+        ct_centered.level()
     );
 
-    let sk_centered = reduce_secret_key(&sk, ct_centered.c0.basis().clone());
+    let sk_centered = sk_at(&sk, &ct_centered);
     let engine_centered = make_engine(ct_centered.c0.basis().clone());
     let rlk_centered =
         engine_centered.generate_gadget_relin_key(&sk_centered, &mut rng);
@@ -342,27 +336,27 @@ fn main() {
     println!(
         "After squared differences: logp={}, logq={}, primes={}",
         ct_sq_diff.logp,
-        ct_sq_diff.logq,
-        ct_sq_diff.c0.basis().channel_count()
+        ct_sq_diff.logq(),
+        ct_sq_diff.level()
     );
 
-    let sk_sq = reduce_secret_key(&sk, ct_sq_diff.c0.basis().clone());
+    let sk_sq = sk_at(&sk, &ct_sq_diff);
     let engine_sq = make_engine(ct_sq_diff.c0.basis().clone());
     let rotkeys_sq = make_rotkeys(&engine_sq, &sk_sq, &mut rng);
     let ct_var_sum = sum_slots(&ct_sq_diff, SLOTS, &rotkeys_sq);
-    let ct_variance =
-        mul_plain_scalar(&ct_var_sum, 1.0 / SLOTS as f64, SCALAR_SCALE);
+    let ct_variance = divide_by_slots(&ct_var_sum);
     println!(
         "After variance = sum_sq_diff * 1/{SLOTS}: logp={}, logq={}, primes={}",
         ct_variance.logp,
-        ct_variance.logq,
-        ct_variance.c0.basis().channel_count()
+        ct_variance.logq(),
+        ct_variance.level()
     );
 
-    let sk_variance = reduce_secret_key(&sk, ct_variance.c0.basis().clone());
-    let pt_variance =
-        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_variance, &sk_variance);
-    let decoded_variance = decode_wide(&pt_variance);
+    let pt_variance = CkksEngine::<RnsPoly<N>, N>::decrypt(
+        &ct_variance,
+        &sk_at(&sk, &ct_variance),
+    );
+    let decoded_variance = encoder.decode(&pt_variance);
 
     let max_variance_err = decoded_variance
         .iter()

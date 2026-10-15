@@ -104,7 +104,7 @@ impl SensorContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toy_heaan_ckks::ckks::pipeline::fit_chebyshev;
+    use toy_heaan_ckks::ckks::algorithms::chebyshev::fit_chebyshev;
 
     #[test]
     fn sensor_contract_validates() {

@@ -40,7 +40,8 @@ pre-commit install                          # install git hooks
   deletes for real
 
 **Key File Paths**
-- `src/ckks.rs`, `src/ckks/` - engine, builder, pipeline, types
+- `src/ckks.rs`, `src/ckks/` - engine, builder, ops, evaluator, types
+- `src/ckks/algorithms/` - slot sums, Chebyshev approximation
 - `src/ckks/encoding/` - CKKS encoder, special FFT
 - `src/ckks/keys/` - secret/public/relinearization/rotation keys
 - `src/rings/backends/rns_ntt/` - RNS-NTT backend

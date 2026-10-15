@@ -4,14 +4,16 @@
 use std::time::{Duration, Instant};
 
 use rand::Rng;
-use toy_heaan_ckks::ckks::CkksEngine;
-use toy_heaan_ckks::ckks::pipeline::{
-    Ct, LeveledEvaluator, align_level, eval_chebyshev_encrypted, fit_chebyshev,
-    mul_plain_scalar,
+use toy_heaan_ckks::ckks::algorithms::chebyshev::{
+    eval_chebyshev_encrypted, fit_chebyshev,
 };
+use toy_heaan_ckks::ckks::evaluator::LeveledEvaluator;
+use toy_heaan_ckks::ckks::types::Ciphertext;
 use toy_heaan_ckks::rings::backends::rns_ntt::RnsPoly;
 
 use crate::contract::SensorContract;
+
+type Ct<const DEGREE: usize> = Ciphertext<RnsPoly<DEGREE>, DEGREE>;
 
 /// One pipeline stage as observed after it ran.
 #[derive(Clone, Debug)]
@@ -92,16 +94,18 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     record(&mut stages, "sum readings", &sum_ct, started);
 
     let started = Instant::now();
-    let mean_ct = mul_plain_scalar(&sum_ct, 1.0 / slots as f64, ct.logp);
+    let mean_ct = sum_ct
+        .mul_const(1.0 / slots as f64, ct.logp)
+        .rescale()
+        .expect("mean: rescale");
     record(&mut stages, "mean (x 1/n)", &mean_ct, started);
 
     // centered = input - mean, at the mean's level
     let started = Instant::now();
-    let ct_aligned = align_level(ct, mean_ct.c0.basis().clone(), mean_ct.logq);
-    let centered = CkksEngine::<RnsPoly<DEGREE>, DEGREE>::sub_ciphertexts(
-        &ct_aligned,
-        &mean_ct,
-    );
+    let ct_aligned = ct
+        .match_level(&mean_ct)
+        .expect("input sits above the mean's level");
+    let centered = &ct_aligned - &mean_ct;
     record(&mut stages, "center", &centered, started);
 
     // variance = sum of squared deviations * 1/slots
@@ -114,7 +118,10 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     record(&mut stages, "sum squares", &var_sum, started);
 
     let started = Instant::now();
-    let variance = mul_plain_scalar(&var_sum, 1.0 / slots as f64, sq_diff.logp);
+    let variance = var_sum
+        .mul_const(1.0 / slots as f64, sq_diff.logp)
+        .rescale()
+        .expect("variance: rescale");
     record(&mut stages, "variance (x 1/n)", &variance, started);
 
     // std_n = sqrt(variance) via encrypted Clenshaw on the contract envelope
@@ -137,13 +144,14 @@ mod tests {
 
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
+    use toy_heaan_ckks::ckks::CkksEngine;
+    use toy_heaan_ckks::ckks::algorithms::chebyshev::{
+        eval_chebyshev_clenshaw, to_chebyshev_domain,
+    };
     use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
     use toy_heaan_ckks::ckks::engine::CkksParams;
-    use toy_heaan_ckks::ckks::pipeline::{
-        decode_wide, eval_chebyshev_clenshaw, to_chebyshev_domain,
-    };
     use toy_heaan_ckks::math::generate_primes;
-    use toy_heaan_ckks::rings::backends::rns_ntt::RnsBasis;
+    use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
     use super::*;
 
@@ -176,7 +184,6 @@ mod tests {
 
         let primes = generate_primes(SCALE as usize, degree + 6, N as u64);
         let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-        let logq = basis.total_bits();
 
         let params = CkksParams {
             error_variance: 3.2,
@@ -192,7 +199,7 @@ mod tests {
 
         let encoder = CkksEncoder::<N>::new(SCALE);
         let pt = encoder.encode(&normalized, basis);
-        let ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+        let ct = engine.encrypt(&pt, &pk, &mut rng);
 
         let mut evaluator = LeveledEvaluator::new(params, sk);
         let result = encrypted_std_dev(
@@ -212,14 +219,14 @@ mod tests {
 
         // Intermediate variance: CKKS noise only, restored to degC^2.
         let variance = std_dev * std_dev;
-        let variance_got = decode_wide(&evaluator.decrypt(&result.variance))[0]
+        let variance_got = encoder.decode(&evaluator.decrypt(&result.variance))[0]
             * contract.width().powi(2);
         assert!(
             (variance_got - variance).abs() < 1e-6,
             "encrypted variance {variance_got} vs plaintext {variance}"
         );
 
-        let decoded = decode_wide(&evaluator.decrypt(&result.std_normalized));
+        let decoded = encoder.decode(&evaluator.decrypt(&result.std_normalized));
 
         // Encryption fidelity: match the plaintext Chebyshev evaluation.
         let (var_lo, var_hi) = contract.variance_interval();

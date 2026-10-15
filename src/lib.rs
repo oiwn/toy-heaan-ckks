@@ -10,6 +10,4 @@ pub use ckks::keys::{
     RotationKeyError, RotationKeyParams, SecretKey, SecretKeyError,
     SecretKeyParams,
 };
-pub use rings::traits::{
-    PolyAutomorphism, PolyModSwitch, PolyRescale, PolyRing, PolySampler,
-};
+pub use rings::traits::{PolyAutomorphism, PolyRing, PolySampler};

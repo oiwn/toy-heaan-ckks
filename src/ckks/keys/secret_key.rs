@@ -36,6 +36,8 @@
 //!     SecretKey::generate(&params, &basis, &mut rng)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+use crate::ckks::errors::CkksResult;
+use crate::rings::backends::rns_ntt::RnsPoly;
 use crate::{PolyRing, PolySampler};
 use rand::Rng;
 use thiserror::Error;
@@ -143,6 +145,19 @@ where
         let poly = P::sample_tribits(params.hamming_weight, context, rng);
 
         Ok(SecretKey { poly })
+    }
+}
+
+impl<const DEGREE: usize> SecretKey<RnsPoly<DEGREE>, DEGREE> {
+    /// The same key at a lower `level`: its first channels, exact because the
+    /// ternary coefficients reduce identically under every prime.
+    ///
+    /// # Errors
+    /// Returns an error if `level` is 0 or above the key's level.
+    pub fn mod_switch_to(&self, level: usize) -> CkksResult<Self> {
+        Ok(Self {
+            poly: self.poly.mod_switch_to(level)?,
+        })
     }
 }
 

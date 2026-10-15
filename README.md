@@ -32,7 +32,6 @@ cargo clippy -- -D clippy::pedantic -D clippy::nursery
 Benchmarks currently available:
 
 ```bash
-cargo bench --bench basic
 cargo bench --bench primes
 ```
 
@@ -86,7 +85,8 @@ which parameter sets currently behave well.
 ## Project Layout
 
 ```text
-src/ckks/                CKKS engine, pipeline, ciphertext types
+src/ckks/                CKKS engine, ops, evaluator, ciphertext types
+src/ckks/algorithms/     Slot sums, Chebyshev approximation
 src/ckks/encoding/       CKKS encoder and special FFT
 src/ckks/keys/           Secret, public, relinearization, rotation keys
 src/math/                Prime generation, sampling, utility math
@@ -122,7 +122,6 @@ const SCALE_BITS: u32 = 30;
 
 let primes = generate_primes(31, 3, N as u64);
 let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-let logq = basis.total_bits();
 
 let engine = CkksEngine::<RnsPoly<N>, N>::new(
     basis.clone(),
@@ -140,7 +139,7 @@ let pk = engine.generate_public_key(&sk, &mut rng).expect("public key");
 
 let values = [1.0, 2.0, 3.0, 4.0];
 let pt = encoder.encode(&values, basis);
-let ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+let ct = engine.encrypt(&pt, &pk, &mut rng);
 let decoded = encoder.decode(&CkksEngine::<RnsPoly<N>, N>::decrypt(&ct, &sk));
 ```
 

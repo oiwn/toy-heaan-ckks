@@ -11,7 +11,7 @@
 //!      restore)
 //!   3. Behavior outside the envelope (why the client checks it)
 
-use toy_heaan_ckks::ckks::pipeline::{
+use toy_heaan_ckks::ckks::algorithms::chebyshev::{
     eval_chebyshev_clenshaw, fit_chebyshev, to_chebyshev_domain,
 };
 

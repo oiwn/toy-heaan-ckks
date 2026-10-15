@@ -37,12 +37,9 @@
 //! ## Level management
 //!
 //! Every ciphertext operand (α or β) must be freshly encrypted at the
-//! *current* level with the same `logq` as the running accumulator.  A
-//! reduced secret key is derived from the original by truncating channels,
-//! and new public / relinearization keys are generated from it before each
-//! multiply.  The `logq` field is taken from the accumulator rather than
-//! computed from the basis to account for the cumulative ≈1-bit drift
-//! introduced by each rescaling.
+//! *current* level, on the accumulator's basis.  A reduced secret key is
+//! derived from the original with `SecretKey::mod_switch_to`, and new public
+//! / relinearization keys are generated from it before each multiply.
 
 use std::sync::Arc;
 
@@ -50,7 +47,6 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
-use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::table;
@@ -83,17 +79,7 @@ const BETA: f64 = 0.1;
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 type Ct = toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>;
-type Sk = SecretKey<RnsPoly<N>, N>;
 type Basis = Arc<RnsBasis<N>>;
-
-/// Derive a secret key valid at the level described by `basis`.
-fn reduce_sk(sk: &Sk, basis: Basis) -> Sk {
-    let level = basis.channel_count();
-    let channels: Vec<[u64; N]> = sk.poly.channels()[..level].to_vec();
-    let poly = RnsPoly::from_channels(channels, basis, false)
-        .expect("reduce_sk: channels are already correctly reduced");
-    SecretKey { poly }
-}
 
 /// Build a `CkksEngine` at `basis` with standard noise parameters.
 fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
@@ -107,11 +93,10 @@ fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
     )
 }
 
-/// Encrypt a constant (all slots = `value`) at the given `basis` and `logq`.
+/// Encrypt a constant (all slots = `value`) at the given `basis`.
 fn encrypt_scalar(
     value: f64,
     basis: Basis,
-    logq: u32,
     encoder: &CkksEncoder<N>,
     engine: &CkksEngine<RnsPoly<N>, N>,
     pk: &toy_heaan_ckks::ckks::keys::PublicKey<RnsPoly<N>, N>,
@@ -120,7 +105,7 @@ fn encrypt_scalar(
     let slots = N / 2;
     let values = vec![value; slots];
     let pt = encoder.encode(&values, basis);
-    engine.encrypt(&pt, pk, logq, rng)
+    engine.encrypt(&pt, pk, rng)
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -179,12 +164,12 @@ fn main() {
     let x0: Vec<f64> = (0..slots).map(|i| (i + 1) as f64 / slots as f64).collect();
     println!("Encrypting input x₀ ({slots} slots, values in (0, 1]) …");
     let pt_x0 = encoder.encode(&x0, basis_top.clone());
-    let mut ct_x = engine_top.encrypt(&pt_x0, &pk_top, logq_top, &mut rng);
+    let mut ct_x = engine_top.encrypt(&pt_x0, &pk_top, &mut rng);
     println!(
         "  ct_x: logp={}, logq={}, primes={}\n",
         ct_x.logp,
-        ct_x.logq,
-        ct_x.c0.basis().channel_count()
+        ct_x.logq(),
+        ct_x.level()
     );
 
     // Plain-text reference: follow the same chain without encryption.
@@ -201,38 +186,35 @@ fn main() {
         println!(
             "── Iteration {iter}/{ITERS} ──────────────────────────────────────────"
         );
-        let level_before = ct_x.c0.basis().channel_count();
+        let level_before = ct_x.level();
         println!(
             "  Level before mul : {level_before} primes, logq={}",
-            ct_x.logq
+            ct_x.logq()
         );
 
         // ── 4a. Multiply: ct_x ← ct_x · α ───────────────────────────────────
         let ct_alpha = encrypt_scalar(
             ALPHA,
             ct_x.c0.basis().clone(),
-            ct_x.logq,
             &encoder,
             &engine_cur,
             &pk_cur,
             &mut rng,
         );
-        let ct_prod = CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(
-            &ct_x, &ct_alpha, &rlk_cur,
-        );
+        let ct_prod = ct_x.mul(&ct_alpha, &rlk_cur);
 
         // ── 4b. Rescale ───────────────────────────────────────────────────────
-        ct_x = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod)
-            .expect("rescale");
-        let level_after = ct_x.c0.basis().channel_count();
+        ct_x = ct_prod.rescale().expect("rescale");
+        let level_after = ct_x.level();
         println!(
             "  After mul+rescale: {level_after} primes, logp={}, logq={}",
-            ct_x.logp, ct_x.logq
+            ct_x.logp,
+            ct_x.logq()
         );
 
         // ── 4c. Derive keys at the new (lower) level ──────────────────────────
         let basis_cur = ct_x.c0.basis().clone();
-        sk_cur = reduce_sk(&sk_top, basis_cur.clone());
+        sk_cur = sk_top.mod_switch_to(level_after).expect("sk level");
         engine_cur = make_engine(basis_cur.clone());
         pk_cur = engine_cur
             .generate_public_key(&sk_cur, &mut rng)
@@ -242,16 +224,16 @@ fn main() {
         let ct_beta = encrypt_scalar(
             BETA,
             basis_cur.clone(),
-            ct_x.logq,
             &encoder,
             &engine_cur,
             &pk_cur,
             &mut rng,
         );
-        ct_x = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_x, &ct_beta);
+        ct_x = &ct_x + &ct_beta;
         println!(
             "  After add β      : {level_after} primes, logp={}, logq={}",
-            ct_x.logp, ct_x.logq
+            ct_x.logp,
+            ct_x.logq()
         );
 
         // Plaintext reference step.

@@ -22,7 +22,7 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::CkksEngine;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::CkksParams;
-use toy_heaan_ckks::ckks::pipeline::{LeveledEvaluator, decode_wide};
+use toy_heaan_ckks::ckks::evaluator::LeveledEvaluator;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -114,8 +114,9 @@ fn main() {
 
     // ── Client: encode + encrypt ─────────────────────────────────────────────
     let started = Instant::now();
-    let pt = CkksEncoder::<N>::new(SCALE).encode(&normalized, basis.clone());
-    let ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+    let encoder = CkksEncoder::<N>::new(SCALE);
+    let pt = encoder.encode(&normalized, basis.clone());
+    let ct = engine.encrypt(&pt, &pk, &mut rng);
     println!("Encode + encrypt:       {:>9.2?}", started.elapsed());
 
     // ── Server: encrypted std-dev (gadget keys generated per level) ──────────
@@ -147,10 +148,10 @@ fn main() {
 
     // ── Client: decrypt + restore ────────────────────────────────────────────
     let started = Instant::now();
-    let variance_got = decode_wide(&evaluator.decrypt(&run.variance))[0]
+    let variance_got = encoder.decode(&evaluator.decrypt(&run.variance))[0]
         * contract.width().powi(2);
     let std_got = contract
-        .restore_std(decode_wide(&evaluator.decrypt(&run.std_normalized))[0]);
+        .restore_std(encoder.decode(&evaluator.decrypt(&run.std_normalized))[0]);
     println!("\nDecrypt + decode (x2):  {:>9.2?}", started.elapsed());
 
     let variance_error = (variance_got - variance).abs();

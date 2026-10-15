@@ -37,7 +37,6 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -51,18 +50,6 @@ const SCALE_LARGE: u32 = 62;
 const SCALE_CHAIN: u32 = 40;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/// Reduce `sk` to the channel count of `basis` (used after each rescaling).
-fn reduce_sk(
-    sk: &SecretKey<RnsPoly<N>, N>,
-    basis: Arc<RnsBasis<N>>,
-) -> SecretKey<RnsPoly<N>, N> {
-    let level = basis.channel_count();
-    let channels: Vec<[u64; N]> = sk.poly.channels()[..level].to_vec();
-    let poly = RnsPoly::from_channels(channels, basis, false)
-        .expect("reduced sk: channels are already correctly reduced");
-    SecretKey { poly }
-}
 
 /// Build a `CkksEngine` at `basis` with standard noise parameters.
 fn make_engine(
@@ -85,9 +72,7 @@ fn mul_and_rescale(
     ct_b: &toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>,
     rlk: &toy_heaan_ckks::ckks::engine::RnsGadgetRelinKey<N>,
 ) -> toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N> {
-    let ct_prod =
-        CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(ct_a, ct_b, rlk);
-    CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_prod).expect("rescale")
+    ct_a.mul(ct_b, rlk).rescale().expect("rescale")
 }
 
 /// Maximum absolute element-wise error between two equal-length slices.
@@ -111,7 +96,6 @@ fn single_multiplication_large_primes() {
     // Two 62-bit primes (SCALE=62 → bits_dropped=62, logp preserved after rescale).
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_LARGE);
     let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
@@ -127,12 +111,12 @@ fn single_multiplication_large_primes() {
 
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
     let ct_rs = mul_and_rescale(&ct_a, &ct_b, &rlk);
 
-    let sk_l1 = reduce_sk(&sk, ct_rs.c0.basis().clone());
+    let sk_l1 = sk.mod_switch_to(ct_rs.level()).expect("sk level");
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rs, &sk_l1);
     let decoded = encoder.decode(&pt_out);
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
@@ -159,7 +143,6 @@ fn two_chained_multiplications() {
     // Three 40-bit primes (SCALE=40 → bits_dropped=40; 2 levels of multiplication).
     let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_CHAIN);
     let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
@@ -183,16 +166,14 @@ fn two_chained_multiplications() {
     // ── First multiplication: a × b ───────────────────────────────────────────
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
     let ct_ab = mul_and_rescale(&ct_a, &ct_b, &rlk);
 
     // ── Derive level-2 keys from the reduced basis ────────────────────────────
-    // ct_ab.logq carries the rescaling adjustment; use it (not basis.total_bits())
-    // so that the fresh ciphertext's logq field matches exactly.
     let basis_l2 = ct_ab.c0.basis().clone();
-    let sk_l2 = reduce_sk(&sk, basis_l2.clone());
+    let sk_l2 = sk.mod_switch_to(ct_ab.level()).expect("sk level");
     let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
     let pk_l2 = engine_l2
         .generate_public_key(&sk_l2, &mut rng)
@@ -201,12 +182,12 @@ fn two_chained_multiplications() {
 
     // ── Second multiplication: (a×b) × c ─────────────────────────────────────
     let pt_c = encoder.encode(&c, basis_l2.clone());
-    let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, ct_ab.logq, &mut rng);
+    let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, &mut rng);
 
     let ct_abc = mul_and_rescale(&ct_ab, &ct_c, &rlk_l2);
 
     // ── Decrypt and verify ────────────────────────────────────────────────────
-    let sk_l1 = reduce_sk(&sk, ct_abc.c0.basis().clone());
+    let sk_l1 = sk.mod_switch_to(ct_abc.level()).expect("sk level");
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_abc, &sk_l1);
     let decoded = encoder.decode(&pt_out);
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
@@ -228,7 +209,6 @@ fn two_chained_multiplications() {
 fn add_then_multiply() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_LARGE);
     let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
@@ -251,16 +231,16 @@ fn add_then_multiply() {
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
     let pt_c = encoder.encode(&c, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
-    let ct_c = engine.encrypt(&pt_c, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
+    let ct_c = engine.encrypt(&pt_c, &pk, &mut rng);
 
     // Addition does not change the level.
-    let ct_sum = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_a, &ct_b);
+    let ct_sum = &ct_a + &ct_b;
 
     let ct_rs = mul_and_rescale(&ct_sum, &ct_c, &rlk);
 
-    let sk_l1 = reduce_sk(&sk, ct_rs.c0.basis().clone());
+    let sk_l1 = sk.mod_switch_to(ct_rs.level()).expect("sk level");
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rs, &sk_l1);
     let decoded = encoder.decode(&pt_out);
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
@@ -277,7 +257,6 @@ fn add_then_multiply() {
 fn subtract_ciphertexts() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_LARGE);
     let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
@@ -292,16 +271,12 @@ fn subtract_ciphertexts() {
 
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
-    let ct_diff = CkksEngine::<RnsPoly<N>, N>::sub_ciphertexts(&ct_a, &ct_b);
+    let ct_diff = &ct_a - &ct_b;
     assert_eq!(ct_diff.logp, ct_a.logp);
-    assert_eq!(ct_diff.logq, ct_a.logq);
-    assert_eq!(
-        ct_diff.c0.basis().channel_count(),
-        ct_a.c0.basis().channel_count()
-    );
+    assert_eq!(ct_diff.level(), ct_a.level());
 
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_diff, &sk);
     let decoded = encoder.decode(&pt_out);
@@ -316,14 +291,13 @@ fn subtract_ciphertexts() {
 /// Verify that (a × b) + c decrypts correctly with 40-bit primes.
 ///
 /// After multiplying a and b and rescaling (level drops from 3 to 2), c is
-/// encrypted fresh at that level so the logp and logq fields match for the
+/// encrypted fresh at that level so logp and the basis match for the
 /// homomorphic addition.
 #[test]
 fn multiply_then_add() {
     // Three 40-bit primes: one consumed by rescale, two remain for the addition.
     let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_CHAIN);
     let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
@@ -346,26 +320,25 @@ fn multiply_then_add() {
     // ── Multiply a × b, then rescale ─────────────────────────────────────────
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
     let ct_ab = mul_and_rescale(&ct_a, &ct_b, &rlk);
 
     // ── Encrypt c at the post-rescale level ───────────────────────────────────
-    // Use ct_ab.logq (not basis_l2.total_bits()) to ensure logq fields match.
     let basis_l2 = ct_ab.c0.basis().clone();
-    let sk_l2 = reduce_sk(&sk, basis_l2.clone());
+    let sk_l2 = sk.mod_switch_to(ct_ab.level()).expect("sk level");
     let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
     let pk_l2 = engine_l2
         .generate_public_key(&sk_l2, &mut rng)
         .expect("keygen l2");
 
     let pt_c = encoder.encode(&c, basis_l2.clone());
-    let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, ct_ab.logq, &mut rng);
+    let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, &mut rng);
 
     // ── Add: (a×b) + c ───────────────────────────────────────────────────────
-    // Both ciphertexts are at level 2 with logp=SCALE_CHAIN and logq=ct_ab.logq.
-    let ct_sum = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_ab, &ct_c);
+    // Both ciphertexts are at level 2 with logp=SCALE_CHAIN.
+    let ct_sum = &ct_ab + &ct_c;
 
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk_l2);
     let decoded = encoder.decode(&pt_out);
@@ -377,14 +350,13 @@ fn multiply_then_add() {
 
 // ── Test 7: ciphertext x plaintext multiplication ─────────────────────────────
 
-/// Verify `mul_plaintext` (no relinearization / key switch) decrypts to
+/// Verify `mul_plain` (no relinearization / key switch) decrypts to
 /// element-wise products within the expected noise bound, and that its error
 /// is no worse than the ct x ct gadget path on the same inputs.
 #[test]
-fn mul_plaintext_matches_ct_mul() {
+fn mul_plain_matches_ct_mul() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_LARGE);
     let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
@@ -400,27 +372,25 @@ fn mul_plaintext_matches_ct_mul() {
 
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
 
     // ct x pt: multiply, then rescale to bring logp back to SCALE.
-    let ct_pt_prod = CkksEngine::<RnsPoly<N>, N>::mul_plaintext(&ct_a, &pt_b);
+    let ct_pt_prod = ct_a.mul_plain(&pt_b);
     assert_eq!(ct_pt_prod.logp, ct_a.logp + pt_b.scale_bits);
-    let ct_rs = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_pt_prod)
-        .expect("rescale");
+    let ct_rs = ct_pt_prod.rescale().expect("rescale");
 
-    let sk_l1 = reduce_sk(&sk, ct_rs.c0.basis().clone());
+    let sk_l1 = sk.mod_switch_to(ct_rs.level()).expect("sk level");
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rs, &sk_l1);
     let decoded = encoder.decode(&pt_out);
     let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
 
     let err_pt = max_abs_err(&expected, &result);
 
-    // Reference: the ct x ct gadget path on identical inputs. Note each
-    // rescale mints its own Arc, so ct_ct needs its own pointer-matched key.
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    // Reference: the ct x ct gadget path on identical inputs. Both rescales
+    // land on the same chain basis, so the same reduced key decrypts it.
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
     let ct_ct = mul_and_rescale(&ct_a, &ct_b, &rlk);
-    let sk_l1_ct = reduce_sk(&sk, ct_ct.c0.basis().clone());
-    let pt_out_ct = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_ct, &sk_l1_ct);
+    let pt_out_ct = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_ct, &sk_l1);
     let decoded_ct = encoder.decode(&pt_out_ct);
     let result_ct: Vec<f64> = decoded_ct.into_iter().take(a.len()).collect();
     let err_ct = max_abs_err(&expected, &result_ct);
@@ -444,7 +414,6 @@ fn mul_plaintext_matches_ct_mul() {
 fn full_slots_single_multiplication() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
 
     let engine = make_engine(basis.clone(), SCALE_LARGE);
     let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
@@ -467,12 +436,12 @@ fn full_slots_single_multiplication() {
 
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
     let ct_rs = mul_and_rescale(&ct_a, &ct_b, &rlk);
 
-    let sk_l1 = reduce_sk(&sk, ct_rs.c0.basis().clone());
+    let sk_l1 = sk.mod_switch_to(ct_rs.level()).expect("sk level");
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rs, &sk_l1);
     let decoded = encoder.decode(&pt_out);
     let result: Vec<f64> = decoded.into_iter().take(slots).collect();
@@ -482,4 +451,51 @@ fn full_slots_single_multiplication() {
         err < 1e-6,
         "full-slot mul ({slots} slots): max error {err:.2e} exceeds 1e-6"
     );
+}
+
+// ── Test 8: mod switch ────────────────────────────────────────────────────────
+
+/// Verify `mod_switch_to` / `match_level` drop primes without changing the
+/// slots or `logp`, land on the rescaled ciphertext's basis, and reject
+/// levels outside the chain.
+#[test]
+fn mod_switch_keeps_slots_and_meets_rescaled_level() {
+    let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
+    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
+
+    let engine = make_engine(basis.clone(), SCALE_CHAIN);
+    let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
+    let mut rng = ChaCha20Rng::seed_from_u64(8);
+
+    let sk = engine.generate_secret_key(&mut rng).expect("keygen");
+    let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
+    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+
+    let a: Vec<f64> = vec![0.6, -0.3, 0.8, -0.5, 0.4, -0.7, 0.2, -0.9];
+    let ct_a = engine.encrypt(&encoder.encode(&a, basis.clone()), &pk, &mut rng);
+
+    // Mod switch to level 2: one prime fewer, same slots, same logp.
+    let ct_switched = ct_a.mod_switch_to(2).expect("mod switch");
+    assert_eq!(ct_switched.level(), 2);
+    assert_eq!(ct_switched.logp, ct_a.logp);
+    assert!(ct_switched.logq() < ct_a.logq());
+
+    let sk_l2 = sk.mod_switch_to(2).expect("sk level");
+    let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_switched, &sk_l2);
+    let decoded: Vec<f64> =
+        encoder.decode(&pt_out).into_iter().take(a.len()).collect();
+    let err = max_abs_err(&a, &decoded);
+    assert!(err < 1e-6, "mod switch: max error {err:.2e} exceeds 1e-6");
+
+    // match_level meets a rescaled ciphertext on the very same basis Arc,
+    // so the two can be added.
+    let ct_sq = mul_and_rescale(&ct_a, &ct_a, &rlk);
+    let ct_matched = ct_a.match_level(&ct_sq).expect("match level");
+    assert!(Arc::ptr_eq(ct_matched.c0.basis(), ct_sq.c0.basis()));
+    let _sum = &ct_sq + &ct_matched;
+
+    // Levels outside the chain are errors, not panics.
+    assert!(ct_a.mod_switch_to(0).is_err());
+    assert!(ct_a.mod_switch_to(4).is_err());
+    assert!(ct_sq.match_level(&ct_a).is_err());
 }

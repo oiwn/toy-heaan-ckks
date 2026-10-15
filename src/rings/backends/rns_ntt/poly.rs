@@ -165,36 +165,56 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
         self.in_ntt_domain = false;
     }
 
-    /// Returns a new polynomial with the last `drop_count` RNS channels removed.
-    pub fn mod_drop_last(&self, drop_count: usize) -> RnsNttResult<Self> {
-        let reduced_basis = Arc::new(self.basis.drop_last(drop_count)?);
-        let keep = reduced_basis.channel_count();
+    /// Mod switch: keeps the first `level` channels, without dividing.
+    ///
+    /// The surviving residues are already reduced, so this is exact and works
+    /// in either domain. The result uses the shared chain basis for `level`.
+    ///
+    /// # Errors
+    /// Returns [`RnsNttError::InvalidLevel`] if `level` is 0 or above the
+    /// current channel count.
+    pub fn mod_switch_to(&self, level: usize) -> RnsNttResult<Self> {
+        let basis =
+            self.basis
+                .at_level(level)
+                .ok_or(RnsNttError::InvalidLevel {
+                    level,
+                    channel_count: self.basis.channel_count(),
+                })?;
         Ok(Self::new_unchecked(
-            self.channels[..keep].to_vec(),
-            reduced_basis,
+            self.channels[..level].to_vec(),
+            basis,
             self.in_ntt_domain,
         ))
     }
 
     /// Divides every coefficient by the last RNS prime `q_L` and drops that channel.
     ///
-    /// Uses a caller-supplied `new_basis` (the reduced basis with `q_L` dropped) so that
-    /// multiple polynomials (e.g. both ciphertext components) can share the same
-    /// `Arc<RnsBasis>` instance — required for operations that later `Arc::ptr_eq`-check
-    /// their bases.
+    /// Used after homomorphic multiplication to bring `logp` back to its pre-multiplication
+    /// value. The operation is *exact* (no rounding error): subtracting `c mod q_L` from `c`
+    /// leaves a value exactly divisible by `q_L`.
     ///
-    /// See [`rescale`] for a convenience wrapper that creates its own `Arc`.
-    pub fn rescale_into(
-        &self,
-        new_basis: Arc<RnsBasis<DEGREE>>,
-    ) -> RnsNttResult<Self> {
+    /// # Formula (per remaining channel `i`, per coefficient `j`)
+    /// ```text
+    /// new[i][j] = (c[i][j] - c[L][j] mod q_i) * q_L^-1  mod q_i
+    /// ```
+    ///
+    /// The result lives on the next basis of the shared chain, in coefficient
+    /// domain, so every polynomial rescaled from the same level gets the same
+    /// basis `Arc`.
+    ///
+    /// # Errors
+    /// Returns [`RnsNttError::InvalidLevel`] on a single-channel polynomial.
+    pub fn rescale(&self) -> RnsNttResult<Self> {
         let num_channels = self.basis.channel_count();
-        if num_channels < 2 {
-            return Err(RnsNttError::InvalidModDrop {
-                drop_count: 1,
-                channel_count: num_channels,
-            });
-        }
+        let new_basis =
+            self.basis
+                .next()
+                .cloned()
+                .ok_or(RnsNttError::InvalidLevel {
+                    level: num_channels - 1,
+                    channel_count: num_channels,
+                })?;
 
         // Work in coefficient domain without mutating self.
         let tmp;
@@ -225,27 +245,6 @@ impl<const DEGREE: usize> RnsPoly<DEGREE> {
         }
 
         Ok(Self::new_unchecked(new_channels, new_basis, false))
-    }
-
-    /// Divides every coefficient by the last RNS prime `q_L` and drops that channel.
-    ///
-    /// Used after homomorphic multiplication to bring `logp` back to its pre-multiplication
-    /// value. The operation is *exact* (no rounding error): subtracting `c mod q_L` from `c`
-    /// leaves a value exactly divisible by `q_L`.
-    ///
-    /// # Formula (per remaining channel `i`, per coefficient `j`)
-    /// ```text
-    /// new[i][j] = (c[i][j] − c[L][j] mod q_i) · q_L⁻¹  mod q_i
-    /// ```
-    ///
-    /// The polynomial is converted to coefficient domain before rescaling; the result is
-    /// always returned in coefficient domain.
-    ///
-    /// When rescaling multiple polynomials that will later be used together (e.g. the two
-    /// ciphertext components), prefer [`rescale_into`] with a shared `Arc<RnsBasis>`.
-    pub fn rescale(&self) -> RnsNttResult<Self> {
-        let new_basis = Arc::new(self.basis.drop_last(1)?);
-        self.rescale_into(new_basis)
     }
 }
 
@@ -738,15 +737,27 @@ mod tests {
         assert_eq!(poly.channels(), after_first.as_slice());
     }
 
-    // ── Mod-drop ──────────────────────────────────────────────────────────────
+    // ── Mod switch ────────────────────────────────────────────────────────────
 
     #[test]
-    fn mod_drop_removes_last_channels() {
+    fn mod_switch_keeps_first_channels_on_the_chain_basis() {
         let basis = basis_three();
-        let poly = RnsPoly::<8>::from_coeffs(&[1, 2, 3, 4, 5, 6, 7, 8], basis);
-        let dropped = poly.mod_drop_last(1).unwrap();
-        assert_eq!(dropped.basis().channel_count(), 2);
-        assert_eq!(dropped.channels().len(), 2);
+        let poly =
+            RnsPoly::<8>::from_coeffs(&[1, 2, 3, 4, 5, 6, 7, 8], basis.clone());
+        let switched = poly.mod_switch_to(2).unwrap();
+        assert_eq!(switched.channels(), &poly.channels()[..2]);
+        assert!(Arc::ptr_eq(switched.basis(), basis.next().unwrap()));
+    }
+
+    #[test]
+    fn mod_switch_rejects_out_of_range_levels() {
+        let poly = RnsPoly::<8>::from_coeffs(&[1; 8], basis_three());
+        for level in [0, 4] {
+            assert!(matches!(
+                poly.mod_switch_to(level),
+                Err(RnsNttError::InvalidLevel { .. })
+            ));
+        }
     }
 
     // ── Arithmetic ────────────────────────────────────────────────────────────
@@ -1004,8 +1015,17 @@ mod tests {
         let poly = RnsPoly::<8>::from_coeffs(&[1, 2, 3, 4, 5, 6, 7, 8], basis);
         assert!(matches!(
             poly.rescale(),
-            Err(RnsNttError::InvalidModDrop { .. })
+            Err(RnsNttError::InvalidLevel { .. })
         ));
+    }
+
+    #[test]
+    fn rescales_of_different_polys_share_one_basis() {
+        let basis = basis_three();
+        let a = RnsPoly::<8>::from_coeffs(&[1; 8], basis.clone());
+        let b = RnsPoly::<8>::from_coeffs(&[2; 8], basis);
+        let (a, b) = (a.rescale().unwrap(), b.rescale().unwrap());
+        assert!(Arc::ptr_eq(a.basis(), b.basis()));
     }
 
     #[test]

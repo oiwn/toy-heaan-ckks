@@ -1,6 +1,6 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
-use crate::rings::backends::rns_ntt::{RnsNttError, RnsPoly};
+use crate::rings::backends::rns_ntt::RnsPoly;
 use crate::rings::traits::PolyAutomorphism;
 use crate::{
     PolyRing, PolySampler, PublicKey, PublicKeyError, PublicKeyParams,
@@ -8,7 +8,6 @@ use crate::{
     SecretKey, SecretKeyError, SecretKeyParams,
 };
 use rand::Rng;
-use std::sync::Arc;
 
 pub struct CkksEngine<P, const DEGREE: usize>
 where
@@ -85,7 +84,6 @@ where
         &self,
         plaintext: &Plaintext<P, DEGREE>,
         public_key: &PublicKey<P, DEGREE>,
-        logq: u32,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
         let u = P::sample_tribits(self.params.hamming_weight, &self.context, rng);
@@ -107,7 +105,6 @@ where
             c0,
             c1,
             logp: plaintext.scale_bits, // Precision from encoding
-            logq,                       // Modulus level
         }
     }
 
@@ -125,55 +122,6 @@ where
             scale_bits: ciphertext.logp, // Use precision parameter
             slots: DEGREE / 2, // After decryption, assume max slots (decoder will handle actual slots)
         }
-    }
-
-    // Homomorphic operations
-    pub fn add_ciphertexts(
-        ct1: &Ciphertext<P, DEGREE>,
-        ct2: &Ciphertext<P, DEGREE>,
-    ) -> Ciphertext<P, DEGREE> {
-        let mut c0 = ct1.c0.clone();
-        c0 += &ct2.c0;
-
-        let mut c1 = ct1.c1.clone();
-        c1 += &ct2.c1;
-
-        // Both logp and logq should match for addition
-        assert_eq!(ct1.logp, ct2.logp, "logp mismatch in addition");
-        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in addition");
-
-        Ciphertext {
-            c0,
-            c1,
-            logp: ct1.logp,
-            logq: ct1.logq,
-        }
-    }
-
-    pub fn neg_ciphertext(ct: &Ciphertext<P, DEGREE>) -> Ciphertext<P, DEGREE>
-    where
-        P: std::ops::Neg<Output = P>,
-    {
-        Ciphertext {
-            c0: -ct.c0.clone(),
-            c1: -ct.c1.clone(),
-            logp: ct.logp,
-            logq: ct.logq,
-        }
-    }
-
-    pub fn sub_ciphertexts(
-        ct1: &Ciphertext<P, DEGREE>,
-        ct2: &Ciphertext<P, DEGREE>,
-    ) -> Ciphertext<P, DEGREE>
-    where
-        P: std::ops::Neg<Output = P>,
-    {
-        assert_eq!(ct1.logp, ct2.logp, "logp mismatch in subtraction");
-        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in subtraction");
-
-        let ct2_neg = Self::neg_ciphertext(ct2);
-        Self::add_ciphertexts(ct1, &ct2_neg)
     }
 
     pub fn mul_ciphertexts(
@@ -214,17 +162,15 @@ where
         let mut c1_new = d1;
         c1_new += &rk_a_times_d2;
 
-        // Step 3: Scale calculation - both logp and logq double
-        // After multiplication, scale becomes 2^(logp1 + logp2)
-        // Modulus stays at logq1 + logq2 (or should match for valid multiplication)
-        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in multiplication");
+        // Step 3: Scale calculation
+        // After multiplication, scale becomes 2^(logp1 + logp2); the modulus
+        // level is unchanged (rescaling would reduce it)
         let new_logp = ct1.logp + ct2.logp;
 
         Ciphertext {
             c0: c0_new,
             c1: c1_new,
             logp: new_logp,
-            logq: ct1.logq, // Modulus unchanged (rescaling would reduce this)
         }
     }
 }
@@ -301,61 +247,6 @@ pub struct RnsGadgetRotationKey<const DEGREE: usize> {
 }
 
 impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
-    /// Drops the last RNS prime and divides coefficients by it, reducing `logp` and `logq`.
-    ///
-    /// Both ciphertext components receive the **same** `Arc<RnsBasis>` so that subsequent
-    /// polynomial operations (which `Arc::ptr_eq`-check their bases) succeed without issue.
-    ///
-    /// Call this immediately after `mul_ciphertexts_gadget` to bring the ciphertext scale
-    /// back from `2·logp` to `logp`.
-    pub fn rescale_ciphertext(
-        ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
-    ) -> Result<Ciphertext<RnsPoly<DEGREE>, DEGREE>, RnsNttError> {
-        let q_last = *ct.c0.basis().moduli().last().expect("at least one channel");
-        // bit_length(q_last) = floor(log2(q_last)) + 1.
-        // Using floor alone would give a factor-of-2 error: for q_last ≈ 2^31 the
-        // floor is 30 but actual division by q_last shifts the scale by 31 bits.
-        let bits_dropped = u64::BITS - q_last.leading_zeros();
-
-        // One shared Arc so that c0 and c1 (and any later-created sk_reduced) satisfy
-        // Arc::ptr_eq checks in mul_assign / add_assign.
-        let new_basis = Arc::new(ct.c0.basis().drop_last(1)?);
-
-        Ok(Ciphertext {
-            c0: ct.c0.rescale_into(new_basis.clone())?,
-            c1: ct.c1.rescale_into(new_basis)?,
-            logp: ct.logp - bits_dropped,
-            logq: ct.logq - bits_dropped,
-        })
-    }
-
-    /// Ciphertext x plaintext multiplication: `(c0, c1) -> (c0*p, c1*p)`.
-    ///
-    /// Since `p` is known, the product `(m*p)` still decrypts under the same
-    /// key — no `s^2` term appears, so **no relinearization or key switch**
-    /// is needed (cheaper and lower-noise than `mul_ciphertexts_gadget`).
-    ///
-    /// `pt` must be encoded in the ciphertext's current basis (NTT domain
-    /// matching `ct.c0`'s channels). The scale doubles: `logp + pt.scale_bits`;
-    /// call `rescale_ciphertext` afterwards to bring it back down.
-    pub fn mul_plaintext(
-        ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
-        pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>,
-    ) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
-        let mut c0 = ct.c0.clone();
-        c0 *= &pt.poly;
-
-        let mut c1 = ct.c1.clone();
-        c1 *= &pt.poly;
-
-        Ciphertext {
-            c0,
-            c1,
-            logp: ct.logp + pt.scale_bits,
-            logq: ct.logq,
-        }
-    }
-
     /// Generates a gadget relinearization key from a secret key.
     ///
     /// Produces one `(a[i][j], b[i][j])` pair per RNS channel `i` and digit `j`
@@ -488,7 +379,7 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
     ///
     /// Every digit coefficient is below `2^DIGIT_BITS`, which keeps the noise
     /// picked up from the key errors small regardless of prime size.
-    fn gadget_key_switch(
+    pub(crate) fn gadget_key_switch(
         src: &RnsPoly<DEGREE>,
         key_a: &[Vec<RnsPoly<DEGREE>>],
         key_b: &[Vec<RnsPoly<DEGREE>>],
@@ -548,87 +439,5 @@ impl<const DEGREE: usize> CkksEngine<RnsPoly<DEGREE>, DEGREE> {
         }
 
         (ks_c0, ks_c1)
-    }
-
-    /// Rotate ciphertext slots by `rotk.rotation` positions using gadget key switching.
-    ///
-    /// # Steps
-    /// 1. Apply automorphism σ_k: `X → X^{5^k}` to both ciphertext components.
-    ///    This rotates the plaintext slots but changes the decryption key from `s` to `s_k`.
-    /// 2. Key-switch back to `s` using the gadget rotation key:
-    ///    - Decompose `σ_k(c1)` into base-2^`DIGIT_BITS` digits per channel
-    ///    - Accumulate `Σ_i Σ_j digit_j(α_i(σ_k(c1))) · (rotk.b[i][j], rotk.a[i][j])`
-    ///      and add to `(σ_k(c0), 0)`
-    ///
-    /// The output is a fresh degree-1 ciphertext encrypted under `s` with the same
-    /// `logp` and `logq` as the input — no level is consumed by rotation.
-    pub fn rotate_ciphertext(
-        ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
-        rotk: &RnsGadgetRotationKey<DEGREE>,
-    ) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
-        // Step 1: apply automorphism — result is in coefficient domain.
-        let c0_rot = ct.c0.rotate_slots(rotk.rotation);
-        let mut c1_rot = ct.c1.rotate_slots(rotk.rotation);
-        c1_rot.to_coeff_domain(); // already coeff; explicit for clarity
-
-        // Step 2: gadget key switch on c1_rot.
-        let (ks_c0, ks_c1) = Self::gadget_key_switch(&c1_rot, &rotk.a, &rotk.b);
-
-        let mut c0_new = c0_rot;
-        c0_new += &ks_c0;
-
-        Ciphertext {
-            c0: c0_new,
-            c1: ks_c1,
-            logp: ct.logp,
-            logq: ct.logq,
-        }
-    }
-
-    /// Homomorphic multiplication using the RNS gadget relinearization key.
-    ///
-    /// Computes the tensor product `(c0 + c1·s)(c0' + c1'·s) = d0 + d1·s + d2·s²`,
-    /// then replaces the `d2·s²` term with
-    /// `Σ_i Σ_j digit_j(α_i(d2))·rlk[i][j]`, yielding a valid degree-1
-    /// ciphertext.
-    ///
-    /// The output has `logp = ct1.logp + ct2.logp`; call `rescale_ciphertext` afterwards
-    /// to bring it back to `ct1.logp`.
-    pub fn mul_ciphertexts_gadget(
-        ct1: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
-        ct2: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
-        rlk: &RnsGadgetRelinKey<DEGREE>,
-    ) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
-        assert_eq!(ct1.logq, ct2.logq, "logq mismatch in gadget multiplication");
-
-        // ── Tensor product ────────────────────────────────────────────────────
-        let mut d0 = ct1.c0.clone();
-        d0 *= &ct2.c0; // c0 · c0'
-
-        let mut d1a = ct1.c0.clone();
-        d1a *= &ct2.c1; // c0 · c1'
-        let mut d1b = ct1.c1.clone();
-        d1b *= &ct2.c0; // c1 · c0'
-        let mut d1 = d1a;
-        d1 += &d1b;
-
-        let mut d2 = ct1.c1.clone();
-        d2 *= &ct2.c1; // c1 · c1'
-        d2.to_coeff_domain(); // must read channels[i] below
-
-        // ── Gadget relinearization: replace d2·s² ────────────────────────────
-        // c0 += Σ_i Σ_j digit_j(α_i(d2)) · rlk.b[i][j]
-        // c1 += Σ_i Σ_j digit_j(α_i(d2)) · rlk.a[i][j]
-        let (relin_c0, relin_c1) = Self::gadget_key_switch(&d2, &rlk.a, &rlk.b);
-
-        d0 += &relin_c0;
-        d1 += &relin_c1;
-
-        Ciphertext {
-            c0: d0,
-            c1: d1,
-            logp: ct1.logp + ct2.logp,
-            logq: ct1.logq,
-        }
     }
 }

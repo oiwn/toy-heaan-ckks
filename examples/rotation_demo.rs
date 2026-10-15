@@ -19,7 +19,7 @@
 //!
 //! Unlike multiplication, rotation does **not** consume a level: `logp` and
 //! `logq` are unchanged.  The example therefore uses only 2 primes (one spare
-//! for headroom) and never calls `rescale_ciphertext`.
+//! for headroom) and never calls `Ciphertext::rescale`.
 //!
 //! ## Noise budget
 //!
@@ -104,28 +104,28 @@ fn main() {
     println!("Input slots: {input:?}\n");
 
     let pt_in = encoder.encode(&input, basis.clone());
-    let ct = engine.encrypt(&pt_in, &pk, logq, &mut rng);
+    let ct = engine.encrypt(&pt_in, &pk, &mut rng);
 
     // ── 4. Homomorphic pipeline ───────────────────────────────────────────────
 
     // Step A: rotate by ROT1
     println!("Step A: rotate ciphertext by {ROT1:+} slot(s) …");
-    let ct_rot1 = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct, &rotk1);
+    let ct_rot1 = ct.rotate(&rotk1);
     println!(
         "  logp={}, logq={} (unchanged — rotation is level-free)\n",
-        ct_rot1.logp, ct_rot1.logq
+        ct_rot1.logp,
+        ct_rot1.logq()
     );
 
     // Step B: add original and rotated ciphertexts
     println!("Step B: add original + rotated …");
-    let ct_added = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct, &ct_rot1);
-    println!("  logp={}, logq={}\n", ct_added.logp, ct_added.logq);
+    let ct_added = &ct + &ct_rot1;
+    println!("  logp={}, logq={}\n", ct_added.logp, ct_added.logq());
 
     // Step C: rotate sum by ROT2
     println!("Step C: rotate sum by {ROT2:+} slot(s) …");
-    let ct_result =
-        CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct_added, &rotk2);
-    println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq);
+    let ct_result = ct_added.rotate(&rotk2);
+    println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq());
 
     // ── 5. Decrypt + decode ───────────────────────────────────────────────────
     println!("Decrypting …");

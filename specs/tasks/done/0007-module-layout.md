@@ -1,6 +1,6 @@
 ---
 id: 0007-module-layout
-status: approval
+status: done
 scope: [src/**, examples/**, tests/**, benches/**, README.md]
 created: 2026-10-13
 source: user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout
@@ -75,3 +75,5 @@ Moves are plain file moves; the operator stages them in git. All moves happen he
 - 2026-10-14 advance in-progress/implement → in-progress/verify
 - 2026-10-14 advance in-progress/verify → in-progress/review
 - 2026-10-14 advance in-progress/review → approval
+- 2026-10-14 approved: tests passing! let's discuss next task.
+- 2026-10-14 advance approval → done

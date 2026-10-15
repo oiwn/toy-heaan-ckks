@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 
@@ -88,15 +90,25 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
 
 /// RNS basis: a set of NTT-friendly prime moduli with precomputed NTT tables.
 ///
+/// Each basis links to the basis one level down (its last prime dropped), so
+/// the whole modulus chain is built once and shared: every polynomial that
+/// rescales or mod-switches to a level lands on the same `Arc`.
+///
 /// Invariant: `moduli.len() == ntt_tables.len()` and
 /// `ntt_tables[i].modulus == moduli[i]` for all `i`.
 #[derive(Debug, Clone)]
 pub struct RnsBasis<const DEGREE: usize> {
     moduli: Vec<u64>,
     ntt_tables: Vec<NttTable<DEGREE>>,
+    next: Option<Arc<RnsBasis<DEGREE>>>,
 }
 
 impl<const DEGREE: usize> RnsBasis<DEGREE> {
+    /// Builds the basis for `moduli` together with its chain of lower levels.
+    ///
+    /// # Errors
+    /// Returns an error if `moduli` is empty or holds a modulus that is not
+    /// NTT-friendly for `DEGREE`.
     pub fn new(moduli: Vec<u64>) -> RnsNttResult<Self> {
         if moduli.is_empty() {
             return Err(RnsNttError::EmptyBasis);
@@ -105,7 +117,37 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         for &modulus in &moduli {
             ntt_tables.push(NttTable::new(modulus)?);
         }
-        Ok(Self { moduli, ntt_tables })
+
+        // Build bottom-up: level 1 first, each level linking to the one below.
+        let mut next: Option<Arc<Self>> = None;
+        for keep in 1..moduli.len() {
+            next = Some(Arc::new(Self {
+                moduli: moduli[..keep].to_vec(),
+                ntt_tables: ntt_tables[..keep].to_vec(),
+                next,
+            }));
+        }
+        Ok(Self {
+            moduli,
+            ntt_tables,
+            next,
+        })
+    }
+
+    /// The basis one level down (last prime dropped), or `None` at level 1.
+    pub fn next(&self) -> Option<&Arc<Self>> {
+        self.next.as_ref()
+    }
+
+    /// Walks the chain down to the basis with `channel_count` channels.
+    ///
+    /// Returns `None` if `channel_count` is 0 or above this basis' level.
+    pub fn at_level(self: &Arc<Self>, channel_count: usize) -> Option<Arc<Self>> {
+        let mut basis = self;
+        while basis.channel_count() > channel_count {
+            basis = basis.next.as_ref()?;
+        }
+        (basis.channel_count() == channel_count).then(|| basis.clone())
     }
 
     pub fn moduli(&self) -> &[u64] {
@@ -120,26 +162,11 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         self.moduli.len()
     }
 
-    /// Returns a new basis with the last `drop_count` channels removed.
-    pub fn drop_last(&self, drop_count: usize) -> RnsNttResult<Self> {
-        let channel_count = self.channel_count();
-        if drop_count >= channel_count {
-            return Err(RnsNttError::InvalidModDrop {
-                drop_count,
-                channel_count,
-            });
-        }
-        let keep = channel_count - drop_count;
-        Ok(Self {
-            moduli: self.moduli[..keep].to_vec(),
-            ntt_tables: self.ntt_tables[..keep].to_vec(),
-        })
-    }
-
-    /// Returns the total bit-size of the composite modulus Q = q_0 · … · q_{L-1}.
+    /// Returns a lower bound on log2 of the modulus `Q = q_0 * ... * q_{L-1}`.
     ///
-    /// Computed as `Σ floor(log2(q_i))`, which gives the number of bits needed
-    /// to represent Q. Used to set `logq` when calling `CkksEngine::encrypt`.
+    /// Computed as `sum floor(log2(q_i))`, so `2^total_bits <= Q`; the
+    /// encoder's coefficient limit relies on that. `Ciphertext::logq` reports
+    /// this value.
     pub fn total_bits(&self) -> u32 {
         self.moduli
             .iter()
@@ -349,20 +376,23 @@ mod tests {
     }
 
     #[test]
-    fn drop_last_reduces_channel_count() {
+    fn next_drops_the_last_prime_down_to_level_one() {
         let basis = RnsBasis::<8>::new(vec![17, 97, 113]).unwrap();
-        let reduced = basis.drop_last(1).unwrap();
-        assert_eq!(reduced.channel_count(), 2);
-        assert_eq!(reduced.moduli(), &[17, 97]);
+        let level2 = basis.next().unwrap();
+        assert_eq!(level2.moduli(), &[17, 97]);
+        let level1 = level2.next().unwrap();
+        assert_eq!(level1.moduli(), &[17]);
+        assert!(level1.next().is_none());
     }
 
     #[test]
-    fn drop_last_all_channels_fails() {
-        let basis = RnsBasis::<8>::new(vec![17, 97]).unwrap();
-        assert!(matches!(
-            basis.drop_last(2),
-            Err(RnsNttError::InvalidModDrop { .. })
-        ));
+    fn at_level_returns_the_shared_chain_node() {
+        let basis = Arc::new(RnsBasis::<8>::new(vec![17, 97, 113]).unwrap());
+        assert!(Arc::ptr_eq(&basis.at_level(3).unwrap(), &basis));
+        let level1 = basis.at_level(1).unwrap();
+        assert!(Arc::ptr_eq(&level1, basis.next().unwrap().next().unwrap()));
+        assert!(basis.at_level(0).is_none());
+        assert!(basis.at_level(4).is_none());
     }
 
     #[test]

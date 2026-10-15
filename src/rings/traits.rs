@@ -1,9 +1,9 @@
 //! Traits defining the minimum interface for polynomial rings in CKKS.
 //!
-//! This module defines three core traits required for CKKS homomorphic encryption:
+//! This module defines the core traits required for CKKS homomorphic encryption:
 //! - [`PolyRing`]: Basic polynomial ring operations (add, multiply, negate)
 //! - [`PolySampler`]: Sampling operations for key generation and encryption
-//! - [`PolyRescale`]: Rescaling operation for managing ciphertext scale after multiplication
+//! - [`PolyAutomorphism`]: `X -> X^k` maps for slot rotation
 //!
 //! All CKKS operations work over polynomial rings `R_q = Z_q[X]/(X^N + 1)`.
 //! Concrete implementations are provided in the `backends` module.
@@ -124,43 +124,6 @@ pub trait PolySampler<const DEGREE: usize>: PolyRing<DEGREE> {
         context: &Self::Context,
         rng: &mut R,
     ) -> Self;
-}
-
-pub trait PolyRescale<const DEGREE: usize> {
-    fn rescale_assign(&mut self, scale_factor: f64);
-}
-
-/// Trait for modulus switching operations on polynomial rings.
-///
-/// Modulus switching transforms a polynomial from one modulus to another
-/// while preserving the ability to decrypt to the same plaintext.
-///
-/// # Formula
-/// For each coefficient `c` in the polynomial:
-/// ```text
-/// c_hat = round(c * (q_hat / q))
-/// ```
-///
-/// # Key Properties
-/// - Secret key `s` remains UNCHANGED (same key works at both moduli)
-/// - Plaintext value `m` remains UNCHANGED
-/// - Scale changes: `Delta_hat = Delta * (q_hat / q)`
-/// - Noise scales proportionally with rounding error bounded by 1.5
-///
-/// # Reference
-/// FHE Textbook: c04-glwe-modulus-switch.tex
-pub trait PolyModSwitch<const DEGREE: usize>: PolyRing<DEGREE> {
-    /// Switch polynomial to a different modulus
-    ///
-    /// Applies the modulus switching formula: `c_hat = round(c * (q_hat / q))`
-    /// to each coefficient, converting from current modulus to `new_context`.
-    ///
-    /// # Parameters
-    /// - `new_context`: Target modulus context
-    ///
-    /// # Returns
-    /// New polynomial at the target modulus
-    fn mod_switch(&self, new_context: &Self::Context) -> Self;
 }
 
 /// Trait for automorphism operations on polynomial rings.

@@ -15,7 +15,6 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
-use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -79,42 +78,36 @@ fn main() {
     let pt_b = encoder.encode(&b, basis.clone());
 
     // ── 6. Encrypt ─────────────────────────────────────────────────────────────
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
     println!(
         "Both plaintexts encrypted (logp={}, logq={}).\n",
-        ct_a.logp, ct_a.logq
+        ct_a.logp,
+        ct_a.logq()
     );
 
     // ── 7. Homomorphic multiply ────────────────────────────────────────────────
     // Uses the RNS gadget relinearization key to keep the degree at 1.
-    let ct_product =
-        CkksEngine::<RnsPoly<N>, N>::mul_ciphertexts_gadget(&ct_a, &ct_b, &rlk);
+    let ct_product = ct_a.mul(&ct_b, &rlk);
     println!(
         "Gadget multiplication done  (logp={}, logq={}).",
-        ct_product.logp, ct_product.logq
+        ct_product.logp,
+        ct_product.logq()
     );
 
     // ── 8. Rescale ─────────────────────────────────────────────────────────────
     // Drops the last RNS prime and divides coefficients by it, halving logp.
-    let ct_rescaled = CkksEngine::<RnsPoly<N>, N>::rescale_ciphertext(&ct_product)
-        .expect("rescale");
+    let ct_rescaled = ct_product.rescale().expect("rescale");
     println!(
         "Rescale done                (logp={}, logq={}).\n",
-        ct_rescaled.logp, ct_rescaled.logq
+        ct_rescaled.logp,
+        ct_rescaled.logq()
     );
 
     // ── 9. Decrypt ─────────────────────────────────────────────────────────────
-    // The rescaled ciphertext lives in a 3-prime basis; reduce the secret key to
-    // match so the basis Arc::ptr_eq check in polynomial arithmetic passes.
-    let reduced_basis = ct_rescaled.c0.basis().clone();
-    let level = reduced_basis.channel_count();
-    let sk_channels: Vec<[u64; N]> = sk.poly.channels()[..level].to_vec();
-    let sk_poly_reduced = RnsPoly::from_channels(sk_channels, reduced_basis, false)
-        .expect("reduced sk is correctly reduced");
-    let sk_reduced = SecretKey {
-        poly: sk_poly_reduced,
-    };
+    // The rescaled ciphertext lives one level down; mod-switch the secret key
+    // to the same level so both sit on the same chain basis.
+    let sk_reduced = sk.mod_switch_to(ct_rescaled.level()).expect("sk level");
 
     let pt_product =
         CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rescaled, &sk_reduced);

@@ -1,4 +1,3 @@
-pub mod common;
 pub mod public_key;
 pub mod relin_key;
 pub mod rotation_key;

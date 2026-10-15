@@ -9,6 +9,31 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-10-15 — remove commented code
+
+- Removed dead commented-out code from the old `RnsPolyRing` API: `keys/common.rs` and `benches/basic.rs` (both moved to `tmp/`), stale tests in `math/utils.rs` and two `CkksError` variants.
+- Task `0014-remove-commented-code`; source: operator 2026-10-14: huge commented-out sections in keys/common.rs
+
+## 2026-10-14 — chebyshev module
+
+- `pipeline.rs` retired: `sum_slots` and the Chebyshev code (encrypted Clenshaw, fit, plaintext reference) now live in `ckks/algorithms/{sum_slots, chebyshev}.rs`, built only on ops, level methods and the evaluator; new `Ciphertext::zero_like` op.
+- Task `0010-chebyshev-module`; source: user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs
+
+## 2026-10-14 — ops composition
+
+- Homomorphic ops moved to `ckks/ops.rs`: `std::ops` Add/Sub/Neg plus `Ciphertext::{mul, mul_plain, mul_const, add_const, rotate}` with explicit rescale; `LeveledEvaluator` and rotation-key helpers moved to `ckks/evaluator.rs`; the `pipeline.rs` scalar helpers and the engine's op functions are gone.
+- Task `0009-ops-composition`; source: user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs
+
+## 2026-10-14 — ciphertext levels
+
+- Shared modulus chain: `RnsBasis` links to the next level, `Ciphertext` gains `level`/`logq()`/`rescale`/`mod_switch_to`/`match_level`, `logq` is no longer stored, and `align_level`, `decode_wide`, `rescale_ciphertext` and the unimplemented level traits are gone.
+- Task `0008-ciphertext-levels`; source: user request 2026-10-13: pipeline.rs is a std-dev grab bag; decompose into composable ops like fhe.rs / tfhe-rs
+
+## 2026-10-14 — module layout
+
+- Moved to the `foo.rs` + `foo/` layout: `crypto`, `encoding`, `keys` now live under `ckks/`; `math` and `rings/backends/rns_ntt` lost their `mod.rs`; import paths and docs updated, no logic change.
+- Task `0007-module-layout`; source: user request 2026-10-13: publication cleanup, remove ancient code and golden vectors, foo.rs module layout
+
 ## 2026-10-14 — trim dependencies
 
 - Trimmed `Cargo.toml`: removed dhat, serde stack and 8 unused dev-dependencies plus the dhat features; `tracing-subscriber` moved to dev; `tracing` and `crypto-bigint` kept for planned work.
