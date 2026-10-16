@@ -20,7 +20,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 | Operation | Status | Notes |
 |-----------|--------|-------|
 | Encoding/Decoding | ✅ | Textbook encoder/decoder on RNS-NTT with Vandermonde transforms. |
-| Key Generation | ✅ | RLWE-style keys backed by `RnsNttPoly`; gadget relin/rotation keys per level. |
+| Key Generation | ✅ | RLWE keys; gadget relin/rotation keys per level. |
 | Encryption/Decryption | ✅ | Matches textbook parameters for toy degrees. |
 | Homomorphic Addition | ✅ | Component-wise add. |
 | Homomorphic Multiplication | ✅ | `ct.mul(&other, &rlk)` (gadget relin), `mul_plain`, `mul_const`; rescale is explicit. |
@@ -30,17 +30,22 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ## Architecture Design
 
-### Core Traits (`src/rings/traits.rs`)
+### Backend trait (`src/rings/traits.rs`)
 
-- **PolyRing**: Basic arithmetic operations (add, mul, neg)
-- **PolySampler**: Random polynomial generation with error distributions
-- **PolyAutomorphism**: `X -> X^k` maps for slot rotation
-- Rescale and mod switch are concrete `RnsPoly` methods for now (0011 lifts them into the backend trait).
+`PolyRing<N>` is the only view `ckks/` has of polynomials:
+
+- **Arithmetic:** `AddAssign`, `SubAssign`, `MulAssign` (negacyclic), `Neg`, `zero`.
+- **Sampling:** `sample_uniform`, `sample_gaussian(std_dev)`, `sample_ternary(hamming_weight)`.
+- **Automorphism:** `automorphism(k)`; `rotate_slots` is a provided method on top.
+- **Modulus chain:** `level`, `modulus_bits`, `rescale_bits`, `rescale`, `mod_switch_to`.
+- **Encoding boundary:** `from_rounded_f64`, `to_centered_f64`; `from_coeffs` / `to_coeffs`.
+- **Gadget:** `gadget_len`, `decompose(digit_bits)`, `gadget_term(k)`, with `sum_k decompose(x)[k] * t.gadget_term(k) == x * t`.
+- Errors are the backend-agnostic `RingError` (`InvalidLevel`, `CoefficientTooLarge`).
 
 ### RNS-NTT Implementation
 
 - **Basis Management**: `src/rings/backends/rns_ntt` owns modulus-chain construction, CRT reduction, and per-prime tables built from `src/math/primes.rs`.
-- **NTT Domain Storage**: Polynomials are kept in NTT form by default and lazily converted back when needed (e.g., decoding, CRT inspection).
+- **NTT form at rest**: see the gotcha below; the form is private to `RnsPoly`.
 - **Sampling**: Error and ternary samplers operate channel-wise to stay compatible with the NTT layout.
 - **Diagnostics**: Helper utilities expose per-prime residues and CRT reconstructions for encode/decode testing.
 
@@ -63,8 +68,8 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 #### Relinearization and Rotation Keys
 
-- Key switching: `(a, b)` with `b + a*s ~ s^2` (relin) or `s(X^k)` (rotation)
-- Base-2^DIGIT_BITS gadget decomposition; keys are level-bound (see gotchas)
+- `KeySwitchingKey<P>` (fhetextbook D-3.8, OpenFHE `EvalKey`): `b[k] + a[k]*s ~ s_old.gadget_term(k)`; wrapped by `RelinearizationKey` (`s^2`) and `RotationKey` (`s(X^(5^k))`)
+- BV-style base-2^DIGIT_BITS digits; level-bound
 
 ## Key Design Decisions
 
@@ -107,15 +112,9 @@ Experimental library: ring backends are pluggable and the scheme sees the ring o
   3. `ckks/`, generic over the backend: `params`, `encoding`, `plaintext`, `ciphertext`, `keys/` (secret, public, key_switching, relin, rotation), `ops`, `evaluator` (per-level key cache).
   4. `ckks/algorithms`: `sum_slots`, Chebyshev; built only on `ops`. Applications (sensor std-dev) live in `examples/`.
 - **Backend trait** (ring `Z_Q[X]/(X^N + 1)` at a level; degree is a compile-time `const N`):
-  - arithmetic: `zero`, `add`, `sub`, `neg`, `mul` (negacyclic), `mul_small(i64)`;
-  - sampling: `uniform`, `gaussian(std_dev)`, `ternary(hamming_weight)`;
-  - automorphism `X -> X^k` (rotation, conjugation);
-  - modulus chain: `level()`, `rescale()` (divide by the last prime), `mod_switch_down(level)` (drop primes);
-  - encoding boundary: `from_rounded_f64`, `to_centered_f64`;
-  - gadget: `decompose(digit_bits)`, `gadget_scale(i, digit_bits)`.
-  - NTT vs coefficient domain is private to the backend.
+  - done in 0011 as `PolyRing` (see Backend trait above); the NTT form is private to the backend. Reference for current practice: OpenFHE (SEAL is unmaintained).
 - **Context chain** (fhe.rs): every level's context is built once and shared (`next()`); polys at the same level share it, so there are no fresh-basis mismatches.
-- **Keys** (fhe.rs): one `KeySwitchingKey`, wrapped by the relin key and the rotation key.
+- **Keys** (fhe.rs): one `KeySwitchingKey`, wrapped by the relin key and the rotation key (done in 0012).
 - **Ciphertext** (fhe.rs): level changes are methods (`rescale`, `mod_switch_to`); Add/Sub/Neg are `std::ops` impls.
 - **Style** (tfhe-rs): data types separate from algorithms; typed parameter newtypes (`DecompositionBaseLog`, `LevelCount`) where raw integers are ambiguous.
 
@@ -129,9 +128,9 @@ Direction and active work: `specs/roadmap.md`, `specs/ctx.md`, `specs/tasks/`.
 
 Verified against fhetextbook D-3.1/D-3.6/D-3.7 during the Phase A work (2026-08-17):
 
-- **Polynomials live in the coefficient domain at rest.** Encrypt, rotate, and all ops keep ciphertexts in coefficient domain; `mul_assign` requires both operands to share the domain flag. A trivial ciphertext built in NTT domain will trip `add_assign` domain asserts.
+- **`RnsPoly` rests in NTT form** (0011): ring ops are pointwise; coefficient form appears only inside encode/sample, decode, `decompose`, `rescale` (last channel) and `automorphism`. A private flag allows coefficient form internally (future mod raise); mixed inputs convert to NTT. The switch changed no output bits.
 - **Operations require `Arc::ptr_eq` bases.** `RnsBasis::new` builds the whole level chain once (`next()`), and rescale / mod switch walk it, so everything at the same level of one chain shares one `Arc`. Two chains built by separate `RnsBasis::new` calls are NOT compatible, even with equal primes. `logq` is derived from the basis (floor-based `total_bits`); only `logp` is stored.
-- **Encoding limit is the modulus, not i64** (fixed in task 0004): a scaled coefficient must satisfy |coeff| < Q/2 for the plaintext's basis (checked as `2^(total_bits - 1)`; `try_encode` returns `EncodingError::CoefficientTooLarge`, `encode` panics). The final result must also fit the modulus left after all rescales.
+- **Encoding limit is the modulus, not i64** (fixed in task 0004): a scaled coefficient must satisfy |coeff| < Q/2 for the plaintext's basis (checked as `2^(total_bits - 1)`; `try_encode` returns `RingError::CoefficientTooLarge` from the backend's `from_rounded_f64`, `encode` panics). The final result must also fit the modulus left after all rescales.
 - **The encoder stages coefficients in f64**: precision is ~2^-52 relative to the largest scaled coefficient, so mixing huge and tiny slots costs the tiny ones absolute accuracy. Before task 0004 the staging was i64 (|slot| < 4 at scale 61, silent saturation); the 1/10 pre-scaling in older examples dates from that era.
 - **Gadget keys are level-bound**: a relin/rotation key only works at the channel count it was generated for. `LeveledEvaluator` regenerates and caches per level from the master secret key.
 - **Every ct×ct mul needs modulus headroom**: the raw product sits at scale ~2^(2·logp); with 61-bit primes the mul must run at ≥ 3 channels or the product wraps (symptom: exact ±1.0 slot error).

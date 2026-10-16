@@ -70,7 +70,7 @@ fn make_engine(
 fn mul_and_rescale(
     ct_a: &toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>,
     ct_b: &toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>,
-    rlk: &toy_heaan_ckks::ckks::engine::RnsGadgetRelinKey<N>,
+    rlk: &toy_heaan_ckks::ckks::keys::RelinearizationKey<RnsPoly<N>, N>,
 ) -> toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N> {
     ct_a.mul(ct_b, rlk).rescale().expect("rescale")
 }
@@ -103,7 +103,7 @@ fn single_multiplication_large_primes() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     let a: Vec<f64> = vec![0.5, -0.25, 0.75, -0.125, 0.9, -0.6, 0.3, -0.8];
     let b: Vec<f64> = vec![0.4, 0.8, -0.2, 0.6, -0.5, 0.35, -0.7, 0.15];
@@ -150,7 +150,7 @@ fn two_chained_multiplications() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     // Keep inputs in (0, 1] so products stay well within the noise budget.
     let a: Vec<f64> = vec![0.9, 0.5, 0.8, 0.3, 0.7, 0.4, 0.6, 0.2];
@@ -178,7 +178,7 @@ fn two_chained_multiplications() {
     let pk_l2 = engine_l2
         .generate_public_key(&sk_l2, &mut rng)
         .expect("keygen l2");
-    let rlk_l2 = engine_l2.generate_gadget_relin_key(&sk_l2, &mut rng);
+    let rlk_l2 = engine_l2.generate_relin_key(&sk_l2, &mut rng);
 
     // ── Second multiplication: (a×b) × c ─────────────────────────────────────
     let pt_c = encoder.encode(&c, basis_l2.clone());
@@ -216,7 +216,7 @@ fn add_then_multiply() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     let a: Vec<f64> = vec![0.3, -0.4, 0.6, -0.2, 0.8, -0.1, 0.5, -0.7];
     let b: Vec<f64> = vec![-0.1, 0.5, -0.3, 0.7, -0.4, 0.6, -0.2, 0.4];
@@ -305,7 +305,7 @@ fn multiply_then_add() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     let a: Vec<f64> = vec![0.6, -0.3, 0.8, -0.5, 0.4, -0.7, 0.2, -0.9];
     let b: Vec<f64> = vec![0.5, 0.7, 0.3, 0.9, 0.6, 0.4, 0.8, 0.1];
@@ -364,7 +364,7 @@ fn mul_plain_matches_ct_mul() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     let a: Vec<f64> = vec![0.5, -0.25, 0.75, -0.125, 0.9, -0.6, 0.3, -0.8];
     let b: Vec<f64> = vec![0.4, 0.8, -0.2, 0.6, -0.5, 0.35, -0.7, 0.15];
@@ -421,7 +421,7 @@ fn full_slots_single_multiplication() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     // All 512 slots filled with values in (-0.9, 0.9), fixed seed for reproducibility.
     let slots = N / 2;
@@ -469,7 +469,7 @@ fn mod_switch_keeps_slots_and_meets_rescaled_level() {
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk = engine.generate_relin_key(&sk, &mut rng);
 
     let a: Vec<f64> = vec![0.6, -0.3, 0.8, -0.5, 0.4, -0.7, 0.2, -0.9];
     let ct_a = engine.encrypt(&encoder.encode(&a, basis.clone()), &pk, &mut rng);

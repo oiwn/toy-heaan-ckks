@@ -11,6 +11,6 @@ pub mod ops;
 pub mod types;
 
 // Re-export the main types users need
-pub use engine::{CkksEngine, RnsGadgetRelinKey};
+pub use engine::CkksEngine;
 pub use errors::{CkksError, CkksResult};
 pub use types::{Ciphertext, Plaintext};

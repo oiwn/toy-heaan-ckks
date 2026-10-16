@@ -1,8 +1,8 @@
 //! Slot aggregation: sum packed slots with a binary rotate-and-add tree.
 
+use crate::PolyRing;
 use crate::ckks::evaluator::RotationKeyMap;
 use crate::ckks::types::Ciphertext;
-use crate::rings::backends::rns_ntt::RnsPoly;
 
 /// Rotation offsets needed by [`sum_slots`] for `slots` packed values:
 /// `1, 2, 4, ..., slots/2`.
@@ -29,11 +29,11 @@ pub fn required_rotation_offsets(slots: usize) -> Vec<i32> {
 /// # Panics
 /// Panics if `slots` is not a power of two, exceeds `DEGREE / 2`, or a
 /// required rotation key is missing from `rotkeys`.
-pub fn sum_slots<const DEGREE: usize>(
-    ct: &Ciphertext<RnsPoly<DEGREE>, DEGREE>,
+pub fn sum_slots<P: PolyRing<DEGREE>, const DEGREE: usize>(
+    ct: &Ciphertext<P, DEGREE>,
     slots: usize,
-    rotkeys: &RotationKeyMap<DEGREE>,
-) -> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
+    rotkeys: &RotationKeyMap<P, DEGREE>,
+) -> Ciphertext<P, DEGREE> {
     assert!(
         slots <= DEGREE / 2,
         "slots cannot exceed available CKKS slots"

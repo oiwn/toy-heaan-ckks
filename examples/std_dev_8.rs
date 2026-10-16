@@ -197,9 +197,9 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::algorithms::sum_slots::sum_slots;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::ckks::evaluator::{RotationKeyMap, generate_rotation_key_set};
-use toy_heaan_ckks::ckks::keys::SecretKey;
+use toy_heaan_ckks::ckks::keys::{RelinearizationKey, SecretKey};
 use toy_heaan_ckks::ckks::types::Ciphertext;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
@@ -214,7 +214,8 @@ const INPUT: [f64; SLOTS] = [0.12, 0.18, 0.21, 0.27, 0.31, 0.38, 0.42, 0.49];
 type Ct = Ciphertext<RnsPoly<N>, N>;
 type Sk = SecretKey<RnsPoly<N>, N>;
 type Basis = Arc<RnsBasis<N>>;
-type RotKeyMap = RotationKeyMap<N>;
+type RotKeyMap = RotationKeyMap<RnsPoly<N>, N>;
+type Rlk = RelinearizationKey<RnsPoly<N>, N>;
 
 fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
     CkksEngine::new(
@@ -235,7 +236,7 @@ fn make_rotkeys(
     generate_rotation_key_set(engine, sk, SLOTS, rng)
 }
 
-fn mul_and_rescale(ct_a: &Ct, ct_b: &Ct, rlk: &RnsGadgetRelinKey<N>) -> Ct {
+fn mul_and_rescale(ct_a: &Ct, ct_b: &Ct, rlk: &Rlk) -> Ct {
     ct_a.mul(ct_b, rlk)
         .rescale()
         .expect("mul_and_rescale: rescale")
@@ -330,8 +331,7 @@ fn main() {
 
     let sk_centered = sk_at(&sk, &ct_centered);
     let engine_centered = make_engine(ct_centered.c0.basis().clone());
-    let rlk_centered =
-        engine_centered.generate_gadget_relin_key(&sk_centered, &mut rng);
+    let rlk_centered = engine_centered.generate_relin_key(&sk_centered, &mut rng);
     let ct_sq_diff = mul_and_rescale(&ct_centered, &ct_centered, &rlk_centered);
     println!(
         "After squared differences: logp={}, logq={}, primes={}",

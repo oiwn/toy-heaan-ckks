@@ -47,7 +47,7 @@ fn main() {
     let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
 
     // One rotation key for offset +1 — reused at every step.
-    let rotk = engine.generate_gadget_rotation_key(&sk, 1, &mut rng);
+    let rotk = engine.generate_rotation_key(&sk, 1, &mut rng);
 
     // ── Encrypt ───────────────────────────────────────────────────────────────
     let input: Vec<f64> = (1..=SLOTS).map(|i| i as f64).collect();

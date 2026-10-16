@@ -52,7 +52,8 @@
 //! # Ok(())
 //! # }
 //! ```
-use crate::{PolyRing, PolySampler, SecretKey};
+use crate::PolyRing;
+use crate::ckks::keys::SecretKey;
 use rand::Rng;
 use thiserror::Error;
 
@@ -98,7 +99,7 @@ where
 
 impl<P, const DEGREE: usize> PublicKey<P, DEGREE>
 where
-    P: PolyRing<DEGREE> + PolySampler<DEGREE>,
+    P: PolyRing<DEGREE>,
 {
     /// Generate a new RLWE public key from a secret key with context
     ///

@@ -14,8 +14,9 @@ use std::sync::Arc;
 
 use rustfft::num_complex::Complex64;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::types::Plaintext;
 use toy_heaan_ckks::math::generate_primes;
-use toy_heaan_ckks::rings::backends::rns_ntt::RnsBasis;
+use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
 /// Ring degree. Polynomial lives in Z[X]/(X^N + 1).
 /// N/2 complex values (or N/2 real values) can be packed as slots.
@@ -78,7 +79,7 @@ fn main() {
         println!("  slot[{i}] = {v:.8}");
     }
 
-    let pt = encoder.encode(&originals, basis.clone());
+    let pt: Plaintext<RnsPoly<N>, N> = encoder.encode(&originals, basis.clone());
     let decoded = encoder.decode(&pt);
 
     println!("\nDecoded values:");
@@ -108,7 +109,8 @@ fn main() {
         println!("  slot[{i}] = ({:.6}, {:.6}i)", c.re, c.im);
     }
 
-    let pt_cx = encoder.encode_complex(&cx_in, basis.clone());
+    let pt_cx: Plaintext<RnsPoly<N>, N> =
+        encoder.encode_complex(&cx_in, basis.clone());
     let cx_out = encoder.decode_complex(&pt_cx);
 
     println!("\nDecoded values:");
@@ -136,7 +138,7 @@ fn main() {
     let pi_slice = [std::f64::consts::PI];
     for bits in [10u32, 20, 30, 40] {
         let enc = CkksEncoder::<N>::new(bits);
-        let pt = enc.encode(&pi_slice, basis.clone());
+        let pt: Plaintext<RnsPoly<N>, N> = enc.encode(&pi_slice, basis.clone());
         let dec = enc.decode(&pt);
         let err = (std::f64::consts::PI - dec[0]).abs();
         println!(

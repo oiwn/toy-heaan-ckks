@@ -11,8 +11,8 @@ The codebase currently centers on one concrete backend:
 - `RnsPoly` / `RnsBasis` in `src/rings/backends/rns_ntt/`
 - arithmetic over `Z_Q[X] / (X^N + 1)`
 - an RNS modulus chain made from NTT-friendly primes
-- plaintext/ciphertext operations that keep polynomial channels in NTT form
-  where possible
+- polynomials that rest in NTT form; coefficient form only where an
+  operation needs it (encode/decode, key switching, rescale)
 
 ## Build And Test
 
@@ -88,10 +88,10 @@ which parameter sets currently behave well.
 src/ckks/                CKKS engine, ops, evaluator, ciphertext types
 src/ckks/algorithms/     Slot sums, Chebyshev approximation
 src/ckks/encoding/       CKKS encoder and special FFT
-src/ckks/keys/           Secret, public, relinearization, rotation keys
+src/ckks/keys/           Secret, public, key switching (relin, rotation) keys
 src/math/                Prime generation, sampling, utility math
 src/rings/backends/      RNS-NTT polynomial backend
-src/rings/traits.rs      Backend traits used by the engine
+src/rings/traits.rs      Backend trait used by the engine
 examples/                Runnable demonstrations
 tests/                   Integration tests
 specs/                  Design notes and active task context

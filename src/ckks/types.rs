@@ -1,6 +1,5 @@
 use crate::PolyRing;
 use crate::ckks::errors::CkksResult;
-use crate::rings::backends::rns_ntt::RnsPoly;
 
 #[derive(Debug)]
 pub struct Plaintext<P, const DEGREE: usize>
@@ -33,16 +32,15 @@ where
     pub logp: u32, // Precision bits (encoding scale = 2^logp)
 }
 
-impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
-    /// Number of RNS channels (primes) the ciphertext still carries.
+impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
+    /// Position in the modulus chain (for RNS: primes still carried).
     pub fn level(&self) -> usize {
-        self.c0.basis().channel_count()
+        self.c0.level()
     }
 
-    /// Modulus bits at the current level (floor-based, see
-    /// `RnsBasis::total_bits`).
+    /// Modulus bits at the current level (a lower bound on `log2(Q)`).
     pub fn logq(&self) -> u32 {
-        self.c0.basis().total_bits()
+        self.c0.modulus_bits()
     }
 
     /// Divides by the last prime and drops it, lowering `logp` by its bit
@@ -55,10 +53,8 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     /// # Errors
     /// Returns an error at level 1 (no prime left to drop).
     pub fn rescale(&self) -> CkksResult<Self> {
-        let q_last = *self.c0.basis().moduli().last().expect("non-empty basis");
-        // Bit length, floor(log2(q_last)) + 1: division by a ~2^61 prime
-        // lowers the scale by about 61 bits.
-        let bits_dropped = u64::BITS - q_last.leading_zeros();
+        // Division by a ~2^61 prime lowers the scale by about 61 bits.
+        let bits_dropped = self.c0.rescale_bits();
         Ok(Self {
             c0: self.c0.rescale()?,
             c1: self.c1.rescale()?,

@@ -1,176 +1,72 @@
-use crate::{PolyRing, PolySampler, SecretKey};
 use rand::Rng;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum RelinearizationKeyError {
-    #[error("Invalid error standard deviation: {0} (must be positive)")]
-    InvalidErrorStd(f64),
-    #[error("Relinearization key generation failed: {0}")]
-    GenerationFailed(String),
-    #[error("Secret key validation failed: {0}")]
-    InvalidSecretKey(String),
-}
+use crate::PolyRing;
+use crate::ckks::keys::{KeySwitchingKey, SecretKey};
 
-/// Parameters for relinearization key generation
-pub struct RelinearizationKeyParams<const DEGREE: usize> {
-    /// Standard deviation for the error distribution
-    pub error_std: f64,
-}
-
-impl<const DEGREE: usize> RelinearizationKeyParams<DEGREE> {
-    /// Create new relinearization key parameters
-    pub fn new(error_std: f64) -> Result<Self, RelinearizationKeyError> {
-        if error_std <= 0.0 {
-            return Err(RelinearizationKeyError::InvalidErrorStd(error_std));
-        }
-        Ok(Self { error_std })
-    }
-
-    /// Validate parameters
-    pub fn validate(&self) -> Result<(), RelinearizationKeyError> {
-        if self.error_std <= 0.0 {
-            Err(RelinearizationKeyError::InvalidErrorStd(self.error_std))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// Relinearization key used to transform ciphertexts after multiplication
+/// Relinearization key: switches the `s^2` part of a ciphertext product
+/// back to `s`.
 ///
-/// The relinearization key allows converting a degree-2 ciphertext (c0, c1, c2)
-/// back to a degree-1 ciphertext (c0', c1') while preserving the encrypted plaintext.
-///
-/// The key satisfies: `b + a * s = s^2`
-#[derive(Debug, Clone)]
+/// A ct x ct product decrypts as `d0 + d1*s + d2*s^2`; key switching turns
+/// `d2 * s^2` into a pair under `s`, giving a degree-1 ciphertext again.
+/// Bound to the level it was generated at.
+#[derive(Clone, Debug)]
 pub struct RelinearizationKey<P, const DEGREE: usize>
 where
     P: PolyRing<DEGREE>,
 {
-    /// "a" component: uniformly random polynomial
-    pub a: P,
-    /// "b" component: `b = -(a * s) + e + s^2`
-    pub b: P,
+    /// Key switching key from `s^2` to `s`.
+    pub ksk: KeySwitchingKey<P, DEGREE>,
 }
 
-impl<P, const DEGREE: usize> RelinearizationKey<P, DEGREE>
-where
-    P: PolyRing<DEGREE> + PolySampler<DEGREE>,
-{
-    /// Generate a relinearization key from a secret key
-    ///
-    /// # Relinearization Key Generation Algorithm
-    /// 1. Compute s^2 = secret_key * secret_key
-    /// 2. Sample a uniformly random polynomial `a`
-    /// 3. Sample an error polynomial `e` from Gaussian distribution
-    /// 4. Compute `b = -(a * s) + e + s^2`
-    ///
-    /// The resulting key (a, b) satisfies: `b + a * s ≈ s^2` (mod small error)
-    /// This allows us to replace c2 * s^2 with c2 * (b + a * s) during relinearization.
+impl<P: PolyRing<DEGREE>, const DEGREE: usize> RelinearizationKey<P, DEGREE> {
+    /// Generates the key at `sk`'s level with key errors of `error_std`.
     pub fn generate<R: Rng>(
-        secret_key: &SecretKey<P, DEGREE>,
-        params: &RelinearizationKeyParams<DEGREE>,
-        context: &P::Context,
+        sk: &SecretKey<P, DEGREE>,
+        error_std: f64,
         rng: &mut R,
-    ) -> Result<Self, RelinearizationKeyError> {
-        // Validate parameters
-        params.validate()?;
-
-        // Step 1: Compute s^2 = secret_key * secret_key
-        let mut s_squared = secret_key.poly.clone();
-        s_squared *= &secret_key.poly; // s^2
-
-        // Step 2: Sample uniformly random polynomial 'a'
-        let a = P::sample_uniform(context, rng);
-
-        // Step 3: Sample error polynomial 'e' from Gaussian distribution
-        let e = P::sample_gaussian(params.error_std, context, rng);
-
-        // Step 4: Compute b = -(a * s) + e + s^2
-        let mut a_times_s = a.clone();
-        a_times_s *= &secret_key.poly; // a * s
-
-        let mut b = -a_times_s; // -(a * s)
-        b += &e; // -(a * s) + e
-        b += &s_squared; // -(a * s) + e + s^2
-
-        Ok(RelinearizationKey { a, b })
+    ) -> Self {
+        let mut s_sq = sk.poly.clone();
+        s_sq *= &sk.poly;
+        Self {
+            ksk: KeySwitchingKey::generate(sk, &s_sq, error_std, rng),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ckks::keys::SecretKeyParams;
-    use crate::math::generate_primes;
-    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
     use std::sync::Arc;
 
-    fn get_test_context<const DEGREE: usize>() -> Arc<RnsBasis<DEGREE>> {
-        let primes = generate_primes(20, 2, DEGREE as u64);
-        Arc::new(RnsBasis::new(primes).expect("test basis"))
-    }
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
+
+    use super::*;
+    use crate::ckks::keys::{DIGIT_BITS, SecretKeyParams};
+    use crate::math::generate_primes;
+    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
     #[test]
-    fn test_relinearization_key_generation() {
-        const DEGREE: usize = 8;
-        let context = get_test_context::<DEGREE>();
-        let mut rng = ChaCha20Rng::from_seed([42u8; 32]);
+    fn every_term_encrypts_the_scaled_square() {
+        const N: usize = 16;
+        let basis =
+            Arc::new(RnsBasis::new(generate_primes(30, 2, N as u64)).unwrap());
+        let mut rng = ChaCha20Rng::seed_from_u64(42);
+        let params = SecretKeyParams::new(N / 2).unwrap();
+        let sk = SecretKey::<RnsPoly<N>, N>::generate(&params, &basis, &mut rng)
+            .unwrap();
+        let rlk = RelinearizationKey::generate(&sk, 3.2, &mut rng);
 
-        // Generate secret key
-        let sk_params = SecretKeyParams::new(DEGREE / 2).unwrap();
-        let secret_key = SecretKey::<RnsPoly<DEGREE>, DEGREE>::generate(
-            &sk_params, &context, &mut rng,
-        )
-        .unwrap();
-
-        // Generate relinearization key
-        let relin_params = RelinearizationKeyParams::new(3.2).unwrap();
-        let relin_key = RelinearizationKey::generate(
-            &secret_key,
-            &relin_params,
-            &context,
-            &mut rng,
-        )
-        .unwrap();
-
-        // Basic sanity checks
-        // The key should be properly constructed (no panics above means basic success)
-
-        // Verify the key relation: b + a * s ≈ s^2 (we can't check exact equality due to error)
-        let mut s_squared = secret_key.poly.clone();
-        s_squared *= &secret_key.poly;
-
-        let mut a_times_s = relin_key.a.clone();
-        a_times_s *= &secret_key.poly;
-
-        let mut verification = relin_key.b.clone();
-        verification += &a_times_s; // b + a * s
-
-        // The difference (b + a * s) - s^2 should be the small error term
-        // We can't verify exact values due to random error, but we can check it doesn't panic
-        let neg_s_squared = -s_squared;
-        verification += &neg_s_squared;
-
-        // If we get here without panicking, the key generation worked properly.
-        // TODO: verify the resulting error magnitude once deterministic fixtures exist.
-    }
-
-    #[test]
-    fn test_invalid_error_std() {
-        let result = RelinearizationKeyParams::<8>::new(-1.0);
-        assert!(result.is_err());
-
-        let result = RelinearizationKeyParams::<8>::new(0.0);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_valid_error_std() {
-        let result = RelinearizationKeyParams::<8>::new(3.2);
-        assert!(result.is_ok());
+        let mut s_sq = sk.poly.clone();
+        s_sq *= &sk.poly;
+        assert_eq!(rlk.ksk.a.len(), RnsPoly::gadget_len(&basis, DIGIT_BITS));
+        for (k, (a, b)) in rlk.ksk.a.iter().zip(&rlk.ksk.b).enumerate() {
+            // b + a*s - s^2.gadget_term(k) is the key error e_k.
+            let mut residual = a.clone();
+            residual *= &sk.poly;
+            residual += b;
+            residual -= &s_sq.gadget_term(k, DIGIT_BITS);
+            let max = residual.to_coeffs().iter().map(|c| c.abs()).max();
+            assert!(max.unwrap() < 30, "term {k}: error {max:?}");
+        }
     }
 }

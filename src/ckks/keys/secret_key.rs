@@ -36,9 +36,8 @@
 //!     SecretKey::generate(&params, &basis, &mut rng)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+use crate::PolyRing;
 use crate::ckks::errors::CkksResult;
-use crate::rings::backends::rns_ntt::RnsPoly;
-use crate::{PolyRing, PolySampler};
 use rand::Rng;
 use thiserror::Error;
 
@@ -88,7 +87,7 @@ where
 
 impl<P, const DEGREE: usize> SecretKey<P, DEGREE>
 where
-    P: PolyRing<DEGREE> + PolySampler<DEGREE>,
+    P: PolyRing<DEGREE>,
 {
     /// Generate a new secret key using ternary sampling
     ///
@@ -142,13 +141,11 @@ where
         rng: &mut R,
     ) -> Result<Self, SecretKeyError> {
         // Use the polynomial backend's ternary sampling
-        let poly = P::sample_tribits(params.hamming_weight, context, rng);
+        let poly = P::sample_ternary(params.hamming_weight, context, rng);
 
         Ok(SecretKey { poly })
     }
-}
 
-impl<const DEGREE: usize> SecretKey<RnsPoly<DEGREE>, DEGREE> {
     /// The same key at a lower `level`: its first channels, exact because the
     /// ternary coefficients reduce identically under every prime.
     ///

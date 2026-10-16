@@ -1,7 +1,6 @@
 use super::{CkksEngine, CkksError};
+use crate::PolyRing;
 use crate::ckks::engine::CkksParams;
-use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
-use std::sync::Arc;
 
 pub struct CkksEngineBuilder<const DEGREE: usize> {
     error_variance: Option<f64>,
@@ -39,19 +38,17 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
         self
     }
 
-    pub fn build_rns(
+    pub fn build<P: PolyRing<DEGREE>>(
         self,
-        rns_basis: Arc<RnsBasis<DEGREE>>,
+        context: P::Context,
         scale_bits: u32,
-    ) -> Result<CkksEngine<RnsPoly<DEGREE>, DEGREE>, CkksError> {
+    ) -> Result<CkksEngine<P, DEGREE>, CkksError> {
         let params = CkksParams {
             error_variance: self.error_variance.unwrap_or(3.2),
             hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
             scale_bits,
         };
 
-        Ok(CkksEngine::<RnsPoly<DEGREE>, DEGREE>::new(
-            rns_basis, params,
-        ))
+        Ok(CkksEngine::new(context, params))
     }
 }

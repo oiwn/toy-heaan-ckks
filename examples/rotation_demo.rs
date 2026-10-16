@@ -95,8 +95,8 @@ fn main() {
     println!("Generating keys …");
     let sk = engine.generate_secret_key(&mut rng).expect("sk");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
-    let rotk1 = engine.generate_gadget_rotation_key(&sk, ROT1, &mut rng);
-    let rotk2 = engine.generate_gadget_rotation_key(&sk, ROT2, &mut rng);
+    let rotk1 = engine.generate_rotation_key(&sk, ROT1, &mut rng);
+    let rotk2 = engine.generate_rotation_key(&sk, ROT2, &mut rng);
     println!("  sk, pk, rotk({ROT1:+}), rotk({ROT2:+}) — done.\n");
 
     // ── 3. Encode + encrypt ───────────────────────────────────────────────────

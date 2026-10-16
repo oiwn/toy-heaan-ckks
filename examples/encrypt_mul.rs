@@ -14,7 +14,8 @@ use std::sync::Arc;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
+use toy_heaan_ckks::ckks::keys::RelinearizationKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -60,7 +61,8 @@ fn main() {
     let mut rng = ChaCha20Rng::seed_from_u64(42);
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
-    let rlk: RnsGadgetRelinKey<N> = engine.generate_gadget_relin_key(&sk, &mut rng);
+    let rlk: RelinearizationKey<RnsPoly<N>, N> =
+        engine.generate_relin_key(&sk, &mut rng);
     println!("Keys generated (secret, public, gadget-relin).\n");
 
     // ── 4. Input vectors ───────────────────────────────────────────────────────

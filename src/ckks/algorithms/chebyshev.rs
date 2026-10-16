@@ -7,11 +7,9 @@
 
 use rand::Rng;
 
+use crate::PolyRing;
 use crate::ckks::evaluator::LeveledEvaluator;
 use crate::ckks::types::Ciphertext;
-use crate::rings::backends::rns_ntt::RnsPoly;
-
-type Ct<const DEGREE: usize> = Ciphertext<RnsPoly<DEGREE>, DEGREE>;
 
 // ── Encrypted Chebyshev evaluation ───────────────────────────────────────────
 
@@ -39,14 +37,18 @@ type Ct<const DEGREE: usize> = Ciphertext<RnsPoly<DEGREE>, DEGREE>;
 /// # Panics
 /// Panics if `coeffs` is empty or the ciphertext runs out of RNS channels
 /// before the evaluation completes.
-pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
-    v_ct: &Ct<DEGREE>,
+pub fn eval_chebyshev_encrypted<P, R, const DEGREE: usize>(
+    v_ct: &Ciphertext<P, DEGREE>,
     coeffs: &[f64],
     lower: f64,
     upper: f64,
-    evaluator: &mut LeveledEvaluator<DEGREE>,
+    evaluator: &mut LeveledEvaluator<P, DEGREE>,
     rng: &mut R,
-) -> Ct<DEGREE> {
+) -> Ciphertext<P, DEGREE>
+where
+    P: PolyRing<DEGREE>,
+    R: Rng,
+{
     assert!(!coeffs.is_empty(), "coefficients must not be empty");
     let degree = coeffs.len() - 1;
 
@@ -96,10 +98,10 @@ pub fn eval_chebyshev_encrypted<R: Rng, const DEGREE: usize>(
 
 /// [`Ciphertext::match_level`] for the Clenshaw terms, which only ever move
 /// down the chain.
-fn match_level<const DEGREE: usize>(
-    ct: &Ct<DEGREE>,
-    target: &Ct<DEGREE>,
-) -> Ct<DEGREE> {
+fn match_level<P: PolyRing<DEGREE>, const DEGREE: usize>(
+    ct: &Ciphertext<P, DEGREE>,
+    target: &Ciphertext<P, DEGREE>,
+) -> Ciphertext<P, DEGREE> {
     ct.match_level(target)
         .expect("eval_chebyshev_encrypted: term above the target level")
 }
@@ -198,7 +200,7 @@ mod tests {
     use crate::ckks::encoding::ckks_encoder::CkksEncoder;
     use crate::ckks::engine::{CkksEngine, CkksParams};
     use crate::math::generate_primes;
-    use crate::rings::backends::rns_ntt::RnsBasis;
+    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
     /// Encrypted Clenshaw must track plaintext Clenshaw (same coefficients,
     /// same domain map) to within the accumulated CKKS noise.
@@ -257,7 +259,7 @@ mod tests {
         );
 
         assert_eq!(
-            result.c0.basis().channel_count(),
+            result.level(),
             3,
             "degree-3 eval from 7 primes: affine + 2 steps + final = 4 levels"
         );

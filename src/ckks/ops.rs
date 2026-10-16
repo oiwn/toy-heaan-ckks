@@ -9,10 +9,8 @@ use std::ops::{Add, Neg, Sub};
 
 use crate::PolyRing;
 use crate::ckks::encoding::ckks_encoder::CkksEncoder;
-use crate::ckks::engine::{CkksEngine, RnsGadgetRelinKey, RnsGadgetRotationKey};
+use crate::ckks::keys::{RelinearizationKey, RotationKey};
 use crate::ckks::types::{Ciphertext, Plaintext};
-use crate::rings::backends::rns_ntt::RnsPoly;
-use crate::rings::traits::PolyAutomorphism;
 
 // ── Additive ops (any ring backend) ──────────────────────────────────────────
 
@@ -92,22 +90,21 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Sub<&Plaintext<P, DEGREE>>
     }
 }
 
-// ── Multiplicative ops and rotation (RNS-NTT backend) ────────────────────────
+// ── Multiplicative ops and rotation ──────────────────────────────────────────
 
-impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
+impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
     /// Ciphertext x ciphertext multiplication with gadget relinearization.
     ///
     /// Computes the tensor product `(c0 + c1*s)(c0' + c1'*s) = d0 + d1*s +
-    /// d2*s^2`, then replaces the `d2*s^2` term with
-    /// `sum_i sum_j digit_j(alpha_i(d2)) * rlk[i][j]`, yielding a valid
-    /// degree-1 ciphertext.
+    /// d2*s^2`, then key-switches the `d2*s^2` term back to `s` with the
+    /// relinearization key, yielding a valid degree-1 ciphertext.
     ///
     /// The output has `logp = self.logp + other.logp`; call
     /// [`Ciphertext::rescale`] afterwards to bring it back down.
     ///
     /// # Panics
     /// Panics if the operands sit at different levels.
-    pub fn mul(&self, other: &Self, rlk: &RnsGadgetRelinKey<DEGREE>) -> Self {
+    pub fn mul(&self, other: &Self, rlk: &RelinearizationKey<P, DEGREE>) -> Self {
         assert_eq!(
             self.level(),
             other.level(),
@@ -127,13 +124,9 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
 
         let mut d2 = self.c1.clone();
         d2 *= &other.c1; // c1 * c1'
-        d2.to_coeff_domain(); // the key switch reads channels[i]
 
-        // ── Gadget relinearization: replace d2*s^2 ───────────────────────────
-        let (relin_c0, relin_c1) =
-            CkksEngine::<RnsPoly<DEGREE>, DEGREE>::gadget_key_switch(
-                &d2, &rlk.a, &rlk.b,
-            );
+        // ── Relinearization: replace d2*s^2 ──────────────────────────────────
+        let (relin_c0, relin_c1) = rlk.ksk.switch(&d2);
         d0 += &relin_c0;
         d1 += &relin_c1;
 
@@ -149,7 +142,7 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     /// Since `p` is known, the product still decrypts under the same key — no
     /// `s^2` term appears, so no relinearization is needed. `pt` must be
     /// encoded in the ciphertext's basis; `logp` grows by `pt.scale_bits`.
-    pub fn mul_plain(&self, pt: &Plaintext<RnsPoly<DEGREE>, DEGREE>) -> Self {
+    pub fn mul_plain(&self, pt: &Plaintext<P, DEGREE>) -> Self {
         let mut c0 = self.c0.clone();
         c0 *= &pt.poly;
         let mut c1 = self.c1.clone();
@@ -174,7 +167,7 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     /// basis modulus.
     pub fn mul_const(&self, value: f64, scale_bits: u32) -> Self {
         let pt = CkksEncoder::<DEGREE>::new(scale_bits)
-            .encode_constant(value, self.c0.basis().clone());
+            .encode_constant(value, self.c0.context().clone());
         self.mul_plain(&pt)
     }
 
@@ -184,7 +177,7 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     /// Panics if `value * 2^logp` does not fit the basis modulus.
     pub fn add_const(&self, value: f64) -> Self {
         let pt = CkksEncoder::<DEGREE>::new(self.logp)
-            .encode_constant(value, self.c0.basis().clone());
+            .encode_constant(value, self.c0.context().clone());
         self + &pt
     }
 
@@ -192,7 +185,7 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     /// zero under any key. Seed for sums of constants, e.g.
     /// `ct.zero_like().add_const(c)`.
     pub fn zero_like(&self) -> Self {
-        let zero = RnsPoly::zero(self.c0.basis().clone());
+        let zero = P::zero(self.c0.context());
         Self {
             c0: zero.clone(),
             c1: zero,
@@ -204,18 +197,14 @@ impl<const DEGREE: usize> Ciphertext<RnsPoly<DEGREE>, DEGREE> {
     ///
     /// 1. Apply the automorphism `X -> X^(5^k)` to both components. This
     ///    rotates the slots but changes the decryption key from `s` to `s_k`.
-    /// 2. Key-switch `sigma_k(c1)` back to `s` with the gadget rotation key.
+    /// 2. Key-switch `sigma_k(c1)` back to `s` with the rotation key.
     ///
     /// The output keeps `logp` and level: rotation consumes no level.
-    pub fn rotate(&self, rotk: &RnsGadgetRotationKey<DEGREE>) -> Self {
+    pub fn rotate(&self, rotk: &RotationKey<P, DEGREE>) -> Self {
         let mut c0 = self.c0.rotate_slots(rotk.rotation);
-        let mut c1_rot = self.c1.rotate_slots(rotk.rotation);
-        c1_rot.to_coeff_domain(); // already coeff; explicit for clarity
+        let c1_rot = self.c1.rotate_slots(rotk.rotation);
 
-        let (ks_c0, ks_c1) =
-            CkksEngine::<RnsPoly<DEGREE>, DEGREE>::gadget_key_switch(
-                &c1_rot, &rotk.a, &rotk.b,
-            );
+        let (ks_c0, ks_c1) = rotk.ksk.switch(&c1_rot);
         c0 += &ks_c0;
 
         Self {
@@ -234,10 +223,10 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
-    use crate::ckks::engine::CkksParams;
+    use crate::ckks::engine::{CkksEngine, CkksParams};
     use crate::ckks::keys::SecretKey;
     use crate::math::generate_primes;
-    use crate::rings::backends::rns_ntt::RnsBasis;
+    use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
     const N: usize = 16;
     const SCALE: u32 = 30;
@@ -306,7 +295,7 @@ mod tests {
     #[test]
     fn plaintext_add_and_sub() {
         let s = setup();
-        let pt = s.encoder.encode(&B, s.a.c0.basis().clone());
+        let pt = s.encoder.encode(&B, s.a.c0.context().clone());
         let pairs = || A.iter().zip(B.iter());
         assert_close(&s.decrypt(&(&s.a + &pt)), pairs().map(|(x, y)| x + y), 1e-6);
         assert_close(&s.decrypt(&(&s.a - &pt)), pairs().map(|(x, y)| x - y), 1e-6);

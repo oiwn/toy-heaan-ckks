@@ -9,6 +9,11 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-10-16 — backend trait
+
+- One backend trait `PolyRing` (arithmetic, sampling, automorphism, modulus chain, encoding boundary, gadget) replaces the three ring traits; `RnsPoly` rests in NTT form behind a private flag, and the encoder, `Ciphertext` level methods and gadget key switching use only the trait. Output bit-identical, sensor pipeline 24 s -> 9 s.
+- Task `0011-backend-trait`; source: user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture)
+
 ## 2026-10-15 — remove commented code
 
 - Removed dead commented-out code from the old `RnsPolyRing` API: `keys/common.rs` and `benches/basic.rs` (both moved to `tmp/`), stale tests in `math/utils.rs` and two `CkksError` variants.

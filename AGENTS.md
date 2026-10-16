@@ -43,13 +43,13 @@ pre-commit install                          # install git hooks
 - `src/ckks.rs`, `src/ckks/` - engine, builder, ops, evaluator, types
 - `src/ckks/algorithms/` - slot sums, Chebyshev approximation
 - `src/ckks/encoding/` - CKKS encoder, special FFT
-- `src/ckks/keys/` - secret/public/relinearization/rotation keys
+- `src/ckks/keys/` - secret/public keys, `KeySwitchingKey` + relin/rotation wrappers
 - `src/rings/backends/rns_ntt/` - RNS-NTT backend
 - `src/math/` - primes, sampling, utils
 - Module layout: `foo.rs` + `foo/`, never `mod.rs`
 - `examples/` - runnable demos
 - `tests/` - integration tests
-- `src/rings/traits.rs` - ring traits: `PolyRing`, `PolySampler`, `PolyAutomorphism`
+- `src/rings/traits.rs` - the backend trait `PolyRing` (only ring view of `ckks/`)
 
 **Scope**
 - Applies to entire repository; follow conventions for any files you touch

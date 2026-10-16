@@ -46,7 +46,8 @@ use std::sync::Arc;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
-use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams, RnsGadgetRelinKey};
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
+use toy_heaan_ckks::ckks::keys::RelinearizationKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::table;
@@ -154,8 +155,8 @@ fn main() {
     let pk_top = engine_top
         .generate_public_key(&sk_top, &mut rng)
         .expect("pk");
-    let rlk_top: RnsGadgetRelinKey<N> =
-        engine_top.generate_gadget_relin_key(&sk_top, &mut rng);
+    let rlk_top: RelinearizationKey<RnsPoly<N>, N> =
+        engine_top.generate_relin_key(&sk_top, &mut rng);
     println!("  Done.\n");
 
     // ── 3. Encrypt the initial input ─────────────────────────────────────────
@@ -243,7 +244,7 @@ fn main() {
 
         // Generate next iteration's relinearization key (skip on last iter).
         if iter < ITERS {
-            rlk_cur = engine_cur.generate_gadget_relin_key(&sk_cur, &mut rng);
+            rlk_cur = engine_cur.generate_relin_key(&sk_cur, &mut rng);
         }
         println!();
     }

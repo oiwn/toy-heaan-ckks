@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::rings::backends::rns_ntt::RnsNttError;
+use crate::rings::RingError;
 
 #[derive(Error, Debug)]
 pub enum CkksError {
@@ -14,7 +14,7 @@ pub enum CkksError {
     DegreeMismatch { expected: usize, actual: usize },
 
     #[error("Ring error: {0}")]
-    Ring(#[from] RnsNttError),
+    Ring(#[from] RingError),
 }
 
 pub type CkksResult<T> = Result<T, CkksError>;

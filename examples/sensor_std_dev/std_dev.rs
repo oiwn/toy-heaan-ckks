@@ -81,7 +81,7 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     slots: usize,
     contract: &SensorContract,
     degree: usize,
-    evaluator: &mut LeveledEvaluator<DEGREE>,
+    evaluator: &mut LeveledEvaluator<RnsPoly<DEGREE>, DEGREE>,
     rng: &mut R,
 ) -> StdDevRun<DEGREE> {
     let (var_lo, var_hi) = contract.variance_interval();
