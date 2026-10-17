@@ -9,6 +9,11 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-10-16 — generic key switching
+
+- One generic `KeySwitchingKey<P>` (gadget encryption of an old key, `switch(d)`) now backs `RelinearizationKey` and `RotationKey`; the legacy single-pair keys, `RnsGadget*` types and `mul_ciphertexts` are gone, and ops, evaluator, algorithms and engine are generic over `PolyRing`.
+- Task `0012-generic-key-switching`; source: user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture)
+
 ## 2026-10-16 — backend trait
 
 - One backend trait `PolyRing` (arithmetic, sampling, automorphism, modulus chain, encoding boundary, gadget) replaces the three ring traits; `RnsPoly` rests in NTT form behind a private flag, and the encoder, `Ciphertext` level methods and gadget key switching use only the trait. Output bit-identical, sensor pipeline 24 s -> 9 s.

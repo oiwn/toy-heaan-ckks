@@ -1,6 +1,6 @@
 ---
 id: 0012-generic-key-switching
-status: approval
+status: done
 scope: [src/ckks/**, src/ckks.rs, src/lib.rs, examples/**, tests/**, README.md]
 created: 2026-10-14
 source: user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture)
@@ -56,3 +56,5 @@ One generic `KeySwitchingKey<P>` (gadget encryption of an old key, `switch(d)`) 
 - 2026-10-16 advance in-progress/implement → in-progress/verify
 - 2026-10-16 advance in-progress/verify → in-progress/review
 - 2026-10-16 advance in-progress/review → approval
+- 2026-10-16 approved: approved by operator
+- 2026-10-16 advance approval → done
