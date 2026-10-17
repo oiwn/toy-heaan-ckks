@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::table;
@@ -31,7 +31,6 @@ fn main() {
     // ── Setup ─────────────────────────────────────────────────────────────────
     let primes = generate_primes(30, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid primes"));
-    let logq = basis.total_bits();
 
     let engine = CkksEngine::new(
         basis.clone(),
@@ -48,12 +47,12 @@ fn main() {
     let pk = engine.generate_public_key(&sk, &mut rng).unwrap();
 
     // One rotation key for offset +1 — reused at every step.
-    let rotk = engine.generate_gadget_rotation_key(&sk, 1, &mut rng);
+    let rotk = engine.generate_rotation_key(&sk, 1, &mut rng);
 
     // ── Encrypt ───────────────────────────────────────────────────────────────
     let input: Vec<f64> = (1..=SLOTS).map(|i| i as f64).collect();
     let pt = encoder.encode(&input, basis.clone());
-    let mut ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+    let mut ct = engine.encrypt(&pt, &pk, &mut rng);
 
     // Plaintext reference: cyclic left-shift by 1 each step.
     let mut expected = input.clone();
@@ -68,7 +67,7 @@ fn main() {
     for &checkpoint in &checkpoints {
         let steps = checkpoint - prev;
         for _ in 0..steps {
-            ct = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct, &rotk);
+            ct = ct.rotate(&rotk);
             expected = expected[1..]
                 .iter()
                 .chain(expected[..1].iter())

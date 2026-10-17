@@ -19,7 +19,7 @@
 //!
 //! Unlike multiplication, rotation does **not** consume a level: `logp` and
 //! `logq` are unchanged.  The example therefore uses only 2 primes (one spare
-//! for headroom) and never calls `rescale_ciphertext`.
+//! for headroom) and never calls `Ciphertext::rescale`.
 //!
 //! ## Noise budget
 //!
@@ -42,8 +42,8 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::table;
@@ -95,37 +95,37 @@ fn main() {
     println!("Generating keys …");
     let sk = engine.generate_secret_key(&mut rng).expect("sk");
     let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
-    let rotk1 = engine.generate_gadget_rotation_key(&sk, ROT1, &mut rng);
-    let rotk2 = engine.generate_gadget_rotation_key(&sk, ROT2, &mut rng);
+    let rotk1 = engine.generate_rotation_key(&sk, ROT1, &mut rng);
+    let rotk2 = engine.generate_rotation_key(&sk, ROT2, &mut rng);
     println!("  sk, pk, rotk({ROT1:+}), rotk({ROT2:+}) — done.\n");
 
     // ── 3. Encode + encrypt ───────────────────────────────────────────────────
     let input: Vec<f64> = (1..=SLOTS).map(|i| i as f64).collect();
-    println!("Input slots: {:?}\n", &input);
+    println!("Input slots: {input:?}\n");
 
     let pt_in = encoder.encode(&input, basis.clone());
-    let ct = engine.encrypt(&pt_in, &pk, logq, &mut rng);
+    let ct = engine.encrypt(&pt_in, &pk, &mut rng);
 
     // ── 4. Homomorphic pipeline ───────────────────────────────────────────────
 
     // Step A: rotate by ROT1
     println!("Step A: rotate ciphertext by {ROT1:+} slot(s) …");
-    let ct_rot1 = CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct, &rotk1);
+    let ct_rot1 = ct.rotate(&rotk1);
     println!(
         "  logp={}, logq={} (unchanged — rotation is level-free)\n",
-        ct_rot1.logp, ct_rot1.logq
+        ct_rot1.logp,
+        ct_rot1.logq()
     );
 
     // Step B: add original and rotated ciphertexts
     println!("Step B: add original + rotated …");
-    let ct_added = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct, &ct_rot1);
-    println!("  logp={}, logq={}\n", ct_added.logp, ct_added.logq);
+    let ct_added = &ct + &ct_rot1;
+    println!("  logp={}, logq={}\n", ct_added.logp, ct_added.logq());
 
     // Step C: rotate sum by ROT2
     println!("Step C: rotate sum by {ROT2:+} slot(s) …");
-    let ct_result =
-        CkksEngine::<RnsPoly<N>, N>::rotate_ciphertext(&ct_added, &rotk2);
-    println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq);
+    let ct_result = ct_added.rotate(&rotk2);
+    println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq());
 
     // ── 5. Decrypt + decode ───────────────────────────────────────────────────
     println!("Decrypting …");

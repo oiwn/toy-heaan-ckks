@@ -5,6 +5,10 @@ target/
 tmp/
 pdfs/
 
+# AI
+.codex/
+.zcode/
+
 # Remove Cargo.lock from gitignore if creating an executable, leave it for libraries
 # More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 Cargo.lock
@@ -25,9 +29,8 @@ Cargo.lock
 dhat-heap.json
 
 # misc
-.amc.toml
 .tmuxp.yaml
 *.txt
-data/*.py
+.claude/
 .DS_Store
 .demo_sum_db/

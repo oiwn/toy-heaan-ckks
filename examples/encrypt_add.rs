@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -76,17 +76,18 @@ fn main() {
     let pt_b = encoder.encode(&b, basis.clone());
 
     // ── 6. Encrypt ─────────────────────────────────────────────────────────────
-    let ct_a = engine.encrypt(&pt_a, &pk, logq, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, logq, &mut rng);
+    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
+    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
     println!(
         "Both plaintexts encrypted (logp={}, logq={}).\n",
-        ct_a.logp, ct_a.logq
+        ct_a.logp,
+        ct_a.logq()
     );
 
     // ── 7. Homomorphic add ─────────────────────────────────────────────────────
-    let ct_sum = CkksEngine::<RnsPoly<N>, N>::add_ciphertexts(&ct_a, &ct_b);
+    let ct_sum = &ct_a + &ct_b;
     println!("Homomorphic addition done (no secret key used).");
-    println!("  Result logp={}, logq={}\n", ct_sum.logp, ct_sum.logq);
+    println!("  Result logp={}, logq={}\n", ct_sum.logp, ct_sum.logq());
 
     // ── 8. Decrypt ─────────────────────────────────────────────────────────────
     let pt_sum = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk);

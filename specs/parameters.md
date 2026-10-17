@@ -1,7 +1,6 @@
 # CKKS Parameter Selection Guide
 
-Comprehensive guide for selecting RNS-CKKS parameters based on production
-library practices (SEAL, Lattigo, OpenFHE).
+Comprehensive guide for selecting RNS-CKKS parameters based on production library practices (SEAL, Lattigo, OpenFHE).
 
 ---
 
@@ -21,8 +20,7 @@ library practices (SEAL, Lattigo, OpenFHE).
 
 ### There is NO "Plaintext Modulus" in CKKS!
 
-Unlike BFV/BGV schemes, CKKS does not have a separate plaintext modulus.
-Instead:
+Unlike BFV/BGV schemes, CKKS does not have a separate plaintext modulus. Instead:
 
 - **Scale Factor**: Controls encoding precision for real/complex numbers
   - Formula: `scale_factor = 2^scale_bits`
@@ -116,8 +114,7 @@ Level L-2: Q_{L-2} = q_0 * q_1 * q_2 * ... * q_{L-2} * q_special
             ...
 ```
 
-**Multiplicative depth**: Number of intermediate primes = number of
-multiplications supported.
+**Multiplicative depth**: Number of intermediate primes = number of multiplications supported.
 
 ---
 
@@ -143,12 +140,7 @@ Total Q ~= 200 bits
 Multiplicative depth: 2
 ```
 
-**Design rationale** (from SEAL examples):
-"Choose a 60-bit prime as the first prime in coeff_modulus for highest
-precision when decrypting. Choose another 60-bit prime as the last element,
-as this will be used as the special prime and should be as large as the
-largest of the other primes. Choose the intermediate primes to be close to
-each other."
+**Design rationale** (from SEAL examples): "Choose a 60-bit prime as the first prime in coeff_modulus for highest precision when decrypting. Choose another 60-bit prime as the last element, as this will be used as the special prime and should be as large as the largest of the other primes. Choose the intermediate primes to be close to each other."
 
 **Constraints:**
 - Minimum prime size: 20 bits
@@ -190,11 +182,7 @@ Total P ~= 120 bits
 Multiplicative depth: 5
 ```
 
-**Design philosophy** (from Lattigo docs):
-"The used moduli are chosen to be of size 30 to 60 bits for the best
-performance. The individual size of each of the moduli also has an effect on
-the error introduced during the rescaling, since they cannot be powers of 2,
-so they should be chosen as NTT primes as close as possible to a power of 2."
+**Design philosophy** (from Lattigo docs): "The used moduli are chosen to be of size 30 to 60 bits for the best performance. The individual size of each of the moduli also has an effect on the error introduced during the rescaling, since they cannot be powers of 2, so they should be chosen as NTT primes as close as possible to a power of 2."
 
 **HE Standards-compliant parameters:**
 - `{12, 109, 3.2}`: logN=12, logQ=109 (N=4096, Q ~= 128 bits)
@@ -414,8 +402,7 @@ For scale = 2^30:
 - Higher scale -> better precision, lower depth
 - Lower scale -> worse precision, higher depth
 
-**Rule of thumb**: Choose scale based on application precision requirements,
-then calculate maximum depth.
+**Rule of thumb**: Choose scale based on application precision requirements, then calculate maximum depth.
 
 ---
 
@@ -451,9 +438,7 @@ let primes = vec![
 // - NOT production-secure (too small N)
 ```
 
-**Precision**: ~10-12 decimal digits
-**Performance**: fast (milliseconds)
-**Security**: educational only (N too small)
+**Precision**: ~10-12 decimal digits **Performance**: fast (milliseconds) **Security**: educational only (N too small)
 
 ---
 
@@ -507,9 +492,7 @@ const MULT_DEPTH: usize = 5;
 // Total Q: 320 bits < 438 bits limit
 ```
 
-**Precision**: ~10-12 decimal digits
-**Performance**: medium (hundreds of ms)
-**Security**: 128-bit secure
+**Precision**: ~10-12 decimal digits **Performance**: medium (hundreds of ms) **Security**: 128-bit secure
 
 ---
 
@@ -540,9 +523,7 @@ let primes = vec![
 // Total Q: 60 + 4*50 + 60 = 320 bits < 438 bits limit
 ```
 
-**Precision**: ~15 decimal digits
-**Performance**: slow (seconds)
-**Security**: 128-bit secure
+**Precision**: ~15 decimal digits **Performance**: slow (seconds) **Security**: 128-bit secure
 
 ---
 
@@ -570,10 +551,7 @@ let primes = vec![
 // Total Q: 60 + 15*40 + 60 = 720 bits < 881 bits limit
 ```
 
-**Precision**: ~10-12 decimal digits
-**Performance**: very slow (minutes)
-**Security**: 128-bit secure
-**Depth**: Supports up to 15 multiplications
+**Precision**: ~10-12 decimal digits **Performance**: very slow (minutes) **Security**: 128-bit secure **Depth**: Supports up to 15 multiplications
 
 ---
 
@@ -745,41 +723,28 @@ const PARAMS: CKKSParams = CKKSParams {
 
 ### Primary Sources
 
-- Microsoft SEAL CKKS Basics Example:
-  https://github.com/microsoft/SEAL/blob/main/native/examples/5_ckks_basics.cpp
-- SEAL CoeffModulus Selection - GitHub Issue #128:
-  https://github.com/microsoft/SEAL/issues/128
-- Lattigo CKKS Documentation v5:
-  https://pkg.go.dev/github.com/tuneinsight/lattigo/v5/schemes/ckks
-- OpenFHE Advanced Real Numbers Example:
-  https://github.com/openfheorg/openfhe-development/blob/main/src/pke/examples/advanced-real-numbers-128.cpp
-- OpenFHE RNS-CKKS Parameter Discussion:
-  https://openfhe.discourse.group/t/rns-ckks-parameter-setting/134
+- Microsoft SEAL CKKS Basics Example: https://github.com/microsoft/SEAL/blob/main/native/examples/5_ckks_basics.cpp
+- SEAL CoeffModulus Selection - GitHub Issue #128: https://github.com/microsoft/SEAL/issues/128
+- Lattigo CKKS Documentation v5: https://pkg.go.dev/github.com/tuneinsight/lattigo/v5/schemes/ckks
+- OpenFHE Advanced Real Numbers Example: https://github.com/openfheorg/openfhe-development/blob/main/src/pke/examples/advanced-real-numbers-128.cpp
+- OpenFHE RNS-CKKS Parameter Discussion: https://openfhe.discourse.group/t/rns-ckks-parameter-setting/134
 
 ### Tutorials and Guides
 
-- CKKS Explained Part 5: Rescaling - OpenMined:
-  https://openmined.org/blog/ckks-explained-part-5-rescaling/
-- Setting SEAL Parameters - Intuit Engineering (Medium):
-  https://medium.com/intuit-engineering/data-science-without-seeing-data-how-to-set-microsoft-open-source-seal-parameters-72929b184058
-- Introduction to SEAL - TU Graz:
-  https://www.isec.tugraz.at/wp-content/uploads/2021/08/seal.pdf
+- CKKS Explained Part 5: Rescaling - OpenMined: https://openmined.org/blog/ckks-explained-part-5-rescaling/
+- Setting SEAL Parameters - Intuit Engineering (Medium): https://medium.com/intuit-engineering/data-science-without-seeing-data-how-to-set-microsoft-open-source-seal-parameters-72929b184058
+- Introduction to SEAL - TU Graz: https://www.isec.tugraz.at/wp-content/uploads/2021/08/seal.pdf
 
 ### Research Papers
 
-- Approximate Homomorphic Encryption with Reduced Approximation Error:
-  https://eprint.iacr.org/2020/1118.pdf
-- Grafting: Decoupled Scale Factors and Modulus in RNS-CKKS:
-  https://eprint.iacr.org/2024/1014.pdf
-- Introduction to CKKS - Yongsoo Song (Slides):
-  https://yongsoosong.github.io/files/slides/intro_to_CKKS.pdf
+- Approximate Homomorphic Encryption with Reduced Approximation Error: https://eprint.iacr.org/2020/1118.pdf
+- Grafting: Decoupled Scale Factors and Modulus in RNS-CKKS: https://eprint.iacr.org/2024/1014.pdf
+- Introduction to CKKS - Yongsoo Song (Slides): https://yongsoosong.github.io/files/slides/intro_to_CKKS.pdf
 
 ### Standards
 
-- Homomorphic Encryption Security Standard:
-  http://homomorphicencryption.org/standard/
+- Homomorphic Encryption Security Standard: http://homomorphicencryption.org/standard/
 
 ---
 
-**Last updated**: 2025-12-01
-**Next review**: When implementing parameter selection utilities
+**Last updated**: 2025-12-01 **Next review**: When implementing parameter selection utilities

@@ -11,11 +11,8 @@ The codebase currently centers on one concrete backend:
 - `RnsPoly` / `RnsBasis` in `src/rings/backends/rns_ntt/`
 - arithmetic over `Z_Q[X] / (X^N + 1)`
 - an RNS modulus chain made from NTT-friendly primes
-- plaintext/ciphertext operations that keep polynomial channels in NTT form
-  where possible
-
-Older README notes about separate naive, BigInt, and non-NTT backends are stale.
-The active path is the RNS-NTT backend used by the examples and tests.
+- polynomials that rest in NTT form; coefficient form only where an
+  operation needs it (encode/decode, key switching, rescale)
 
 ## Build And Test
 
@@ -35,7 +32,6 @@ cargo clippy -- -D clippy::pedantic -D clippy::nursery
 Benchmarks currently available:
 
 ```bash
-cargo bench --bench basic
 cargo bench --bench primes
 ```
 
@@ -89,12 +85,13 @@ which parameter sets currently behave well.
 ## Project Layout
 
 ```text
-src/crypto/              CKKS engine, operations, ciphertext types
-src/encoding/            CKKS encoders and FFT helpers
-src/keys/                Secret, public, relinearization, rotation keys
+src/ckks/                CKKS engine, ops, evaluator, ciphertext types
+src/ckks/algorithms/     Slot sums, Chebyshev approximation
+src/ckks/encoding/       CKKS encoder and special FFT
+src/ckks/keys/           Secret, public, key switching (relin, rotation) keys
 src/math/                Prime generation, sampling, utility math
 src/rings/backends/      RNS-NTT polynomial backend
-src/rings/traits.rs      Backend traits used by the engine
+src/rings/traits.rs      Backend trait used by the engine
 examples/                Runnable demonstrations
 tests/                   Integration tests
 specs/                  Design notes and active task context
@@ -115,8 +112,8 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::crypto::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
+use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -125,7 +122,6 @@ const SCALE_BITS: u32 = 30;
 
 let primes = generate_primes(31, 3, N as u64);
 let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-let logq = basis.total_bits();
 
 let engine = CkksEngine::<RnsPoly<N>, N>::new(
     basis.clone(),
@@ -143,7 +139,7 @@ let pk = engine.generate_public_key(&sk, &mut rng).expect("public key");
 
 let values = [1.0, 2.0, 3.0, 4.0];
 let pt = encoder.encode(&values, basis);
-let ct = engine.encrypt(&pt, &pk, logq, &mut rng);
+let ct = engine.encrypt(&pt, &pk, &mut rng);
 let decoded = encoder.decode(&CkksEngine::<RnsPoly<N>, N>::decrypt(&ct, &sk));
 ```
 

@@ -5,19 +5,20 @@
 //!
 //!   Secret key s  : ternary polynomial (coefficients in {-1, 0, 1})
 //!   Public key (a, b) : RLWE sample  →  b + a·s  ≈  0  (only noise)
-//!   Relin key  (a, b) : encodes s²   →  b + a·s  ≈  s² (only noise)
+//!   Relin key  (a[k], b[k]) : gadget encryption of s²
+//!                       →  b[k] + a[k]·s  ≈  s²·g_k (only noise)
 //!
-//! Reference: <https://fhetextbook.github.io/KeyGeneration.html>
+//! Reference: <https://fhetextbook.github.io/KeyGeneration.html>,
+//! key switching: <https://fhetextbook.github.io/HomomorphicKeySwitching2.html>
 
 use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::keys::public_key::{PublicKey, PublicKeyParams};
-use toy_heaan_ckks::keys::relin_key::{
-    RelinearizationKey, RelinearizationKeyParams,
-};
-use toy_heaan_ckks::keys::secret_key::{SecretKey, SecretKeyParams};
+use toy_heaan_ckks::ckks::keys::DIGIT_BITS;
+use toy_heaan_ckks::ckks::keys::public_key::{PublicKey, PublicKeyParams};
+use toy_heaan_ckks::ckks::keys::relin_key::RelinearizationKey;
+use toy_heaan_ckks::ckks::keys::secret_key::{SecretKey, SecretKeyParams};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::rings::traits::PolyRing;
@@ -122,38 +123,42 @@ fn main() {
         "\n─── Relinearization key ─────────────────────────────────────────\n"
     );
     println!(
-        "Algorithm: compute s², sample uniform a, small error e, set b = -(a·s) + e + s²"
+        "Algorithm: compute s²; per gadget term k sample uniform a[k], small error e,"
     );
-    println!("Relation : b + a·s = s² + e  (s² plus small noise)\n");
+    println!("           set b[k] = -(a[k]·s) + e + s²·g_k");
+    println!(
+        "Relation : b[k] + a[k]·s = s²·g_k + e  (g_k: digit k of base 2^{DIGIT_BITS})\n"
+    );
 
-    let rk_params = RelinearizationKeyParams::<N>::new(ERROR_STD).unwrap();
-    let rk = RelinearizationKey::<RnsPoly<N>, N>::generate(
-        &sk, &rk_params, &basis, &mut rng,
-    )
-    .expect("relin key");
+    let rk =
+        RelinearizationKey::<RnsPoly<N>, N>::generate(&sk, ERROR_STD, &mut rng);
+    println!(
+        "Gadget terms        : {}  (one per channel x base-2^{DIGIT_BITS} digit)",
+        rk.ksk.a.len()
+    );
 
     // Compute s² for comparison.
     let mut s_sq = sk.poly.clone();
     s_sq *= &sk.poly; // s²
 
-    // Verify: b + a·s - s² should equal e (small noise).
-    let mut a_times_s2 = rk.a.clone();
-    a_times_s2 *= &sk.poly; // a·s
-    let mut check_rk = rk.b.clone();
-    check_rk += &a_times_s2; // b + a·s
-    check_rk += &(-s_sq); // b + a·s - s²  ≈  e
-
-    let residual_rk = check_rk.to_coeffs();
-    let max_rk = residual_rk
-        .iter()
-        .map(|c| c.unsigned_abs())
-        .max()
-        .unwrap_or(0);
-    println!("b + a·s - s²  (should be small error):");
-    println!("  coefficients : {:?}", &residual_rk[..8]);
-    println!("  ... (showing first 8 of {N})");
+    // Verify every term: b[k] + a[k]·s - s²·g_k should equal e (small noise).
+    let mut max_rk = 0;
+    for (k, (a, b)) in rk.ksk.a.iter().zip(&rk.ksk.b).enumerate() {
+        let mut check_rk = a.clone();
+        check_rk *= &sk.poly; // a[k]·s
+        check_rk += b; // b[k] + a[k]·s
+        check_rk -= &s_sq.gadget_term(k, DIGIT_BITS); // ... - s²·g_k  ≈  e
+        let residual_rk = check_rk.to_coeffs();
+        if k == 0 {
+            println!("b[0] + a[0]·s - s²·g_0  (should be small error):");
+            println!("  coefficients : {:?}", &residual_rk[..8]);
+            println!("  ... (showing first 8 of {N})");
+        }
+        let term_max = residual_rk.iter().map(|c| c.unsigned_abs()).max();
+        max_rk = max_rk.max(term_max.unwrap_or(0));
+    }
     println!(
-        "  max |coeff|  : {max_rk}  (expect ≲ 3σ ≈ {})",
+        "  max |coeff| over all terms : {max_rk}  (expect ≲ 3σ ≈ {})",
         (3.0 * ERROR_STD) as u64
     );
     println!("  relation ok  : {}", check(max_rk < 50));

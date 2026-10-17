@@ -1,102 +1,35 @@
-# Current task context
+# Current Task Context: Publication review: architecture, code, docs
 
-  Temperature sensor, 16 readings per minute (one per ~4 seconds). Each package is one ciphertext with 16 slots. We compute std-dev of that minute's readings, fully encrypted.
+State: not started. Roadmap M2.5.
 
-  Input normalization (decided): values pre-scaled to [0, 1] before encrypting.
-  This keeps variance ∈ [0, 0.25] and makes the sqrt approximation tractable.
+## Plan
 
-  package = [t0, t1, ..., t15]   (normalized, range [0, 1])
+- [x] Task 0005-remove-dead-code (dead modules, golden vectors, scripts).
+- [x] Task 0006-trim-dependencies.
+- [x] Agree the backend design (now `specs/overview.md` Target architecture) and revise 0007-0012 around it.
+- [x] Task 0007-module-layout (`foo.rs` + `foo/`; `math`, `rings/backends`, `ckks`).
+- [x] Task 0008-ciphertext-levels (context chain, `Ciphertext::rescale`/`mod_switch_to`).
+- [x] Task 0009-ops-composition (`ckks/ops.rs`, `ckks/evaluator.rs`).
+- [x] Task 0010-chebyshev-module (`ckks/algorithms`, `pipeline.rs` retired).
+- [x] Task 0011-backend-trait (one ring trait, NTT domain private).
+- [x] Task 0012-generic-key-switching (one `KeySwitchingKey`, scheme generic, legacy keys out).
+- [ ] Audit what remains; operator marks findings with `^^^`; split accepted ones into tasks (`tracing` logging, errors vs panics, comment/ASCII pass, examples, README + CI).
 
-  Vector semantics: all CKKS operations on ct are element-wise (Hadamard).
-  ct is a 16-slot vector; mean_ct replicates the same scalar in every slot.
-  (ct - mean_ct)² = [(t0-μ)², (t1-μ)², ..., (t15-μ)²] — exactly the per-sample squared deviations.
+## Findings
 
-  Pipeline
+- **Order:** compose first on the concrete `RnsPoly` (0008-0010), then generalize the small, clean ops behind the trait (0011-0012).
+- **Rescale today:** `RnsPoly::rescale_into` (exact RNS division) wrapped by `CkksEngine::rescale_ciphertext`. **Mod switch today:** `pipeline::align_level` truncates channels, caller passes `logq`. `PolyRescale`/`PolyModSwitch` have no impls.
+- **Leak today:** `CkksEngine<P>` is generic only up to add; rescale, mul_plaintext, gadget keys and key switch are `impl CkksEngine<RnsPoly>` walking `moduli()`/`channels()[i]`; the encoder and `pipeline.rs` read RNS channels too.
+- **Decided 2026-10-13:** target architecture accepted; degree stays a compile-time `const N`; reference backend on `crypto-bigint` is M2.6, after this cleanup.
+- **Decided 2026-10-14 (0008):** basis links to the next basis; `logq` derived from the basis, not stored; `ct.mod_switch_to(level)` + `ct.match_level(&other)`; level errors are `CkksResult`.
+- **Decided 2026-10-14 (0009):** `mul`/`mul_plain`/`rotate` are `Ciphertext` methods; scalars via `mul_const(value, scale_bits)` and `add_const(value)`; rescale always explicit.
+- **Decided 2026-10-16 (0011):** RNS-NTT keeps NTT form at rest (OpenFHE/SEAL style) behind a private flag, converting only where coefficients are needed; one task for all six trait groups; trait keeps the name `PolyRing`. OpenFHE is the reference (SEAL unmaintained).
+- **Audit candidates:** `encrypt` passes `error_variance` (3.2) to `sample_gaussian` as the std_dev (true std_dev 1.79; fixing changes noise, own task); `tracing` spans/events in ckks ops, subscriber in examples; `rotate_slots(-k)` is "rotate by k, then conjugate", not a left rotation (on real data equals `rotate(+k)`; left rotation is `5^(N/2-k)`); `table.rs` (comfy-table, 3 examples); `ckks/builder.rs` (generic since 0012, still unused); overlapping examples (`std_dev_8`, `sqrt_chebyshev_plain`); 2 rustdoc warnings (`basis.rs` intra-doc link, bare URL in `primes.rs`); stale ignored doctests in `keys/{secret,public}_key.rs` (`RnsBasisBuilder`, `RnsNttPoly`); file renames like `ckks_encoder` -> `encoder`; 179 non-ASCII lines in `src/`; README refresh: badges (Tests, Code Quality, Codecov, License; crates.io/docs.rs only after `license`/`description`/`repository` land in Cargo.toml), examples table adds `sensor_std_dev`/`sensor_std_plain`/`sqrt_chebyshev_plain`, Current Focus/What Works name the generic `PolyRing` scheme, slot sums and Chebyshev, snippet moves to a compiled `examples/quickstart.rs` (decided 2026-10-17).
 
-  ct ─── sum_slots ──→ sum_ct  (same value in every slot)
-  │                       │
-  │       mean_ct = sum / 16   [mul_plain(1/16) + rescale]
-  │                       │
-  │      ct - mean_ct ←──┘
-  │           │
-  │        sq_diff = (ct - mean)²  [mul_self + rescale]
-  │           │
-  │        sum_slots(sq_diff)
-  │           │
-  │        variance = sum / 16     [mul_plain(1/16) + rescale]
-  │           │
-  │        std_dev = poly_sqrt(variance)  [2 muls + rescales]
-  └──────────────────────────────────────────────────────→ result
+## Context
 
-  Multiplicative depth
+Drafts 0005-0012 in `specs/tasks/`, chained by `depends`.
 
-  ┌───────────────────────────┬─────────────────────┬─────────────────┐
-  │           step            │         op          │ levels consumed │
-  ├───────────────────────────┼─────────────────────┼─────────────────┤
-  │ mean = sum / 16           │ mul_plain + rescale │ 1               │
-  ├───────────────────────────┼─────────────────────┼─────────────────┤
-  │ squaring (ct - mean)²     │ mul + rescale       │ 1               │
-  ├───────────────────────────┼─────────────────────┼─────────────────┤
-  │ variance = sum / 16       │ mul_plain + rescale │ 1               │
-  ├───────────────────────────┼─────────────────────┼─────────────────┤
-  │ poly_sqrt degree-3 Horner │ 2× mul + rescale    │ 2               │
-  ├───────────────────────────┼─────────────────────┼─────────────────┤
-  │ rotations in sum_slots    │ level-free          │ 0               │
-  └───────────────────────────┴─────────────────────┴─────────────────┘
+## Next
 
-  Total: 5 prime levels. With 7 primes (5 + 2 headroom) at SCALE=30 / 30-bit primes.
-
-  What needs to be built
-
-  1. neg_ciphertext(ct) and sub_ciphertexts(ct1, ct2)
-  Trivial — negate both components, then add. No key needed, no level cost.
-
-  2. mul_plain_scalar(ct, scalar: f64)  [consumes 1 level]
-  In CKKS all arithmetic lives in the scaled integer domain (coefficients ≈ Δ × message).
-  A scalar α cannot be applied as a bare float multiply. The correct steps are:
-    a. Encode α as a constant plaintext polynomial: all coefficients = round(α × Δ)
-       (same encoding step as CkksEncoder, but for a uniform scalar)
-    b. Multiply each ciphertext component by that polynomial (NTT-domain, component-wise)
-       Result scale is Δ² × m × α  →  logp doubles
-    c. Rescale: drop one RNS prime, divide by it  →  logp returns to Δ
-  No relinearization needed (result stays degree-1).
-  Reference: fhetextbook.github.io/CiphertexttoPlaintextMultiplication1.html
-
-  3. sum_slots(ct, rotk_map: &HashMap<i32, RnsGadgetRotationKey>)  [level-free]
-  Binary tree: log₂(16) = 4 steps.
-  Needs rotation keys for offsets 1, 2, 4, 8.
-  step 1: ct += rotate(ct, 1)   → slots [0+1, 1+2, ..., 15+0]
-  step 2: ct += rotate(ct, 2)
-  step 3: ct += rotate(ct, 4)
-  step 4: ct += rotate(ct, 8)
-  → every slot now contains the sum of all 16.
-  Key management: HashMap<i32, RnsGadgetRotationKey> keyed by the offset value.
-
-  4. eval_poly_horner(ct, coeffs: &[f64], rlk)  [depth = coeffs.len() - 1 levels]
-  Generic Horner evaluator: a0 + ct*(a1 + ct*(a2 + ct*a3))
-  Each inner step is: mul_ciphertexts_gadget + rescale + mul_plain_scalar (for the coefficient).
-  Lives on CkksEngine; coefficients passed from the example.
-
-  5. Polynomial sqrt approximation  [2 levels, uses eval_poly_horner]
-  Approach: direct degree-3 Chebyshev fit to sqrt(x) on [0, 0.25].
-  - Fits the level budget (2 muls)
-  - Accurate for variance bounded away from 0 (realistic sensor data)
-  - Singularity of sqrt'(x) at x=0 causes error for near-zero variance; acceptable for demo
-
-  The standard production approach (Panda 2022, eprint.iacr.org/2022/423) uses
-  Newton-Raphson for 1/sqrt(x):
-      y_{i+1} = 0.5 · y_i · (3 - x · y_i²)   (depth 2 per step)
-      sqrt(x) = x · y_final                    (1 more level)
-  This is more general and robust but costs 3–4+ levels total.
-  For this toy demo, direct Chebyshev on [0, 0.25] is the pragmatic choice.
-
-  Chebyshev coefficients for sqrt on [0, 0.25] (to be fitted offline):
-  p(x) ≈ a0 + a1·x + a2·x² + a3·x³   (fit with numpy/scipy before coding)
-
-  6. The demo  (examples/std_dev.rs)
-  - N=32, SLOTS=16, SCALE=30, 7 × 30-bit NTT-friendly primes
-  - Synthesize 16 sensor readings: sine wave + noise, normalized to [0, 1]
-  - Encrypt as one ciphertext
-  - Run the full pipeline homomorphically (mean → sq_diff → variance → sqrt)
-  - Decrypt, compare to plaintext std-dev
-  - Report per-slot errors and final std-dev error
+Start the audit: list the remaining candidates for the operator to mark with `^^^`. Drafts 0015-0021 (wasm, bootstrap, debug tooling, benches, SIMD, GPU, Apple NPU) wait for operator review; the `tracing` candidate moved to 0017. Side task 0013 (educational Sage scripts) is a draft, independent of the chain.

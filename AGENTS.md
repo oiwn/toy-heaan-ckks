@@ -10,10 +10,10 @@ homomorphic encryption scheme with multiple backends.
 cargo build && cargo test                    # build and run tests
 cargo clippy --all-targets -- -D warnings  # lint
 cargo clippy -- -D clippy::pedantic -D clippy::nursery  # also lint
-cargo run --example rns                     # end-to-end CKKS flow
-cargo run --example ntt                     # verbose domain logging
-cargo run --example rns_mod_switch          # modulus-switching demo
-cargo bench --bench end_to_end              # benchmarks
+cargo run --example encrypt_mul             # mul + relin + rescale flow
+cargo run --example rotation_demo           # slot rotation demo
+cargo run --example std_dev_8               # encrypted std-dev scaffold
+cargo bench --bench primes                  # benchmarks
 ```
 
 **Pre-commit Setup**
@@ -32,23 +32,33 @@ pre-commit install                          # install git hooks
 - Clippy: fix warnings; allow specific lints only when necessary
 - prefer to use plain ascii instead of unicode for math!
 
+**File Editing (agents)**
+- Edit files with the dedicated edit/patch tool (exact, reviewable diffs)
+- Never edit files through Python, sed, awk, or shell heredoc scripts
+- Never delete files: move them into `tmp/` at the project root (gitignored),
+  keeping their relative path, e.g. `tmp/src/encoding/fft.rs`; the operator
+  deletes for real
+
 **Key File Paths**
-- `src/crypto/` - engine, builder, operations, types
-- `src/rings/backends/` - Naive, RNS, BigInt, NTT backends
-- `src/encoding/` - FFT, BigInt HEAAN-style, naive encoders
-- `src/keys/` - secret/public/relinearization keys
-- `examples/` - runnable demos per backend
-- `tests/` - encoder tables, properties, e2e tests
-- `src/rings/traits.rs` - abstract traits: `PolyRing`, `PolySampler`, `PolyRescale`
+- `src/ckks.rs`, `src/ckks/` - engine, builder, ops, evaluator, types
+- `src/ckks/algorithms/` - slot sums, Chebyshev approximation
+- `src/ckks/encoding/` - CKKS encoder, special FFT
+- `src/ckks/keys/` - secret/public keys, `KeySwitchingKey` + relin/rotation wrappers
+- `src/rings/backends/rns_ntt/` - RNS-NTT backend
+- `src/math/` - primes, sampling, utils
+- Module layout: `foo.rs` + `foo/`, never `mod.rs`
+- `examples/` - runnable demos
+- `tests/` - integration tests
+- `src/rings/traits.rs` - the backend trait `PolyRing` (only ring view of `ckks/`)
 
 **Scope**
 - Applies to entire repository; follow conventions for any files you touch
-- Targets CKKS/HEAAN development with Naive, RNS, and BigInt (U256) backends
+- Targets CKKS/HEAAN over pluggable ring backends (RNS-NTT today)
 - Educational implementation - not production-ready
 
 ## Documentation Links
 - Project Architecture: `specs/overview.md`
-- Current Tasks & Specifications: `specs/current_task.md`
+- Task files: `specs/tasks/`
 - Running task context: `specs/ctx.md` (keep this file up to date and remind the operator to record every active-task decision there)
 - FHE Textbook: https://fhetextbook.github.io - Comprehensive reference for FHE schemes
 - Build and test all examples to verify implementation
@@ -68,3 +78,12 @@ pre-commit install                          # install git hooks
   - `q`, `Q` -> `modulus`, `extended_modulus`
   - `alpha`, `beta` -> use descriptive names like `base`, `digit`
 - This ensures code readability and avoids encoding issues
+
+<!-- BEGIN specdev -->
+## specdev
+
+This project uses **specdev** (specification-driven development). Load the
+specdev skill when starting a session, continuing from specs, or picking up a
+task. Always read `specs/overview.md` and `specs/ctx.md` before coding.
+<!-- END specdev -->
+

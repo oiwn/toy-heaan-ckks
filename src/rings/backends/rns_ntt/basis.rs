@@ -1,3 +1,8 @@
+use std::sync::Arc;
+
+use num_bigint::BigUint;
+use num_traits::ToPrimitive;
+
 use crate::math::is_ntt_friendly_prime;
 
 use super::errors::{RnsNttError, RnsNttResult};
@@ -85,15 +90,25 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
 
 /// RNS basis: a set of NTT-friendly prime moduli with precomputed NTT tables.
 ///
+/// Each basis links to the basis one level down (its last prime dropped), so
+/// the whole modulus chain is built once and shared: every polynomial that
+/// rescales or mod-switches to a level lands on the same `Arc`.
+///
 /// Invariant: `moduli.len() == ntt_tables.len()` and
 /// `ntt_tables[i].modulus == moduli[i]` for all `i`.
 #[derive(Debug, Clone)]
 pub struct RnsBasis<const DEGREE: usize> {
     moduli: Vec<u64>,
     ntt_tables: Vec<NttTable<DEGREE>>,
+    next: Option<Arc<RnsBasis<DEGREE>>>,
 }
 
 impl<const DEGREE: usize> RnsBasis<DEGREE> {
+    /// Builds the basis for `moduli` together with its chain of lower levels.
+    ///
+    /// # Errors
+    /// Returns an error if `moduli` is empty or holds a modulus that is not
+    /// NTT-friendly for `DEGREE`.
     pub fn new(moduli: Vec<u64>) -> RnsNttResult<Self> {
         if moduli.is_empty() {
             return Err(RnsNttError::EmptyBasis);
@@ -102,7 +117,37 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         for &modulus in &moduli {
             ntt_tables.push(NttTable::new(modulus)?);
         }
-        Ok(Self { moduli, ntt_tables })
+
+        // Build bottom-up: level 1 first, each level linking to the one below.
+        let mut next: Option<Arc<Self>> = None;
+        for keep in 1..moduli.len() {
+            next = Some(Arc::new(Self {
+                moduli: moduli[..keep].to_vec(),
+                ntt_tables: ntt_tables[..keep].to_vec(),
+                next,
+            }));
+        }
+        Ok(Self {
+            moduli,
+            ntt_tables,
+            next,
+        })
+    }
+
+    /// The basis one level down (last prime dropped), or `None` at level 1.
+    pub fn next(&self) -> Option<&Arc<Self>> {
+        self.next.as_ref()
+    }
+
+    /// Walks the chain down to the basis with `channel_count` channels.
+    ///
+    /// Returns `None` if `channel_count` is 0 or above this basis' level.
+    pub fn at_level(self: &Arc<Self>, channel_count: usize) -> Option<Arc<Self>> {
+        let mut basis = self;
+        while basis.channel_count() > channel_count {
+            basis = basis.next.as_ref()?;
+        }
+        (basis.channel_count() == channel_count).then(|| basis.clone())
     }
 
     pub fn moduli(&self) -> &[u64] {
@@ -117,26 +162,11 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
         self.moduli.len()
     }
 
-    /// Returns a new basis with the last `drop_count` channels removed.
-    pub fn drop_last(&self, drop_count: usize) -> RnsNttResult<Self> {
-        let channel_count = self.channel_count();
-        if drop_count >= channel_count {
-            return Err(RnsNttError::InvalidModDrop {
-                drop_count,
-                channel_count,
-            });
-        }
-        let keep = channel_count - drop_count;
-        Ok(Self {
-            moduli: self.moduli[..keep].to_vec(),
-            ntt_tables: self.ntt_tables[..keep].to_vec(),
-        })
-    }
-
-    /// Returns the total bit-size of the composite modulus Q = q_0 · … · q_{L-1}.
+    /// Returns a lower bound on log2 of the modulus `Q = q_0 * ... * q_{L-1}`.
     ///
-    /// Computed as `Σ floor(log2(q_i))`, which gives the number of bits needed
-    /// to represent Q. Used to set `logq` when calling `CkksEngine::encrypt`.
+    /// Computed as `sum floor(log2(q_i))`, so `2^total_bits <= Q`; the
+    /// encoder's coefficient limit relies on that. `Ciphertext::logq` reports
+    /// this value.
     pub fn total_bits(&self) -> u32 {
         self.moduli
             .iter()
@@ -149,35 +179,83 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
     /// Given per-channel residues `r[i] = a mod q_i`, recovers `a mod Q`
     /// where `Q = q_0 * … * q_{L-1}`, then maps values above `Q/2` to negative.
     ///
-    /// # Overflow note
-    /// Requires Q < 2^128. The computation avoids overflow by factoring the
-    /// CRT term as `s_i * Q_i` where `s_i = r_i · Q_i⁻¹ mod q_i < q_i` and
-    /// `Q_i = Q / q_i`. For L ≤ 2 with 61-bit primes, both `s_i` and `Q_i`
-    /// are below 2^61, so their product (< 2^122) fits in u128. For larger L
-    /// (where Q ≥ 2^128), the `q.product()` above already overflows first.
+    /// Uses `num_bigint::BigUint` internally, so large RNS chains are not
+    /// limited by `u128` during reconstruction. The final centered coefficient
+    /// must still fit in `i64`, because the current encoder/decoder interface
+    /// returns integer coefficients as `[i64; DEGREE]`.
+    ///
+    /// # Panics
+    /// Panics if the centered reconstructed coefficient does not fit in `i64`.
     pub fn reconstruct_centered_coeff(&self, residues: &[u64]) -> i64 {
-        debug_assert_eq!(residues.len(), self.moduli.len());
-        let q: u128 = self.moduli.iter().map(|&m| m as u128).product();
-        let mut acc = 0u128;
-
-        for (&r, &m) in residues.iter().zip(&self.moduli) {
-            // Q_i = Q / q_i  (exact: q_i divides Q)
-            let qi = q / m as u128;
-            // qi_inv = Q_i^{-1} mod q_i  (< q_i)
-            let qi_inv = mod_inverse((qi % m as u128) as u64, m);
-            // s = r · qi_inv mod q_i  (r < q_i, qi_inv < q_i → product < q_i² ≤ 2^122: fits u128)
-            let s = (r as u128 * qi_inv as u128) % m as u128;
-            // term = s · Q_i mod Q  (s < q_i, Q_i = Q/q_i → product ≤ (q_i-1)·Q_i < Q: fits u128)
-            let term = s * qi % q;
-            acc = (acc + term) % q;
-        }
-
-        if acc > q / 2 {
-            (acc as i128 - q as i128) as i64
+        let (negative, magnitude) = self.reconstruct_centered_magnitude(residues);
+        if negative {
+            let magnitude = biguint_to_i64(&magnitude);
+            -magnitude
         } else {
-            acc as i64
+            biguint_to_i64(&magnitude)
         }
     }
+
+    /// Like [`RnsBasis::reconstruct_centered_coeff`] but returns an `f64`,
+    /// so it also works when the full modulus `Q` exceeds the `i64` range
+    /// (high-level ciphertexts in deep pipelines).
+    ///
+    /// The returned value is exact for every coefficient that fits in the
+    /// 53-bit mantissa of `f64`; larger ones are rounded.
+    ///
+    /// # Panics
+    /// Panics if the centered magnitude does not fit in `f64`.
+    pub fn reconstruct_centered_coeff_f64(&self, residues: &[u64]) -> f64 {
+        let (negative, magnitude) = self.reconstruct_centered_magnitude(residues);
+        let magnitude = magnitude
+            .to_f64()
+            .expect("reconstructed coefficient exceeds f64 range");
+        if negative { -magnitude } else { magnitude }
+    }
+
+    /// Mixed-radix CRT reconstruction shared by the `i64` / `f64` variants.
+    ///
+    /// Returns `(is_negative, |value|)` where `value` is the centered
+    /// representative in `(-Q/2, Q/2]` of the residue vector.
+    fn reconstruct_centered_magnitude(&self, residues: &[u64]) -> (bool, BigUint) {
+        debug_assert_eq!(residues.len(), self.moduli.len());
+
+        let mut value = BigUint::from(residues[0]);
+        let mut prefix_product = BigUint::from(self.moduli[0]);
+
+        for (idx, &prime) in self.moduli.iter().enumerate().skip(1) {
+            let current_mod = (&value % prime)
+                .to_u64()
+                .expect("value mod u64 prime always fits in u64");
+            let delta = sub_mod(residues[idx], current_mod, prime);
+            if delta != 0 {
+                let prefix_mod = (&prefix_product % prime)
+                    .to_u64()
+                    .expect("prefix_product mod u64 prime always fits in u64");
+                let prefix_inv = mod_inverse(prefix_mod, prime);
+                let adjustment =
+                    ((delta as u128 * prefix_inv as u128) % prime as u128) as u64;
+                if adjustment != 0 {
+                    value += &prefix_product * BigUint::from(adjustment);
+                }
+            }
+            prefix_product *= prime;
+        }
+
+        let half_modulus = &prefix_product >> 1usize;
+
+        if value > half_modulus {
+            (true, prefix_product - value)
+        } else {
+            (false, value)
+        }
+    }
+}
+
+fn biguint_to_i64(value: &BigUint) -> i64 {
+    value
+        .to_i64()
+        .expect("reconstructed coefficient exceeds i64 range")
 }
 
 // ─── Private number-theory helpers ───────────────────────────────────────────
@@ -193,6 +271,14 @@ fn mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
         exponent >>= 1;
     }
     result
+}
+
+fn sub_mod(value: u64, subtrahend: u64, modulus: u64) -> u64 {
+    if value >= subtrahend {
+        (value - subtrahend) % modulus
+    } else {
+        (value + modulus - subtrahend) % modulus
+    }
 }
 
 pub(super) fn mod_inverse(value: u64, modulus: u64) -> u64 {
@@ -290,20 +376,23 @@ mod tests {
     }
 
     #[test]
-    fn drop_last_reduces_channel_count() {
+    fn next_drops_the_last_prime_down_to_level_one() {
         let basis = RnsBasis::<8>::new(vec![17, 97, 113]).unwrap();
-        let reduced = basis.drop_last(1).unwrap();
-        assert_eq!(reduced.channel_count(), 2);
-        assert_eq!(reduced.moduli(), &[17, 97]);
+        let level2 = basis.next().unwrap();
+        assert_eq!(level2.moduli(), &[17, 97]);
+        let level1 = level2.next().unwrap();
+        assert_eq!(level1.moduli(), &[17]);
+        assert!(level1.next().is_none());
     }
 
     #[test]
-    fn drop_last_all_channels_fails() {
-        let basis = RnsBasis::<8>::new(vec![17, 97]).unwrap();
-        assert!(matches!(
-            basis.drop_last(2),
-            Err(RnsNttError::InvalidModDrop { .. })
-        ));
+    fn at_level_returns_the_shared_chain_node() {
+        let basis = Arc::new(RnsBasis::<8>::new(vec![17, 97, 113]).unwrap());
+        assert!(Arc::ptr_eq(&basis.at_level(3).unwrap(), &basis));
+        let level1 = basis.at_level(1).unwrap();
+        assert!(Arc::ptr_eq(&level1, basis.next().unwrap().next().unwrap()));
+        assert!(basis.at_level(0).is_none());
+        assert!(basis.at_level(4).is_none());
     }
 
     #[test]
@@ -321,5 +410,31 @@ mod tests {
         assert_eq!(basis.reconstruct_centered_coeff(&[3, 3]), 3);
         // value = -7: 17-7=10, 97-7=90
         assert_eq!(basis.reconstruct_centered_coeff(&[10, 90]), -7);
+    }
+
+    #[test]
+    fn reconstruct_centered_many_channels_exceeds_u128_modulus() {
+        let primes = crate::math::generate_primes(30, 5, 8);
+        let basis = RnsBasis::<8>::new(primes.clone()).unwrap();
+
+        let positive = 1_234_567i64;
+        let positive_residues: Vec<u64> = primes
+            .iter()
+            .map(|&prime| positive.rem_euclid(prime as i64) as u64)
+            .collect();
+        assert_eq!(
+            basis.reconstruct_centered_coeff(&positive_residues),
+            positive
+        );
+
+        let negative = -987_654i64;
+        let negative_residues: Vec<u64> = primes
+            .iter()
+            .map(|&prime| negative.rem_euclid(prime as i64) as u64)
+            .collect();
+        assert_eq!(
+            basis.reconstruct_centered_coeff(&negative_residues),
+            negative
+        );
     }
 }
