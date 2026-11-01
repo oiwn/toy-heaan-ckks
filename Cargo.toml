@@ -14,7 +14,7 @@ num-complex = "0.4"
 # Planned: structured logging in the ckks ops.
 tracing = "0.1"
 # Planned: the M2.6 reference backend (one big modulus).
-crypto-bigint = { version = "0.6", features = ["alloc"] }
+crypto-bigint = { version = "0.7.6", features = ["alloc"] }
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 

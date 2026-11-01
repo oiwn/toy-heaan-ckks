@@ -9,6 +9,56 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-01 — bootstrap depth optimization
+
+- Reduced the32-round toy recurrence from eight bootstraps to three using the same18-prime budget.
+- Task `0036-bootstrap-depth-optimization`
+
+## 2026-11-01 — bootstrapped recurrence demo
+
+- Added a 32-round encrypted recurrence comparing a short bootstrapped chain, short-chain exhaustion and a longer leveled baseline.
+- Task `0033-bootstrapped-recurrence-demo`
+
+## 2026-11-01 — bootstrap input preparation
+
+- Bootstrap prepares input scale and level internally so callers only multiply, rescale and request refresh.
+- Task `0032-bootstrap-input-preparation`; source: Operator request: move bootstrap scale and level preparation into the library
+
+## 2026-11-01 — bootstrap integration
+
+- Implemented bootstrap integration.
+- Task `0031-bootstrap-integration`
+
+## 2026-11-01 — bootstrap eval mod
+
+- Implemented bootstrap eval mod.
+- Task `0030-bootstrap-eval-mod`
+
+## 2026-11-01 — bootstrap shallow polynomials
+
+- Implemented bootstrap shallow polynomials.
+- Task `0029-bootstrap-shallow-polynomials`
+
+## 2026-11-01 — bootstrap dense transforms
+
+- Implemented bootstrap dense transforms.
+- Task `0028-bootstrap-dense-transforms`
+
+## 2026-11-01 — bootstrap mod raise
+
+- Implemented bootstrap mod raise.
+- Task `0027-bootstrap-mod-raise`
+
+## 2026-11-01 — bootstrap automorphisms keys
+
+- Implemented bootstrap automorphisms keys.
+- Task `0026-bootstrap-automorphisms-keys`
+
+## 2026-11-01 — bootstrap research
+
+- Designed and validated educational full-complex bootstrap profiles and the implementation sequence.
+- Task `0016-bootstrap-research`; source: operator request 2026-10-16
+
 ## 2026-10-16 — generic key switching
 
 - One generic `KeySwitchingKey<P>` (gadget encryption of an old key, `switch(d)`) now backs `RelinearizationKey` and `RotationKey`; the legacy single-pair keys, `RnsGadget*` types and `mul_ciphertexts` are gone, and ops, evaluator, algorithms and engine are generic over `PolyRing`.

@@ -5,12 +5,18 @@
 
 - **0013-sage-education-scripts** — draft — sage education scripts (user request 2026-10-14: revive educational sage scripts demonstrating properties like Chebyshev polynomials)
 - **0015-wasm-feasibility** — draft — wasm feasibility (operator request 2026-10-16)
-- **0016-bootstrap-research** — draft — bootstrap research (operator request 2026-10-16)
 - **0017-debug-tooling** — draft — debug tooling (operator request 2026-10-16)
 - **0018-op-benchmarks** — draft — op benchmarks (operator request 2026-10-16)
 - **0019-simd-research** — draft — simd research (operator request 2026-10-16)
 - **0020-gpu-research** — draft — gpu research (operator request 2026-10-17)
 - **0021-npu-research** — draft — npu research (operator request 2026-10-17)
+- **0022-reference-backend** — draft — reference backend (roadmap M2.6; operator request 2026-10-17)
+- **0023-creusot-integration-research** — draft — creusot integration research
+- **0024-kani-evaluation** — draft — kani evaluation
+- **0025-ckks-backend-benchmark-research** — draft — ckks backend benchmark research
+- **0034-nonlinear-smoothing-demo** — draft — nonlinear smoothing demo
+- **0035-cubic-activation-demo** — draft — cubic activation demo
+- **0037-cleanup-and-refactoring** — draft — cleanup and refactoring (Operator request: cleanup and refactoring; carefully check every file)
 
 ## Done
 
@@ -27,3 +33,13 @@
 - **0011-backend-trait** — done — backend trait (user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture))
 - **0012-generic-key-switching** — done — generic key switching (user request 2026-10-13: pluggable ring backends, scheme over a small trait (overview.md Target architecture))
 - **0014-remove-commented-code** — done — remove commented code (operator 2026-10-14: huge commented-out sections in keys/common.rs)
+- **0016-bootstrap-research** — done — bootstrap research (operator request 2026-10-16)
+- **0026-bootstrap-automorphisms-keys** — done — bootstrap automorphisms keys
+- **0027-bootstrap-mod-raise** — done — bootstrap mod raise
+- **0028-bootstrap-dense-transforms** — done — bootstrap dense transforms
+- **0029-bootstrap-shallow-polynomials** — done — bootstrap shallow polynomials
+- **0030-bootstrap-eval-mod** — done — bootstrap eval mod
+- **0031-bootstrap-integration** — done — bootstrap integration
+- **0032-bootstrap-input-preparation** — done — bootstrap input preparation (Operator request: move bootstrap scale and level preparation into the library)
+- **0033-bootstrapped-recurrence-demo** — done — bootstrapped recurrence demo
+- **0036-bootstrap-depth-optimization** — done — bootstrap depth optimization

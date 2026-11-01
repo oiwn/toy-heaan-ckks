@@ -21,7 +21,7 @@ where
 
 impl<P: PolyRing<DEGREE>, const DEGREE: usize> RotationKey<P, DEGREE> {
     /// Generates the key for `rotation` at `sk`'s level with key errors of
-    /// `error_std`. A negative `rotation` rotates slots right.
+    /// `error_std`. Negative rotations are inverse slot rotations.
     pub fn generate<R: Rng>(
         sk: &SecretKey<P, DEGREE>,
         rotation: i32,

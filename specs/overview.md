@@ -26,7 +26,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 | Homomorphic Multiplication | ✅ | `ct.mul(&other, &rlk)` (gadget relin), `mul_plain`, `mul_const`; rescale is explicit. |
 | Rescaling | ✅ | `Ciphertext::rescale` divides by the last prime; `mod_switch_to`/`match_level` drop primes. |
 | Rotation | ✅ | Gadget rotation keys, slot rotations. |
-| Bootstrapping | ❌ | Out of scope for now. |
+| Bootstrapping | ✅ | Toy full-complex profiles at N=16/64; public evaluation keys, repeated refresh. |
 
 ## Architecture Design
 
@@ -97,7 +97,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ## Current Limitations
 
-- No bootstrapping; circuit depth is bounded by the prime chain.
+- Bootstrap supports only toy N=16/64; see `specs/research/bootstrap.md`.
 - Encode/decode is O(N^2) (special DFT).
 - Encoder i64 staging caps |slot| at ~4 at scale 2^61.
 - Demo parameters (N = 8192, 61-bit primes) are below 128-bit security; see `specs/demo.md`.

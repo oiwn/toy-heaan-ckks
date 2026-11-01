@@ -6,6 +6,9 @@ use thiserror::Error;
 /// primes, wrong degree) stay in that backend's own error type.
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum RingError {
+    /// Contexts do not belong to the same chain.
+    #[error("incompatible ring contexts")]
+    IncompatibleContext,
     /// A level change asked for a level the chain does not have.
     #[error("level {level} is out of range (current level {max_level})")]
     InvalidLevel { level: usize, max_level: usize },
