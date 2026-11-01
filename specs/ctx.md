@@ -1,6 +1,6 @@
 # Current Task Context: Publication review: architecture, code, docs
 
-State: not started. Roadmap M2.5.
+State: no implementation task in progress. Next workstream: cleanup and refactoring, draft0037.
 
 ## Plan
 
@@ -28,8 +28,10 @@ State: not started. Roadmap M2.5.
 
 ## Context
 
-Drafts 0005-0012 in `specs/tasks/`, chained by `depends`.
+Cleanup planning: review every repository-owned file with the operator, record a per-file checklist and agree scoped refactoring tasks. Draft0037 is queued, not active. Preserve the publication audit plan and findings above; recheck historical observations against current code. Tasks0034/0035 remain future demo drafts.
 
 ## Next
 
-Start the audit: list the remaining candidates for the operator to mark with `^^^`. Drafts 0015-0021 (wasm, bootstrap, debug tooling, benches, SIMD, GPU, Apple NPU) wait for operator review; the `tracing` candidate moved to 0017. Side task 0013 (educational Sage scripts) is a draft, independent of the chain.
+Review draft0037 and begin the file inventory when starting cleanup. Record active-task decisions here. Side research remains0023 (Creusot),0024 (Kani) and0025 (backend benchmarks).
+
+Other drafts 0015-0022 (wasm, debug tooling, operation benchmarks, SIMD, GPU, Apple NPU, reference backend) wait for operator review; the `tracing` candidate moved to 0017. Side task 0013 (educational Sage scripts) remains independent.

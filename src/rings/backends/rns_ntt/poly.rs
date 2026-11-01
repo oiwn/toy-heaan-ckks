@@ -363,6 +363,30 @@ impl<const DEGREE: usize> PolyRing<DEGREE> for RnsPoly<DEGREE> {
         u64::BITS - q_last.leading_zeros()
     }
 
+    fn rescale_divisor(&self) -> u64 {
+        *self.basis.moduli().last().expect("non-empty basis")
+    }
+
+    fn same_context(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.basis, &other.basis)
+    }
+
+    fn mod_raise(&self, target: &Self::Context) -> RingResult<Self> {
+        if self.level() != 1 || target.channel_count() <= 1 {
+            return Err(RingError::InvalidLevel {
+                level: self.level(),
+                max_level: 1,
+            });
+        }
+        if !target
+            .at_level(1)
+            .is_some_and(|bottom| Arc::ptr_eq(&bottom, &self.basis))
+        {
+            return Err(RingError::IncompatibleContext);
+        }
+        Ok(Self::from_coeffs(&self.to_coeffs(), target))
+    }
+
     /// Divides every coefficient by the last prime `q_L` and drops it.
     ///
     /// Exact (no rounding): `c - (c mod q_L)` is divisible by `q_L`. Per
@@ -957,10 +981,16 @@ mod tests {
     #[test]
     fn rotate_slots_matches_automorphism_by_powers_of_five() {
         let p = poly(&[1, 2, 3, 4, 5, 6, 7, 8], &basis_17_97());
-        // 5^2 = 25 = 9 (mod 16); negative k adds the conjugation X -> X^15
+        // 5^2 = 9 and 5^-1 = 13 (mod 16).
         assert_eq!(p.rotate_slots(2).to_coeffs(), p.automorphism(9).to_coeffs());
-        let conj = p.automorphism(5).automorphism(15);
-        assert_eq!(p.rotate_slots(-1).to_coeffs(), conj.to_coeffs());
+        assert_eq!(
+            p.rotate_slots(-1).to_coeffs(),
+            p.automorphism(13).to_coeffs()
+        );
+        assert_eq!(
+            p.rotate_slots(-1).rotate_slots(1).to_coeffs(),
+            p.to_coeffs()
+        );
     }
 
     // ── Gadget ────────────────────────────────────────────────────────────────

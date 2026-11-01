@@ -6,6 +6,64 @@ This repository is for learning the mechanics of CKKS.  It is intentionally smal
 
 ## Current Focus
 
+For a deeper computation, run:
+
+```bash
+cargo run --release --example recurrence_bootstrap_demo
+cargo run --release --example recurrence_bootstrap_demo -- --degree 64
+```
+
+The encrypted driver `u` initializes `x=u`. Each of 32 rounds computes
+`x_next=x/2+x*x/8+sign*u/4`, alternating the sign. Library code handles scale
+alignment; key generation is confined to setup. The ideal state stays in
+[-0.625,0.875], with a state derivative at most0.75 in magnitude.
+
+Three runs compare the same inputs: 18 primes with bootstrap (32 rounds,
+three refreshes), 18 without (stops before round18), and 34 without (32 rounds).
+The output reports levels, error at every round, exact initial modulus bit
+lengths, refresh events and separate setup/evaluation/diagnostic timings.
+Client diagnostics decrypt checkpoints; evaluation receives only public keys.
+Accuracy must stay within1e-3. This demonstrates a shorter modulus chain,
+not a measured total-memory saving. All parameters remain educational.
+
+Educational complex CKKS bootstrapping is available through
+`ckks::algorithms::bootstrap::{BootstrapParameters, BootstrapPlan, BootstrapKeys}`.
+Run `cargo run --release --example bootstrap_demo` for encrypted computation,
+refresh, multiplication and a second refresh at degrees 16 and 64.
+
+The supported toy profile uses 18 NTT primes within 2^20 of 2^61, input/output
+scale 2^44, degree-31 cosine and four double-angle steps. Bootstrap accepts any
+level in its context chain and a positive scale no greater than 2^44; it
+normalizes a copy and prepares the bottom level internally. It returns level 6
+at scale 2^44. All N/2 complex slots must have magnitude at most 1. This is a caller
+precondition; encrypted values cannot be inspected during evaluation. Setup
+precomputes transform plaintexts and nonzero-noise evaluation keys; bootstrap
+evaluation receives neither a secret key nor an RNG. These are educational
+parameters with no production security claim.
+
+Client code keeps rescaling explicit, with no bootstrap-specific bit counting:
+
+```rust,ignore
+let squared = initial.mul(&initial, &relin).rescale()?;
+let refreshed = plan.bootstrap(&squared, &keys)?;
+```
+
+Preparation preserves represented values; it cannot recover precision lost
+before bootstrap. Inputs already at level 1 and scale 2^44 remain supported.
+
+Bootstrap normalization is fused into the forward transform: the half factor
+for real/imaginary splitting and the EvalMod interval scaling consume no
+separate levels. Exact multiplication by +/-i also consumes no level.
+Bootstrap therefore spends12 primes instead of14 in the same18-prime chain.
+The recurrence's91-bit weighted product safely fits two near-2^61 primes,
+so its application-specific threshold is two levels. This permits17 initial
+rounds and five between refreshes, reducing the32-round demo from eight
+refreshes to three without increasing modulus size or weakening accuracy.
+
+Signed rotations now satisfy `output[j] = input[(j + offset) mod slots]`.
+Negative offsets invert positive rotations. Complex conjugation has a
+separate `ConjugationKey` and `Ciphertext::conjugate` operation.
+
 The codebase currently centers on one concrete backend:
 
 - `RnsPoly` / `RnsBasis` in `src/rings/backends/rns_ntt/`

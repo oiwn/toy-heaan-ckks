@@ -61,6 +61,7 @@ pre-commit install                          # install git hooks
 - Task files: `specs/tasks/`
 - Running task context: `specs/ctx.md` (keep this file up to date and remind the operator to record every active-task decision there)
 - FHE Textbook: https://fhetextbook.github.io - Comprehensive reference for FHE schemes
+- Implementation references: use OpenFHE and Lattigo; do not use Microsoft SEAL as an implementation reference for this project.
 - Build and test all examples to verify implementation
 
 **Specification Rhythm**

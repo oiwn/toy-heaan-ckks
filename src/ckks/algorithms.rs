@@ -4,5 +4,7 @@
 //! Applications built from these (e.g. the sensor std-dev demo) live in
 //! `examples/`.
 
+pub mod bootstrap;
 pub mod chebyshev;
+pub mod recurrence;
 pub mod sum_slots;

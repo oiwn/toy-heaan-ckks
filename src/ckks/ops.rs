@@ -93,6 +93,30 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Sub<&Plaintext<P, DEGREE>>
 // ── Multiplicative ops and rotation ──────────────────────────────────────────
 
 impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
+    /// Conjugate all slots using a key generated at this level.
+    ///
+    /// # Errors
+    /// Returns an error if the key belongs to a different level or context.
+    pub fn conjugate(
+        &self,
+        key: &crate::ckks::keys::ConjugationKey<P, DEGREE>,
+    ) -> crate::ckks::errors::CkksResult<Self> {
+        if !self.c0.same_context(&self.c1)
+            || !key.ksk.a.first().is_some_and(|a| self.c0.same_context(a))
+        {
+            return Err(crate::rings::RingError::IncompatibleContext.into());
+        }
+        let mut c0 = self.c0.automorphism((2 * DEGREE - 1) as u64);
+        let (extra, c1) = key
+            .ksk
+            .switch(&self.c1.automorphism((2 * DEGREE - 1) as u64));
+        c0 += &extra;
+        Ok(Self {
+            c0,
+            c1,
+            logp: self.logp,
+        })
+    }
     /// Ciphertext x ciphertext multiplication with gadget relinearization.
     ///
     /// Computes the tensor product `(c0 + c1*s)(c0' + c1'*s) = d0 + d1*s +

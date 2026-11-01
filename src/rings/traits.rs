@@ -34,6 +34,15 @@ pub trait PolyRing<const DEGREE: usize>:
     /// The context this polynomial lives in.
     fn context(&self) -> &Self::Context;
 
+    /// Whether two polynomials share the same level context.
+    fn same_context(&self, other: &Self) -> bool;
+
+    /// Lift bottom-level centered coefficients into a higher compatible basis.
+    ///
+    /// # Errors
+    /// Returns an error for incompatible contexts or unsupported levels.
+    fn mod_raise(&self, target: &Self::Context) -> RingResult<Self>;
+
     // ── Coefficients ─────────────────────────────────────────────────────
 
     /// Builds a polynomial from signed coefficients, reduced modulo `Q`
@@ -89,20 +98,14 @@ pub trait PolyRing<const DEGREE: usize>:
 
     /// Rotates the CKKS slots by `k`: `X -> X^(5^k mod 2N)`.
     ///
-    /// A negative `k` applies `X -> X^(5^|k|)` followed by the conjugation
-    /// `X -> X^(2N - 1)`.
+    /// Negative offsets are inverse rotations, without conjugation.
     fn rotate_slots(&self, k: i32) -> Self {
         let modulus_2n = 2 * DEGREE as u64;
         let mut exponent = 1u64;
-        for _ in 0..k.unsigned_abs() {
+        for _ in 0..i64::from(k).rem_euclid((DEGREE / 2) as i64) {
             exponent = exponent * 5 % modulus_2n;
         }
-        let rotated = self.automorphism(exponent);
-        if k >= 0 {
-            rotated
-        } else {
-            rotated.automorphism(modulus_2n - 1)
-        }
+        self.automorphism(exponent)
     }
 
     // ── Modulus chain ────────────────────────────────────────────────────
@@ -115,6 +118,9 @@ pub trait PolyRing<const DEGREE: usize>:
 
     /// Bit length of the divisor [`PolyRing::rescale`] divides by.
     fn rescale_bits(&self) -> u32;
+
+    /// Exact integer divisor used by rescaling.
+    fn rescale_divisor(&self) -> u64;
 
     /// Divides by the top divisor of the chain and moves one level down.
     ///
