@@ -19,10 +19,10 @@ use std::time::Instant;
 
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::ckks::CkksEngine;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::CkksParams;
 use toy_heaan_ckks::ckks::evaluator::LeveledEvaluator;
+use toy_heaan_ckks::ckks::{CkksEngine, Scale};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -97,10 +97,11 @@ fn main() {
         basis.channel_count()
     );
 
+    let scale = Scale::power_of_two(SCALE as i32).expect("valid scale");
     let params = CkksParams {
         error_variance: 3.2,
         hamming_weight: N / 2,
-        scale_bits: SCALE,
+        scale,
     };
     let engine = CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params.clone());
     let mut rng = ChaCha20Rng::seed_from_u64(CRYPTO_SEED);
@@ -114,7 +115,7 @@ fn main() {
 
     // ── Client: encode + encrypt ─────────────────────────────────────────────
     let started = Instant::now();
-    let encoder = CkksEncoder::<N>::new(SCALE);
+    let encoder = CkksEncoder::<N>::new(scale);
     let pt = encoder.encode(&normalized, basis.clone());
     let ct = engine.encrypt(&pt, &pk, &mut rng);
     println!("Encode + encrypt:       {:>9.2?}", started.elapsed());
@@ -132,16 +133,21 @@ fn main() {
     );
     let compute_time = started.elapsed();
 
-    println!("\nStage               channels  logp       time");
     println!(
-        "fresh ciphertext    {:>8}  {:>4}          -",
+        "\n{:<18}  {:>8}  {:>11}  {:>9}",
+        "Stage", "channels", "log2(scale)", "time"
+    );
+    println!(
+        "{:<18}  {:>8}  {:>11.1}  {:>9}",
+        "fresh ciphertext",
         basis.channel_count(),
-        ct.logp
+        ct.scale.log2(),
+        "-"
     );
     for stage in &run.stages {
         println!(
-            "{:<18}  {:>8}  {:>4}  {:>9.2?}",
-            stage.name, stage.channels, stage.logp, stage.elapsed
+            "{:<18}  {:>8}  {:>11.1}  {:>9.2?}",
+            stage.name, stage.channels, stage.log2_scale, stage.elapsed
         );
     }
     println!("total (incl. keys)                {compute_time:>9.2?}");

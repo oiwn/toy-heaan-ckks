@@ -5,9 +5,8 @@ use std::time::Instant;
 use num_bigint::BigUint;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::ckks::algorithms::bootstrap::{
-    BootstrapParameters, BootstrapPlan,
-};
+use toy_heaan_ckks::ckks::Scale;
+use toy_heaan_ckks::ckks::algorithms::bootstrap::{BootstrapConfig, BootstrapPlan};
 use toy_heaan_ckks::ckks::algorithms::recurrence::RecurrencePlan;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
@@ -20,19 +19,19 @@ fn run<const N: usize>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let started = Instant::now();
     let primes = generate_primes(61, primes_count, N as u64);
-    let bootstrap_parameters = BootstrapParameters::toy(primes[0]);
     let context = Arc::new(RnsBasis::<N>::new(primes)?);
     let modulus_bits = context
         .moduli()
         .iter()
         .fold(BigUint::from(1u8), |product, prime| product * prime)
         .bits();
+    let scale = Scale::power_of_two(44)?;
     let engine = CkksEngine::<RnsPoly<N>, N>::new(
         context.clone(),
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: 44,
+            scale,
         },
     );
     let mut rng = ChaCha20Rng::seed_from_u64(2026);
@@ -41,7 +40,10 @@ fn run<const N: usize>(
     let recurrence = RecurrencePlan::new(context.clone())?;
     let keys = recurrence.generate_keys(&secret, 3.2f64.sqrt(), &mut rng)?;
     let bootstrap = if refresh {
-        Some(BootstrapPlan::new(context.clone(), bootstrap_parameters)?)
+        Some(BootstrapPlan::new(
+            context.clone(),
+            BootstrapConfig::reference(N)?,
+        )?)
     } else {
         None
     };
@@ -49,7 +51,7 @@ fn run<const N: usize>(
         .as_ref()
         .map(|p| p.generate_keys(&secret, 3.2f64.sqrt(), &mut rng))
         .transpose()?;
-    let encoder = CkksEncoder::new(44);
+    let encoder = CkksEncoder::new(scale);
     let values: Vec<_> = (0..N / 2)
         .map(|j| -1.0 + 2.0 * j as f64 / (N / 2 - 1) as f64)
         .collect();

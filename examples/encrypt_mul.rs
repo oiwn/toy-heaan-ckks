@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::ckks::keys::RelinearizationKey;
@@ -32,14 +33,15 @@ fn main() {
 
     // ── 1. Parameters ──────────────────────────────────────────────────────────
     let delta = 2f64.powi(SCALE_BITS as i32);
+    let scale = Scale::power_of_two(SCALE_BITS as i32).expect("valid scale");
     println!("Ring degree N    : {N}");
     println!("Slots  (N/2)     : {}", N / 2);
     println!("Scale bits       : {SCALE_BITS}  →  Δ ≈ {delta:.3e}\n");
 
     // ── 2. RNS basis ───────────────────────────────────────────────────────────
     // Four 31-bit NTT-friendly primes.  After multiplying two ciphertexts at
-    // logp=30, rescaling drops the last prime (≈30 bits), leaving three primes
-    // with logp back at 30.
+    // scale 2^30, rescaling drops the last prime (≈30 bits), leaving three
+    // primes with the scale back at 2^30.
     let primes = generate_primes(31, 4, N as u64);
     println!("RNS primes (each ≡ 1 mod 2N = {}):", 2 * N);
     for (i, &p) in primes.iter().enumerate() {
@@ -54,7 +56,7 @@ fn main() {
     let params = CkksParams {
         error_variance: 3.2,
         hamming_weight: N / 2,
-        scale_bits: SCALE_BITS,
+        scale,
     };
     let engine = CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params);
 
@@ -75,7 +77,7 @@ fn main() {
     println!("Expected: {:?}\n", expected);
 
     // ── 5. Encode ──────────────────────────────────────────────────────────────
-    let encoder = CkksEncoder::<N>::new(SCALE_BITS);
+    let encoder = CkksEncoder::<N>::new(scale);
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
 
@@ -83,8 +85,8 @@ fn main() {
     let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
     let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
     println!(
-        "Both plaintexts encrypted (logp={}, logq={}).\n",
-        ct_a.logp,
+        "Both plaintexts encrypted (log2(scale)={:.1}, logq={}).\n",
+        ct_a.scale.log2(),
         ct_a.logq()
     );
 
@@ -92,17 +94,18 @@ fn main() {
     // Uses the RNS gadget relinearization key to keep the degree at 1.
     let ct_product = ct_a.mul(&ct_b, &rlk);
     println!(
-        "Gadget multiplication done  (logp={}, logq={}).",
-        ct_product.logp,
+        "Gadget multiplication done  (log2(scale)={:.1}, logq={}).",
+        ct_product.scale.log2(),
         ct_product.logq()
     );
 
     // ── 8. Rescale ─────────────────────────────────────────────────────────────
-    // Drops the last RNS prime and divides coefficients by it, halving logp.
+    // Drops the last RNS prime and divides coefficients by it, bringing the
+    // scale from 2^(2*SCALE_BITS) back to 2^SCALE_BITS.
     let ct_rescaled = ct_product.rescale().expect("rescale");
     println!(
-        "Rescale done                (logp={}, logq={}).\n",
-        ct_rescaled.logp,
+        "Rescale done                (log2(scale)={:.1}, logq={}).\n",
+        ct_rescaled.scale.log2(),
         ct_rescaled.logq()
     );
 

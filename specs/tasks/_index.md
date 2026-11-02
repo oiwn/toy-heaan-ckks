@@ -16,7 +16,12 @@
 - **0025-ckks-backend-benchmark-research** — draft — ckks backend benchmark research
 - **0034-nonlinear-smoothing-demo** — draft — nonlinear smoothing demo
 - **0035-cubic-activation-demo** — draft — cubic activation demo
-- **0037-cleanup-and-refactoring** — draft — cleanup and refactoring (Operator request: cleanup and refactoring; carefully check every file)
+- **0042-multi-group-transforms** — draft — multi group transforms (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+- **0043-bootstrap-general-final** — draft — bootstrap general final (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+
+## Blocked
+
+- **0037-cleanup-and-refactoring** — blocked — cleanup and refactoring (Operator request: cleanup and refactoring; carefully check every file)
 
 ## Done
 
@@ -43,3 +48,7 @@
 - **0032-bootstrap-input-preparation** — done — bootstrap input preparation (Operator request: move bootstrap scale and level preparation into the library)
 - **0033-bootstrapped-recurrence-demo** — done — bootstrapped recurrence demo
 - **0036-bootstrap-depth-optimization** — done — bootstrap depth optimization
+- **0038-fallible-ciphertext-arithmetic** — done — fallible ciphertext arithmetic (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+- **0039-scale-metadata-migration** — done — scale metadata migration (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+- **0040-encrypted-polynomial-executor** — done — encrypted polynomial executor (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+- **0041-bootstrap-config-schedule** — done — bootstrap config schedule (Operator-approved bootstrap split plan 2026-11-02 (from 0037))

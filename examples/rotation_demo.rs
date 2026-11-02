@@ -17,7 +17,7 @@
 //! to `s(X)`.  The key-switching step uses the same RNS gadget decomposition
 //! as relinearization after multiplication — but encodes `s_k` instead of `s²`.
 //!
-//! Unlike multiplication, rotation does **not** consume a level: `logp` and
+//! Unlike multiplication, rotation does **not** consume a level: the scale and
 //! `logq` are unchanged.  The example therefore uses only 2 primes (one spare
 //! for headroom) and never calls `Ciphertext::rescale`.
 //!
@@ -42,6 +42,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
@@ -80,15 +81,16 @@ fn main() {
     let logq = basis.total_bits();
     println!("  total logq = {logq}\n");
 
+    let scale = Scale::power_of_two(SCALE as i32).expect("valid scale");
     let engine = CkksEngine::new(
         basis.clone(),
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale,
         },
     );
-    let encoder = CkksEncoder::<N>::new(SCALE);
+    let encoder = CkksEncoder::<N>::new(scale);
     let mut rng = ChaCha20Rng::seed_from_u64(42);
 
     // ── 2. Key generation ─────────────────────────────────────────────────────
@@ -112,20 +114,28 @@ fn main() {
     println!("Step A: rotate ciphertext by {ROT1:+} slot(s) …");
     let ct_rot1 = ct.rotate(&rotk1);
     println!(
-        "  logp={}, logq={} (unchanged — rotation is level-free)\n",
-        ct_rot1.logp,
+        "  log2(scale)={:.1}, logq={} (unchanged — rotation is level-free)\n",
+        ct_rot1.scale.log2(),
         ct_rot1.logq()
     );
 
     // Step B: add original and rotated ciphertexts
     println!("Step B: add original + rotated …");
-    let ct_added = &ct + &ct_rot1;
-    println!("  logp={}, logq={}\n", ct_added.logp, ct_added.logq());
+    let ct_added = ct.add(&ct_rot1).expect("rotation keeps level and scale");
+    println!(
+        "  log2(scale)={:.1}, logq={}\n",
+        ct_added.scale.log2(),
+        ct_added.logq()
+    );
 
     // Step C: rotate sum by ROT2
     println!("Step C: rotate sum by {ROT2:+} slot(s) …");
     let ct_result = ct_added.rotate(&rotk2);
-    println!("  logp={}, logq={}\n", ct_result.logp, ct_result.logq());
+    println!(
+        "  log2(scale)={:.1}, logq={}\n",
+        ct_result.scale.log2(),
+        ct_result.logq()
+    );
 
     // ── 5. Decrypt + decode ───────────────────────────────────────────────────
     println!("Decrypting …");

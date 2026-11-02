@@ -2,9 +2,9 @@
 
 ## Project Goals
 
-Educational implementation of CKKS (Cheon-Kim-Kim-Song) homomorphic encryption, also known as HEAAN (Homomorphic Encryption for Arithmetic of Approximate Numbers). The project now concentrates exclusively on the RNS-NTT backend so every example, test, and spec builds intuition for that concrete execution model.
+Experimental CKKS (Cheon-Kim-Kim-Song) homomorphic encryption library, also known as HEAAN. "Toy" in the repository name denotes experimental status, not restricted functionality. The scheme is backend-generic through PolyRing; RNS-NTT is the current implementation.
 
-**⚠️ Educational Purpose Only**: Not optimized for production use.
+Production suitability is not established.
 
 ## Backend Architecture
 
@@ -26,7 +26,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 | Homomorphic Multiplication | ✅ | `ct.mul(&other, &rlk)` (gadget relin), `mul_plain`, `mul_const`; rescale is explicit. |
 | Rescaling | ✅ | `Ciphertext::rescale` divides by the last prime; `mod_switch_to`/`match_level` drop primes. |
 | Rotation | ✅ | Gadget rotation keys, slot rotations. |
-| Bootstrapping | ✅ | Toy full-complex profiles at N=16/64; public evaluation keys, repeated refresh. |
+| Bootstrapping | Partial | Full-complex N=16/64 path works; general encrypted scheduling remains incomplete. |
 
 ## Architecture Design
 
@@ -51,7 +51,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ### Encoding Strategies
 
-- **CkksEncoder**: canonical Vandermonde/special-DFT encode/decode (spec archived in `specs/archive/textbook_encode_decode.md`). Stages coefficients in i64, see gotchas.
+- **CkksEncoder**: canonical Vandermonde/special-DFT encode/decode (spec archived in `specs/archive/textbook_encode_decode.md`). Stages coefficients in f64, see gotchas.
 
 ### Key Management
 
@@ -73,7 +73,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ## Key Design Decisions
 
-### 1. Educational Focus Over Performance
+### 1. Readability Before Optimization
 
 - Clear, readable implementations preferred over optimization
 - Single backend keeps the codebase approachable
@@ -97,9 +97,9 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ## Current Limitations
 
-- Bootstrap supports only toy N=16/64; see `specs/research/bootstrap.md`.
+- Encrypted bootstrap still enforces N=16/64 and a fixed profile; remaining work: `specs/research/generic-bootstrap.md`.
 - Encode/decode is O(N^2) (special DFT).
-- Encoder i64 staging caps |slot| at ~4 at scale 2^61.
+- Encoder f64 staging limits relative precision to about 52 bits; coefficient magnitude must fit the modulus.
 - Demo parameters (N = 8192, 61-bit primes) are below 128-bit security; see `specs/demo.md`.
 
 ## Target architecture (agreed 2026-10-13, M2.5)

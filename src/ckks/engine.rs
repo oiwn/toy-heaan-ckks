@@ -1,6 +1,7 @@
 use super::builder::CkksEngineBuilder;
 use super::types::{Ciphertext, Plaintext};
 use crate::PolyRing;
+use crate::ckks::Scale;
 use crate::ckks::keys::{
     PublicKey, PublicKeyError, PublicKeyParams, RelinearizationKey, RotationKey,
     SecretKey, SecretKeyError, SecretKeyParams,
@@ -19,7 +20,8 @@ where
 pub struct CkksParams<const DEGREE: usize> {
     pub error_variance: f64,
     pub hamming_weight: usize,
-    pub scale_bits: u32,
+    /// Default encoding scale for this parameter set.
+    pub scale: Scale,
 }
 
 impl<P, const DEGREE: usize> CkksEngine<P, DEGREE>
@@ -101,7 +103,7 @@ where
         Ciphertext {
             c0,
             c1,
-            logp: plaintext.scale_bits, // Precision from encoding
+            scale: plaintext.scale, // Scale from encoding
         }
     }
 
@@ -116,7 +118,7 @@ where
 
         Plaintext {
             poly: result,
-            scale_bits: ciphertext.logp, // Use precision parameter
+            scale: ciphertext.scale,
             slots: DEGREE / 2, // After decryption, assume max slots (decoder will handle actual slots)
         }
     }

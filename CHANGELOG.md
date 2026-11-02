@@ -9,6 +9,26 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-02 — bootstrap config schedule
+
+- `BootstrapConfig` and a chain-derived `BootstrapSchedule` replace the toy parameters and literal offsets/constants; keys follow the schedule's requirements.
+- Task `0041-bootstrap-config-schedule`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
+## 2026-11-02 — encrypted polynomial executor
+
+- Rescale divides by the actual prime; an encrypted `ChebyshevPlan` executor now drives bootstrap EvalMod and the Chebyshev evaluator, with exact scale tracking through bootstrap, recurrence and the examples.
+- Task `0040-encrypted-polynomial-executor`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
+## 2026-11-02 — scale metadata migration
+
+- Ciphertexts, plaintexts, the encoder and engine params carry a `Scale` instead of bit counts; rescale still divides by the nominal power of two, so results are bit-identical.
+- Task `0039-scale-metadata-migration`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
+## 2026-11-02 — fallible ciphertext arithmetic
+
+- Ciphertext add/sub are fallible methods with level, context and scale checks; operator impls removed, results unchanged.
+- Task `0038-fallible-ciphertext-arithmetic`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
 ## 2026-11-01 — bootstrap depth optimization
 
 - Reduced the32-round toy recurrence from eight bootstraps to three using the same18-prime budget.

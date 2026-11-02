@@ -2,41 +2,39 @@
 //!
 //! [`fit_chebyshev`] interpolates a function on `[lower, upper]`;
 //! [`eval_chebyshev_clenshaw`] is the plaintext reference and
-//! [`eval_chebyshev_encrypted`] the homomorphic evaluator (Clenshaw on
-//! ciphertexts).
+//! [`eval_chebyshev_encrypted`] the homomorphic evaluator (a compiled
+//! [`ChebyshevPlan`] executed on ciphertexts).
 
 use rand::Rng;
 
 use crate::PolyRing;
+use crate::ckks::CkksResult;
+use crate::ckks::algorithms::bootstrap::polynomial::ChebyshevPlan;
 use crate::ckks::evaluator::LeveledEvaluator;
 use crate::ckks::types::Ciphertext;
 
 // ── Encrypted Chebyshev evaluation ───────────────────────────────────────────
 
 /// Evaluates `sum_k coeffs[k] * T_k(t)` on every encrypted slot of `v_ct`,
-/// where `t` maps `[lower, upper]` to `[-1, 1]`, via encrypted Clenshaw.
+/// where `t` maps `[lower, upper]` to `[-1, 1]`.
 ///
-/// Recurrence (Chebyshev basis throughout — converting to power basis is
-/// ill-conditioned for small `lower`):
+/// 1. Affine map `t = (2*v - (hi+lo)) / (hi-lo)`: one constant
+///    multiplication via [`Ciphertext::mul_const_to_scale`], so `t` keeps
+///    `v_ct`'s scale.
+/// 2. A [`ChebyshevPlan`] for `coeffs` (Chebyshev basis throughout; the
+///    power basis is ill-conditioned for small `lower`) is compiled for `t`
+///    and executed. The output lands at `v_ct`'s scale.
 ///
-/// ```text
-/// two_t = 2 * (2*v - (hi+lo)) / (hi-lo)     -- plaintext affine map
-/// b_n   = c_n,  b_{n+1} = 0
-/// b_k   = two_t * b_{k+1} - b_{k+2} + c_k   -- one ct x ct mul per step
-/// result = t * b_1 - b_2 + c_0              -- final ct x ct mul
-/// ```
+/// Levels consumed: `1 + depth`, with `depth = floor(log2(degree)) + 1` for
+/// degree >= 1 (0 for a constant). Relinearization keys come from
+/// `evaluator`, generated per level on first use.
 ///
-/// `c_0` is not a recurrence term; the loop stops at `b_1`. `two_t * b_{k+1}`
-/// is rescaled one level down, so `b_{k+2}` is dropped to the new level with
-/// [`Ciphertext::match_level`] (exact mod switch) before the subtraction.
+/// Slots must lie in `[lower, upper]`; this is a caller precondition.
 ///
-/// Levels consumed: `degree + 1` (affine map + `degree - 1` recurrence muls +
-/// final mul). The final mul needs >= 3 RNS channels of modulus so its raw
-/// product (scale ~2^(2*logp)) does not wrap.
-///
-/// # Panics
-/// Panics if `coeffs` is empty or the ciphertext runs out of RNS channels
-/// before the evaluation completes.
+/// # Errors
+/// Returns an error for empty or non-finite coefficients, insufficient
+/// levels or modulus headroom (see [`ChebyshevPlan::compile`]), or a failed
+/// ciphertext operation.
 pub fn eval_chebyshev_encrypted<P, R, const DEGREE: usize>(
     v_ct: &Ciphertext<P, DEGREE>,
     coeffs: &[f64],
@@ -44,66 +42,17 @@ pub fn eval_chebyshev_encrypted<P, R, const DEGREE: usize>(
     upper: f64,
     evaluator: &mut LeveledEvaluator<P, DEGREE>,
     rng: &mut R,
-) -> Ciphertext<P, DEGREE>
+) -> CkksResult<Ciphertext<P, DEGREE>>
 where
     P: PolyRing<DEGREE>,
     R: Rng,
 {
-    assert!(!coeffs.is_empty(), "coefficients must not be empty");
-    let degree = coeffs.len() - 1;
-
-    // two_t = 4/(hi-lo) * v - 2*(hi+lo)/(hi-lo), then Clenshaw needs only
-    // ciphertext multiplications by two_t.
     let span = upper - lower;
-    let two_t = v_ct
-        .mul_const(4.0 / span, v_ct.logp)
-        .rescale()
-        .expect("eval_chebyshev_encrypted: rescale")
-        .add_const(-2.0 * (upper + lower) / span);
-
-    // b_n = c_n (constant), b_{n+1} = 0 — both as trivial ciphertexts at
-    // two_t's level.
-    let mut b_next_next = two_t.zero_like();
-    let mut b_next = b_next_next.add_const(coeffs[degree]);
-
-    // b_k = two_t * b_{k+1} - b_{k+2} + c_k, for k = n-1 down to 1.
-    // (c_0 is NOT a recurrence term; it enters only the final step.)
-    for &c_k in coeffs[1..degree].iter().rev() {
-        // two_t must meet b_{k+1} at its level (exact mod switch).
-        let two_t_aligned = match_level(&two_t, &b_next);
-
-        let mut b_k = evaluator.mul(&two_t_aligned, &b_next, rng);
-
-        // b_{k+2}: drop to the level the multiplication just landed on.
-        b_next_next = match_level(&b_next_next, &b_k);
-        b_k = (&b_k - &b_next_next).add_const(c_k);
-
-        b_next_next = b_next;
-        b_next = b_k;
-    }
-
-    // result = t * b_1 - b_2 + c_0 (b_next = b_1, b_next_next = b_2), with
-    // t = two_t / 2. The halving is level-free: product * (0.5 encoded at
-    // 1 bit -> integer 1) halves the slots and lifts logp by 1, while b_2 *
-    // (1.0 at 1 bit -> integer 2) keeps its slots unchanged at the lifted
-    // scale — so all three terms meet at logp + 1 without consuming a prime.
-    let two_t_aligned = match_level(&two_t, &b_next);
-    let product = evaluator.mul(&two_t_aligned, &b_next, rng);
-
-    let t_times_b0 = product.mul_const(0.5, 1);
-    let b_one = match_level(&b_next_next, &t_times_b0).mul_const(1.0, 1);
-
-    (&t_times_b0 - &b_one).add_const(coeffs[0])
-}
-
-/// [`Ciphertext::match_level`] for the Clenshaw terms, which only ever move
-/// down the chain.
-fn match_level<P: PolyRing<DEGREE>, const DEGREE: usize>(
-    ct: &Ciphertext<P, DEGREE>,
-    target: &Ciphertext<P, DEGREE>,
-) -> Ciphertext<P, DEGREE> {
-    ct.match_level(target)
-        .expect("eval_chebyshev_encrypted: term above the target level")
+    let t = v_ct
+        .mul_const_to_scale(2.0 / span, v_ct.scale)?
+        .add_const(-(upper + lower) / span);
+    let plan = ChebyshevPlan::compile(&t.c0, t.scale, coeffs, v_ct.scale)?;
+    plan.execute(&t, |a, b| Ok(a.mul(b, evaluator.relin_key(a.level(), rng))))
 }
 
 /// Maps `x` in `[lower, upper]` to `t` in `[-1, 1]` (Chebyshev domain).
@@ -197,19 +146,23 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
+    use crate::ckks::Scale;
     use crate::ckks::encoding::ckks_encoder::CkksEncoder;
     use crate::ckks::engine::{CkksEngine, CkksParams};
     use crate::math::generate_primes;
     use crate::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
-    /// Encrypted Clenshaw must track plaintext Clenshaw (same coefficients,
+    fn test_scale(bits: u32) -> Scale {
+        Scale::power_of_two(bits as i32).expect("valid scale")
+    }
+
+    /// Encrypted evaluation must track plaintext Clenshaw (same coefficients,
     /// same domain map) to within the accumulated CKKS noise.
     ///
-    /// Toy params: N = 16, degree 3 -> levels = affine(1) + steps(2) +
-    /// final(1) = 4. The final mul must run at >= 3 channels: its raw
-    /// product sits at scale 2^(2*61) = 2^122, which only fits the modulus
-    /// (Q ~ 2^(61*chans)) without wrapping when chans >= 3. Budget
-    /// degree + 4 primes.
+    /// Toy params: N = 16, degree 3 -> levels = affine(1) + plan depth(2) =
+    /// 3. Products sit at scale 2^(2*61) = 2^122, which only fits the
+    /// modulus (Q ~ 2^(61*chans)) without wrapping when chans >= 3; the plan
+    /// checks that headroom.
     #[test]
     fn encrypted_clenshaw_matches_plaintext() {
         const N: usize = 16;
@@ -235,7 +188,7 @@ mod tests {
         let params = CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale: test_scale(SCALE),
         };
         let engine =
             CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params.clone());
@@ -244,7 +197,7 @@ mod tests {
         let sk = engine.generate_secret_key(&mut rng).expect("sk");
         let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
 
-        let encoder = CkksEncoder::<N>::new(SCALE);
+        let encoder = CkksEncoder::<N>::new(test_scale(SCALE));
         let pt = encoder.encode(&input, basis);
         let ct = engine.encrypt(&pt, &pk, &mut rng);
 
@@ -256,13 +209,15 @@ mod tests {
             upper,
             &mut evaluator,
             &mut rng,
-        );
+        )
+        .expect("encrypted Chebyshev");
 
         assert_eq!(
             result.level(),
-            3,
-            "degree-3 eval from 7 primes: affine + 2 steps + final = 4 levels"
+            4,
+            "degree-3 eval from 7 primes: affine + plan depth 2 = 3 levels"
         );
+        assert!(result.scale.is_compatible(ct.scale));
 
         let decoded = encoder.decode(&evaluator.decrypt(&result));
         for (slot, (&got, &want)) in decoded.iter().zip(&expected).enumerate() {
@@ -274,8 +229,9 @@ mod tests {
     }
 
     /// Regression: the input fills only 2 of 8 slots (zero-padded). Scalars
-    /// used to be broadcast to just the filled slots, which made the
-    /// level-free `0.5 @ 1 bit` halving round to the zero polynomial.
+    /// used to be broadcast to just the filled slots, which made small
+    /// constant encodings round to the zero polynomial; plan constants must
+    /// fill every slot.
     #[test]
     fn encrypted_clenshaw_with_partially_filled_slots() {
         const N: usize = 16;
@@ -291,7 +247,7 @@ mod tests {
         let params = CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale: test_scale(SCALE),
         };
         let engine =
             CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params.clone());
@@ -299,7 +255,7 @@ mod tests {
         let sk = engine.generate_secret_key(&mut rng).expect("sk");
         let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
 
-        let encoder = CkksEncoder::<N>::new(SCALE);
+        let encoder = CkksEncoder::<N>::new(test_scale(SCALE));
         let pt = encoder.encode(&input, basis);
         let ct = engine.encrypt(&pt, &pk, &mut rng);
 
@@ -311,7 +267,8 @@ mod tests {
             upper,
             &mut evaluator,
             &mut rng,
-        );
+        )
+        .expect("encrypted Chebyshev");
 
         let decoded = encoder.decode(&evaluator.decrypt(&result));
         for (slot, &x) in input.iter().enumerate() {

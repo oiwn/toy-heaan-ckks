@@ -5,13 +5,12 @@
 //!
 //! ## Prime-size / SCALE relationship
 //!
-//! In CKKS, rescaling drops one prime `q` and divides coefficients by ~q,
-//! reducing `logp` by `bits_dropped = floor(log2(q)) + 1`.  For the
-//! post-rescale `logp` to equal the pre-multiplication `logp = SCALE` we need:
-//!   `2*SCALE - bits_dropped = SCALE`  →  `bits_dropped = SCALE`
-//!
-//! This means each prime should be a SCALE-bit number (generated with
-//! `generate_primes(SCALE, …)`).
+//! In CKKS, rescaling drops one prime `q` and divides both the coefficients
+//! and the recorded scale by `q`.  For the post-rescale scale to stay close
+//! to the pre-multiplication scale `2^SCALE` we need `q ~ 2^SCALE`, so each
+//! prime is a SCALE-bit number (generated with `generate_primes(SCALE, …)`).
+//! The scale then drifts slightly from `2^SCALE` (by `2^SCALE / q`); fresh
+//! operands added to a rescaled ciphertext are encoded at its exact scale.
 //!
 //! ## u128 constraint
 //!
@@ -37,6 +36,7 @@ use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
+use toy_heaan_ckks::ckks::{CkksError, Scale};
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
@@ -51,17 +51,19 @@ const SCALE_CHAIN: u32 = 40;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// The power-of-two scale `2^bits`.
+fn scale(bits: u32) -> Scale {
+    Scale::power_of_two(bits as i32).expect("valid scale")
+}
+
 /// Build a `CkksEngine` at `basis` with standard noise parameters.
-fn make_engine(
-    basis: Arc<RnsBasis<N>>,
-    scale_bits: u32,
-) -> CkksEngine<RnsPoly<N>, N> {
+fn make_engine(basis: Arc<RnsBasis<N>>, scale: Scale) -> CkksEngine<RnsPoly<N>, N> {
     CkksEngine::new(
         basis,
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits,
+            scale,
         },
     )
 }
@@ -93,12 +95,12 @@ fn max_abs_err(expected: &[f64], actual: &[f64]) -> f64 {
 /// rescaling, one remains for decryption.
 #[test]
 fn single_multiplication_large_primes() {
-    // Two 62-bit primes (SCALE=62 → bits_dropped=62, logp preserved after rescale).
+    // Two 62-bit primes (SCALE=62 → bits_dropped=62, scale preserved after rescale).
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_LARGE);
-    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let engine = make_engine(basis.clone(), scale(SCALE_LARGE));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_LARGE));
     let mut rng = ChaCha20Rng::seed_from_u64(1);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -144,8 +146,8 @@ fn two_chained_multiplications() {
     let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_CHAIN);
-    let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
+    let engine = make_engine(basis.clone(), scale(SCALE_CHAIN));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_CHAIN));
     let mut rng = ChaCha20Rng::seed_from_u64(2);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -174,7 +176,7 @@ fn two_chained_multiplications() {
     // ── Derive level-2 keys from the reduced basis ────────────────────────────
     let basis_l2 = ct_ab.c0.basis().clone();
     let sk_l2 = sk.mod_switch_to(ct_ab.level()).expect("sk level");
-    let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
+    let engine_l2 = make_engine(basis_l2.clone(), scale(SCALE_CHAIN));
     let pk_l2 = engine_l2
         .generate_public_key(&sk_l2, &mut rng)
         .expect("keygen l2");
@@ -210,8 +212,8 @@ fn add_then_multiply() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_LARGE);
-    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let engine = make_engine(basis.clone(), scale(SCALE_LARGE));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_LARGE));
     let mut rng = ChaCha20Rng::seed_from_u64(3);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -236,7 +238,7 @@ fn add_then_multiply() {
     let ct_c = engine.encrypt(&pt_c, &pk, &mut rng);
 
     // Addition does not change the level.
-    let ct_sum = &ct_a + &ct_b;
+    let ct_sum = ct_a.add(&ct_b).expect("add");
 
     let ct_rs = mul_and_rescale(&ct_sum, &ct_c, &rlk);
 
@@ -258,8 +260,8 @@ fn subtract_ciphertexts() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_LARGE);
-    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let engine = make_engine(basis.clone(), scale(SCALE_LARGE));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_LARGE));
     let mut rng = ChaCha20Rng::seed_from_u64(6);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -274,8 +276,8 @@ fn subtract_ciphertexts() {
     let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
     let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
 
-    let ct_diff = &ct_a - &ct_b;
-    assert_eq!(ct_diff.logp, ct_a.logp);
+    let ct_diff = ct_a.sub(&ct_b).expect("sub");
+    assert_eq!(ct_diff.scale, ct_a.scale);
     assert_eq!(ct_diff.level(), ct_a.level());
 
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_diff, &sk);
@@ -291,7 +293,7 @@ fn subtract_ciphertexts() {
 /// Verify that (a × b) + c decrypts correctly with 40-bit primes.
 ///
 /// After multiplying a and b and rescaling (level drops from 3 to 2), c is
-/// encrypted fresh at that level so logp and the basis match for the
+/// encrypted fresh at that level so scale and the basis match for the
 /// homomorphic addition.
 #[test]
 fn multiply_then_add() {
@@ -299,8 +301,8 @@ fn multiply_then_add() {
     let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_CHAIN);
-    let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
+    let engine = make_engine(basis.clone(), scale(SCALE_CHAIN));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_CHAIN));
     let mut rng = ChaCha20Rng::seed_from_u64(4);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -328,17 +330,19 @@ fn multiply_then_add() {
     // ── Encrypt c at the post-rescale level ───────────────────────────────────
     let basis_l2 = ct_ab.c0.basis().clone();
     let sk_l2 = sk.mod_switch_to(ct_ab.level()).expect("sk level");
-    let engine_l2 = make_engine(basis_l2.clone(), SCALE_CHAIN);
+    let engine_l2 = make_engine(basis_l2.clone(), scale(SCALE_CHAIN));
     let pk_l2 = engine_l2
         .generate_public_key(&sk_l2, &mut rng)
         .expect("keygen l2");
 
-    let pt_c = encoder.encode(&c, basis_l2.clone());
+    // Rescale divided by the actual prime, so c is encoded at ct_ab's exact
+    // scale rather than at 2^SCALE_CHAIN.
+    let pt_c = CkksEncoder::<N>::new(ct_ab.scale).encode(&c, basis_l2.clone());
     let ct_c = engine_l2.encrypt(&pt_c, &pk_l2, &mut rng);
 
     // ── Add: (a×b) + c ───────────────────────────────────────────────────────
-    // Both ciphertexts are at level 2 with logp=SCALE_CHAIN.
-    let ct_sum = &ct_ab + &ct_c;
+    // Both ciphertexts are at level 2 with the same scale.
+    let ct_sum = ct_ab.add(&ct_c).expect("add at level 2");
 
     let pt_out = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk_l2);
     let decoded = encoder.decode(&pt_out);
@@ -358,8 +362,8 @@ fn mul_plain_matches_ct_mul() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_LARGE);
-    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let engine = make_engine(basis.clone(), scale(SCALE_LARGE));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_LARGE));
     let mut rng = ChaCha20Rng::seed_from_u64(7);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -374,9 +378,12 @@ fn mul_plain_matches_ct_mul() {
     let pt_b = encoder.encode(&b, basis.clone());
     let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
 
-    // ct x pt: multiply, then rescale to bring logp back to SCALE.
+    // ct x pt: multiply, then rescale to bring the scale back to 2^SCALE.
     let ct_pt_prod = ct_a.mul_plain(&pt_b);
-    assert_eq!(ct_pt_prod.logp, ct_a.logp + pt_b.scale_bits);
+    assert_eq!(
+        ct_pt_prod.scale,
+        ct_a.scale.checked_mul(pt_b.scale).expect("product scale")
+    );
     let ct_rs = ct_pt_prod.rescale().expect("rescale");
 
     let sk_l1 = sk.mod_switch_to(ct_rs.level()).expect("sk level");
@@ -415,8 +422,8 @@ fn full_slots_single_multiplication() {
     let primes = generate_primes(SCALE_LARGE as usize, 2, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_LARGE);
-    let encoder = CkksEncoder::<N>::new(SCALE_LARGE);
+    let engine = make_engine(basis.clone(), scale(SCALE_LARGE));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_LARGE));
     let mut rng = ChaCha20Rng::seed_from_u64(5);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -456,15 +463,15 @@ fn full_slots_single_multiplication() {
 // ── Test 8: mod switch ────────────────────────────────────────────────────────
 
 /// Verify `mod_switch_to` / `match_level` drop primes without changing the
-/// slots or `logp`, land on the rescaled ciphertext's basis, and reject
+/// slots or scale, land on the rescaled ciphertext's basis, and reject
 /// levels outside the chain.
 #[test]
 fn mod_switch_keeps_slots_and_meets_rescaled_level() {
     let primes = generate_primes(SCALE_CHAIN as usize, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
-    let engine = make_engine(basis.clone(), SCALE_CHAIN);
-    let encoder = CkksEncoder::<N>::new(SCALE_CHAIN);
+    let engine = make_engine(basis.clone(), scale(SCALE_CHAIN));
+    let encoder = CkksEncoder::<N>::new(scale(SCALE_CHAIN));
     let mut rng = ChaCha20Rng::seed_from_u64(8);
 
     let sk = engine.generate_secret_key(&mut rng).expect("keygen");
@@ -474,10 +481,10 @@ fn mod_switch_keeps_slots_and_meets_rescaled_level() {
     let a: Vec<f64> = vec![0.6, -0.3, 0.8, -0.5, 0.4, -0.7, 0.2, -0.9];
     let ct_a = engine.encrypt(&encoder.encode(&a, basis.clone()), &pk, &mut rng);
 
-    // Mod switch to level 2: one prime fewer, same slots, same logp.
+    // Mod switch to level 2: one prime fewer, same slots, same scale.
     let ct_switched = ct_a.mod_switch_to(2).expect("mod switch");
     assert_eq!(ct_switched.level(), 2);
-    assert_eq!(ct_switched.logp, ct_a.logp);
+    assert_eq!(ct_switched.scale, ct_a.scale);
     assert!(ct_switched.logq() < ct_a.logq());
 
     let sk_l2 = sk.mod_switch_to(2).expect("sk level");
@@ -487,12 +494,16 @@ fn mod_switch_keeps_slots_and_meets_rescaled_level() {
     let err = max_abs_err(&a, &decoded);
     assert!(err < 1e-6, "mod switch: max error {err:.2e} exceeds 1e-6");
 
-    // match_level meets a rescaled ciphertext on the very same basis Arc,
-    // so the two can be added.
+    // match_level meets a rescaled ciphertext on the very same basis Arc.
+    // Level and context then agree; only the scale differs, because the
+    // rescale divided by the actual prime rather than by 2^SCALE_CHAIN.
     let ct_sq = mul_and_rescale(&ct_a, &ct_a, &rlk);
     let ct_matched = ct_a.match_level(&ct_sq).expect("match level");
     assert!(Arc::ptr_eq(ct_matched.c0.basis(), ct_sq.c0.basis()));
-    let _sum = &ct_sq + &ct_matched;
+    assert!(matches!(
+        ct_sq.add(&ct_matched),
+        Err(CkksError::ScaleMismatch { .. })
+    ));
 
     // Levels outside the chain are errors, not panics.
     assert!(ct_a.mod_switch_to(0).is_err());

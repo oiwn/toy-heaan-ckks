@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use rand::Rng;
 
 use crate::PolyRing;
+use crate::ckks::Scale;
 use crate::ckks::errors::{CkksError, CkksResult};
 use crate::ckks::keys::{RelinearizationKey, SecretKey};
 use crate::ckks::types::Ciphertext;
@@ -56,8 +57,9 @@ impl<P: PolyRing<N>, const N: usize> RecurrencePlan<P, N> {
     }
 
     /// Whether another step needs refresh for its verified 91-bit product.
-    /// Two near-2^61 primes provide a modulus near2^122; after rescale the
-    /// scale2^30 result and exact lift to2^44 fit the bottom prime.
+    /// Two near-2^61 primes provide a modulus near 2^122; after rescale the
+    /// scale ~2^30 result and its power-of-two lift to ~2^44 fit the bottom
+    /// prime.
     /// This only checks depth; `step` validates contexts and scales.
     pub fn needs_refresh(&self, state: &Ciphertext<P, N>) -> bool {
         state.level() < 2
@@ -96,9 +98,15 @@ impl<P: PolyRing<N>, const N: usize> RecurrencePlan<P, N> {
         })
     }
 
-    /// Compute one round, consuming one prime and returning scale2^44.
+    /// Compute one round, consuming one prime.
     /// Round zero uses a positive driver; odd rounds use a negative driver.
     /// Inputs are not modified. No secret key or RNG is used.
+    ///
+    /// State and driver scales may be any value in `[2^43, 2^45)`: rescaling
+    /// divides by the actual prime, so tracked scales drift slightly from
+    /// powers of two. The output is lifted by an exact `2^k` to within half
+    /// a bit of `2^44`, which keeps the scale bounded across rounds without
+    /// snapping it.
     ///
     /// # Errors
     /// Rejects unsupported scales, wrong contexts, missing keys or insufficient
@@ -110,9 +118,11 @@ impl<P: PolyRing<N>, const N: usize> RecurrencePlan<P, N> {
         round: usize,
         keys: &RecurrenceKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
+        let target = Scale::power_of_two(44)?;
+        let supported = |scale: Scale| (43.0..45.0).contains(&scale.log2());
         if self.needs_refresh(state)
-            || state.logp != 44
-            || driver.logp != 44
+            || !supported(state.scale)
+            || !supported(driver.scale)
             || !state.c0.same_context(&state.c1)
             || !driver.c0.same_context(&driver.c1)
             || !P::zero(&self.context).same_context(&P::zero(&keys.context))
@@ -133,22 +143,29 @@ impl<P: PolyRing<N>, const N: usize> RecurrencePlan<P, N> {
             .get(&state.level())
             .ok_or_else(|| invalid("missing recurrence key"))?;
         // Encode 1/8 exactly with three fractional bits. All weighted terms
-        // meet at the square's scale plus those three bits before rescaling.
-        let square = state.mul(state, key).mul_const(0.125, 3);
-        let linear_bits = square.logp - state.logp;
-        let linear = state.mul_const(0.5, linear_bits);
+        // meet at the square's scale plus those three bits before rescaling:
+        // each one is encoded at `square / its own scale`.
+        let square = state
+            .mul(state, key)
+            .mul_const(0.125, Scale::power_of_two(3)?);
+        let linear = state.mul_const(0.5, square.scale.checked_div(state.scale)?);
         let signed_driver = driver.mul_const(
             if round.is_multiple_of(2) { 0.25 } else { -0.25 },
-            linear_bits,
+            square.scale.checked_div(driver.scale)?,
         );
-        let result = (&(&square + &linear) + &signed_driver).rescale()?;
-        let increase = 44u32
-            .checked_sub(result.logp)
-            .ok_or_else(|| invalid("unsupported recurrence output scale"))?;
-        Ok(if increase == 0 {
+        let result = square.add(&linear)?.add(&signed_driver)?.rescale()?;
+        // Lift by the exact power of two that brings the scale within half
+        // a bit of 2^44 (rounding, not flooring: a result just above 2^30
+        // must lift to about 2^44, not to about 2^43).
+        let increase = target.checked_div(result.scale)?.log2().round();
+        if increase < 0.0 {
+            return Err(invalid("unsupported recurrence output scale"));
+        }
+        Ok(if increase == 0.0 {
             result
         } else {
-            result.mul_const(1.0, increase)
+            // A small non-negative integer: the cast is exact.
+            result.mul_const(1.0, Scale::power_of_two(increase as i32)?)
         })
     }
 }
@@ -156,7 +173,7 @@ impl<P: PolyRing<N>, const N: usize> RecurrencePlan<P, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ckks::algorithms::bootstrap::{BootstrapParameters, BootstrapPlan};
+    use crate::ckks::algorithms::bootstrap::{BootstrapConfig, BootstrapPlan};
     use crate::ckks::encoding::ckks_encoder::CkksEncoder;
     use crate::ckks::engine::{CkksEngine, CkksParams};
     use crate::math::generate_primes;
@@ -165,9 +182,18 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
     use std::sync::Arc;
 
+    fn pow2(exponent: i32) -> Scale {
+        Scale::power_of_two(exponent).unwrap()
+    }
+
+    /// `step` lifts its output to within half a bit of 2^44.
+    fn in_output_window(scale: Scale) -> bool {
+        (scale.log2() - 44.0).abs() <= 0.5
+    }
+
     fn scenario<const N: usize>(count: usize, refresh: bool, seed: u64) {
         let primes = generate_primes(61, count, N as u64);
-        let parameters = BootstrapParameters::toy(primes[0]);
+        let config = BootstrapConfig::reference(N).unwrap();
         let context = Arc::new(RnsBasis::<N>::new(primes.clone()).unwrap());
         let other = Arc::new(RnsBasis::<N>::new(primes).unwrap());
         let plan = RecurrencePlan::new(context.clone()).unwrap();
@@ -176,7 +202,7 @@ mod tests {
             CkksParams {
                 error_variance: 3.2,
                 hamming_weight: N / 2,
-                scale_bits: 44,
+                scale: pow2(44),
             },
         );
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
@@ -185,12 +211,12 @@ mod tests {
         let mut keys = plan
             .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
             .unwrap();
-        let bootstrap = refresh
-            .then(|| BootstrapPlan::new(context.clone(), parameters).unwrap());
+        let bootstrap =
+            refresh.then(|| BootstrapPlan::new(context.clone(), config).unwrap());
         let boot_keys = bootstrap
             .as_ref()
             .map(|p| p.generate_keys(&secret, 3.2f64.sqrt(), &mut rng).unwrap());
-        let encoder = CkksEncoder::new(44);
+        let encoder = CkksEncoder::new(pow2(44));
         let values: Vec<_> = (0..N / 2)
             .map(|j| match j {
                 0 => -1.0,
@@ -211,7 +237,8 @@ mod tests {
             let low = driver.mod_switch_to(2).unwrap();
             for round in [0, 1] {
                 let next = plan.step(&low, &driver, round, &keys).unwrap();
-                assert_eq!((next.level(), next.logp), (1, 44));
+                assert_eq!(next.level(), 1);
+                assert!(in_output_window(next.scale));
                 let decoded = encoder.decode(&CkksEngine::decrypt(
                     &next,
                     &secret.mod_switch_to(1).unwrap(),
@@ -230,7 +257,7 @@ mod tests {
         assert!(plan.step(&state, &driver, 0, &keys).is_err());
         keys.relin.insert(count, key);
         let mut bad = state.clone();
-        bad.logp = 43;
+        bad.scale = pow2(42);
         assert!(plan.step(&bad, &driver, 0, &keys).is_err());
         bad = state.clone();
         bad.c0 = RnsPoly::zero(&other);
@@ -267,7 +294,8 @@ mod tests {
             let before = state.clone();
             let level = state.level();
             state = plan.step(&state, &driver, round, &keys).unwrap();
-            assert_eq!((state.level(), state.logp), (level - 1, 44));
+            assert_eq!(state.level(), level - 1);
+            assert!(in_output_window(state.scale));
             // Check the saved input against a second deterministic evaluation.
             let repeated = plan.step(&before, &driver, round, &keys).unwrap();
             for (a, b) in [(&state.c0, &repeated.c0), (&state.c1, &repeated.c1)] {

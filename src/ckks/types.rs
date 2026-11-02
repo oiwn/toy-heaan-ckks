@@ -1,4 +1,5 @@
 use crate::PolyRing;
+use crate::ckks::Scale;
 use crate::ckks::errors::CkksResult;
 
 #[derive(Debug)]
@@ -7,17 +8,19 @@ where
     P: PolyRing<DEGREE>,
 {
     pub poly: P,
-    pub scale_bits: u32,
+    /// Encoding factor: the polynomial holds `round(value * scale)`.
+    pub scale: Scale,
     pub slots: usize, // Number of encoded slots (determines decode output length)
 }
 
 /// CKKS Ciphertext with HEAAN-style scale tracking
 ///
-/// `logp` is the precision: the encoding scale is `2^logp`. The modulus
-/// level is not stored; it is read off the basis (`level()`, `logq()`).
+/// `scale` is the encoding factor the decrypted polynomial is divided by.
+/// The modulus level is not stored; it is read off the basis (`level()`,
+/// `logq()`).
 ///
-/// - **Mod switch** drops primes without dividing: `logp` stays.
-/// - **Rescale** divides by the last prime: `logp` and `logq` both shrink.
+/// - **Mod switch** drops primes without dividing: `scale` stays.
+/// - **Rescale** divides by the last prime: `scale` and `logq` both shrink.
 ///
 /// # Reference
 /// - HEAAN implementation: <https://github.com/kimandrik/HEAAN>
@@ -29,7 +32,8 @@ where
 {
     pub c0: P,
     pub c1: P,
-    pub logp: u32, // Precision bits (encoding scale = 2^logp)
+    /// Encoding factor of the decrypted message.
+    pub scale: Scale,
 }
 
 impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
@@ -43,27 +47,30 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
         self.c0.modulus_bits()
     }
 
-    /// Divides by the last prime and drops it, lowering `logp` by its bit
-    /// length.
+    /// Divides by the last prime and drops it.
     ///
-    /// Call this after a multiplication to bring the scale from `2 * logp`
-    /// back to about `logp`. The result lives on the shared chain basis one
+    /// Call this after a multiplication to bring the scale from `scale^2`
+    /// back to about `scale`. The result lives on the shared chain basis one
     /// level down.
     ///
+    /// The recorded scale is divided by the actual prime. The prime is
+    /// converted to `f64` (relative rounding about 2^-53), the same way
+    /// polynomial plans compute it, so planned and actual scales agree.
+    ///
     /// # Errors
-    /// Returns an error at level 1 (no prime left to drop).
+    /// Returns an error at level 1 (no prime left to drop), or if the scale
+    /// would underflow.
     pub fn rescale(&self) -> CkksResult<Self> {
-        // Division by a ~2^61 prime lowers the scale by about 61 bits.
-        let bits_dropped = self.c0.rescale_bits();
+        let divisor = Scale::new(self.c0.rescale_divisor() as f64)?;
         Ok(Self {
             c0: self.c0.rescale()?,
             c1: self.c1.rescale()?,
-            logp: self.logp - bits_dropped,
+            scale: self.scale.checked_div(divisor)?,
         })
     }
 
-    /// Drops primes down to `level` without dividing; `logp` is unchanged and
-    /// the same secret key still decrypts.
+    /// Drops primes down to `level` without dividing; `scale` is unchanged
+    /// and the same secret key still decrypts.
     ///
     /// # Errors
     /// Returns an error if `level` is 0 or above the current level.
@@ -71,7 +78,7 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> Ciphertext<P, DEGREE> {
         Ok(Self {
             c0: self.c0.mod_switch_to(level)?,
             c1: self.c1.mod_switch_to(level)?,
-            logp: self.logp,
+            scale: self.scale,
         })
     }
 
