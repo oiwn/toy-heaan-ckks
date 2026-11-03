@@ -9,6 +9,11 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-02 — multi group transforms
+
+- Bootstrap evaluates factored transforms group by group at scheduled levels, with per-level rotation keys, configurable CtS/StC budgets and an upfront key check.
+- Task `0042-multi-group-transforms`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
 ## 2026-11-02 — bootstrap config schedule
 
 - `BootstrapConfig` and a chain-derived `BootstrapSchedule` replace the toy parameters and literal offsets/constants; keys follow the schedule's requirements.

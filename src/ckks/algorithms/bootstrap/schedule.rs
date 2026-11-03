@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::f64::consts::TAU;
 
-use super::polynomial::ChebyshevPlan;
+use super::polynomial::{ChebyshevPlan, Operation};
 use super::transforms::{DiagonalFactor, FactoredTransform};
 use crate::PolyRing;
 use crate::ckks::algorithms::chebyshev::fit_chebyshev;
@@ -19,12 +19,21 @@ fn invalid(message: &str) -> CkksError {
     }
 }
 
+/// Largest distance, in bits, between the working scale and any rescaled
+/// EvalMod or double-angle scale. Rescale divides by the actual prime, so a
+/// prime unlike the working scale shifts the scale, and every squaring
+/// doubles the shift; past this bound the polynomial loses its precision.
+pub const MAX_SCALE_DRIFT_BITS: f64 = 1.0;
+
 /// Numerical settings of a bootstrap.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapConfig {
-    /// Scale inputs are lifted to, and the scale the inverse transform
-    /// assumes for the restored message.
-    pub message_scale: Scale,
+    /// `log2(q0 / message_scale)`, like Lattigo's `LogMessageRatio`. The
+    /// message scale (what inputs are lifted to and what the inverse
+    /// transform assumes) is derived from the chain's bottom prime `q0`, so
+    /// the tradeoff between sine linearization error and EvalMod error
+    /// amplification carries over to other prime widths.
+    pub message_ratio_bits: u32,
     /// Scale of the raised ciphertext, the forward diagonals and EvalMod.
     pub working_scale: Scale,
     /// Degree of the Chebyshev cosine approximation.
@@ -40,15 +49,15 @@ pub struct BootstrapConfig {
 }
 
 impl BootstrapConfig {
-    /// The settings validated at N=16/64 with 18 near-2^61 primes: message
-    /// scale 2^44, working scale 2^61, degree 31, four double angles,
-    /// one-level transforms and secret weight up to N/2.
+    /// The reference settings, measured with 18 near-2^61 primes: message
+    /// ratio 2^17 (message scale 2^44), working scale 2^61, degree 31, four
+    /// double angles, one-level transforms and secret weight up to N/2.
     ///
     /// # Errors
     /// Never fails for these constants; the signature follows `Scale`.
     pub fn reference(ring_degree: usize) -> CkksResult<Self> {
         Ok(Self {
-            message_scale: Scale::power_of_two(44)?,
+            message_ratio_bits: 17,
             working_scale: Scale::power_of_two(61)?,
             polynomial_degree: 31,
             double_angles: 4,
@@ -56,6 +65,24 @@ impl BootstrapConfig {
             slots_to_coeffs_levels: 1,
             max_secret_weight: ring_degree / 2,
         })
+    }
+
+    /// The message scale for bottom prime `q0`: the power of two
+    /// `2^(round(log2 q0) - message_ratio_bits)`.
+    ///
+    /// # Errors
+    /// Rejects a zero ratio and ratios that leave a scale below 2.
+    pub fn message_scale(&self, bottom_modulus: u64) -> CkksResult<Scale> {
+        let bits = (bottom_modulus as f64).log2().round() as i64
+            - i64::from(self.message_ratio_bits);
+        if self.message_ratio_bits == 0 || bits < 1 {
+            return Err(invalid(
+                "message ratio must be at least 1 bit and leave a scale of 2 or more",
+            ));
+        }
+        let bits = i32::try_from(bits)
+            .map_err(|_| invalid("message scale is not representable"))?;
+        Ok(Scale::power_of_two(bits)?)
     }
 
     /// Bound on the integer overflow `I` in `m + q0*I` after a mod raise,
@@ -107,6 +134,8 @@ pub struct StageSchedule {
     pub input_level: usize,
     pub output_level: usize,
     pub output_scale: Scale,
+    /// Scale of the stage's encoded diagonals (transform stages only).
+    pub plaintext_scale: Option<Scale>,
     /// Rescale divisors consumed by the stage, top first.
     pub divisors: Vec<u64>,
 }
@@ -143,13 +172,17 @@ impl BootstrapSchedule {
     /// Derive the schedule from the top-level ring element of a chain.
     ///
     /// # Errors
-    /// Rejects chains too short for the stages and unrepresentable scales.
+    /// Rejects chains too short for the stages, nodes without headroom,
+    /// primes that drift the working scale by more than
+    /// [`MAX_SCALE_DRIFT_BITS`] and unrepresentable scales.
     pub fn derive<P: PolyRing<N>, const N: usize>(
         top: &P,
         config: &BootstrapConfig,
         coeffs_to_slots: &FactoredTransform,
         slots_to_coeffs: &FactoredTransform,
     ) -> CkksResult<Self> {
+        let message_scale =
+            config.message_scale(top.mod_switch_to(1)?.rescale_divisor())?;
         let mut builder = Builder::<P, N> {
             top,
             stages: Vec::new(),
@@ -162,6 +195,7 @@ impl BootstrapSchedule {
             input_level: 1,
             output_level: builder.level,
             output_scale: builder.scale,
+            plaintext_scale: None,
             divisors: Vec::new(),
         });
         for factor in coeffs_to_slots.factors() {
@@ -182,6 +216,11 @@ impl BootstrapSchedule {
             &config.cosine_coefficients(),
             builder.scale,
         )?;
+        for node in eval_mod.values() {
+            if matches!(node.operation, Operation::Input | Operation::Rescale(_)) {
+                check_drift(config.working_scale, node.scale, node.level)?;
+            }
+        }
         builder
             .keys
             .relinearization
@@ -199,21 +238,36 @@ impl BootstrapSchedule {
         for _ in 0..config.double_angles {
             builder.keys.relinearization.insert(builder.level);
             let square = builder.scale.checked_mul(builder.scale)?;
+            builder.headroom(square, 1.0)?;
             builder.rescale(BootstrapStage::DoubleAngle, square)?;
+            check_drift(config.working_scale, builder.scale, builder.level)?;
         }
-        for factor in slots_to_coeffs.factors() {
+        // Earlier groups keep the working scale; the last one lands on the
+        // message scale.
+        let last = slots_to_coeffs.factors().len().saturating_sub(1);
+        for (index, factor) in slots_to_coeffs.factors().iter().enumerate() {
+            let diagonal_scale = if index == last {
+                message_scale
+            } else {
+                config.working_scale
+            };
             builder.transform(
                 BootstrapStage::SlotsToCoeffs,
                 factor,
-                config.message_scale,
+                diagonal_scale,
             )?;
         }
         Ok(Self {
             stages: builder.stages,
             keys: builder.keys,
             eval_mod,
-            message_scale: config.message_scale,
+            message_scale,
         })
+    }
+
+    /// Scale inputs are lifted to; derived from `q0` and the message ratio.
+    pub fn message_scale(&self) -> Scale {
+        self.message_scale
     }
 
     pub fn stages(&self) -> &[StageSchedule] {
@@ -223,6 +277,14 @@ impl BootstrapSchedule {
     /// The first stage of the given kind.
     pub fn stage(&self, stage: BootstrapStage) -> Option<&StageSchedule> {
         self.stages.iter().find(|s| s.stage == stage)
+    }
+
+    /// Every stage of the given kind, in evaluation order.
+    pub fn stages_of(
+        &self,
+        stage: BootstrapStage,
+    ) -> impl Iterator<Item = &StageSchedule> + '_ {
+        self.stages.iter().filter(move |s| s.stage == stage)
     }
 
     pub fn required_keys(&self) -> &BootstrapKeyRequirements {
@@ -263,6 +325,16 @@ impl BootstrapSchedule {
     }
 }
 
+fn check_drift(working: Scale, scale: Scale, level: usize) -> CkksResult<()> {
+    let drift = (scale.log2() - working.log2()).abs();
+    if drift > MAX_SCALE_DRIFT_BITS {
+        return Err(invalid(&format!(
+            "bootstrap primes drift the working scale by {drift:.2} bits at level {level}"
+        )));
+    }
+    Ok(())
+}
+
 struct Builder<'a, P: PolyRing<N>, const N: usize> {
     top: &'a P,
     stages: Vec<StageSchedule>,
@@ -283,8 +355,22 @@ impl<P: PolyRing<N>, const N: usize> Builder<'_, P, N> {
             input_level,
             output_level: self.level,
             output_scale: self.scale,
+            plaintext_scale: None,
             divisors,
         });
+    }
+
+    /// A product of `scale` and slot magnitude `bound` must fit the modulus
+    /// at the current level with a sign bit to spare (the planner's rule).
+    fn headroom(&self, scale: Scale, bound: f64) -> CkksResult<()> {
+        let bits = self.top.mod_switch_to(self.level)?.modulus_bits();
+        if bound.max(1.0).log2() + scale.log2() + 1.0 >= f64::from(bits) {
+            return Err(invalid(&format!(
+                "bootstrap product lacks headroom at level {}",
+                self.level
+            )));
+        }
+        Ok(())
     }
 
     fn rescale(&mut self, stage: BootstrapStage, product: Scale) -> CkksResult<()> {
@@ -315,6 +401,11 @@ impl<P: PolyRing<N>, const N: usize> Builder<'_, P, N> {
                 .map(|offset| (level, *offset)),
         );
         let product = self.scale.checked_mul(diagonal_scale)?;
-        self.rescale(stage, product)
+        self.headroom(product, 1.0)?;
+        self.rescale(stage, product)?;
+        if let Some(last) = self.stages.last_mut() {
+            last.plaintext_scale = Some(diagonal_scale);
+        }
+        Ok(())
     }
 }

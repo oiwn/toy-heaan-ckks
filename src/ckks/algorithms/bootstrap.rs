@@ -1,7 +1,12 @@
 //! Educational, fully packed complex CKKS bootstrap.
 //!
-//! Toy profiles only. Evaluation uses public keys; secret-key diagnostics
-//! belong to callers. Hidden slot magnitudes must be at most one.
+//! Settings come from [`BootstrapConfig`]; the levels, scales and keys are
+//! derived from the modulus chain, which must hold every stage with product
+//! headroom and primes close enough to the working scale. Approximation
+//! accuracy for a given secret weight and polynomial is the caller's
+//! choice (see [`BootstrapConfig::reference`]). Evaluation uses public keys;
+//! secret-key diagnostics belong to callers. Hidden slot magnitudes must be
+//! at most one.
 
 use std::collections::HashMap;
 
@@ -9,16 +14,17 @@ use rand::Rng;
 
 use crate::PolyRing;
 use crate::ckks::Scale;
-use crate::ckks::encoding::ckks_encoder::CkksEncoder;
 use crate::ckks::errors::{CkksError, CkksResult};
 use crate::ckks::keys::{KeySwitchingKey, RelinearizationKey, SecretKey};
-use crate::ckks::types::{Ciphertext, Plaintext};
+use crate::ckks::types::Ciphertext;
 
 pub mod executor;
+pub mod linear;
 pub mod polynomial;
 pub mod schedule;
 pub mod transforms;
 
+use linear::EncodedTransform;
 pub use schedule::{
     BootstrapConfig, BootstrapKeyRequirements, BootstrapSchedule, BootstrapStage,
     StageSchedule,
@@ -38,8 +44,10 @@ pub struct BootstrapPlan<P: PolyRing<N>, const N: usize> {
     context: P::Context,
     /// Bottom prime `q0`, read from the chain.
     bottom_modulus: u64,
-    forward: Vec<Plaintext<P, N>>,
-    inverse: Vec<Plaintext<P, N>>,
+    /// Coefficients-to-slots groups (normalization fused into the first).
+    forward: EncodedTransform<P, N>,
+    /// Slots-to-coefficients groups (restoration fused into the last).
+    inverse: EncodedTransform<P, N>,
 }
 
 /// Evaluation keys bound to one plan context. Contains no secret key.
@@ -53,16 +61,53 @@ pub struct BootstrapKeys<P: PolyRing<N>, const N: usize> {
     conjugation: HashMap<usize, KeySwitchingKey<P, N>>,
 }
 
+impl<P: PolyRing<N>, const N: usize> BootstrapKeys<P, N> {
+    /// Check that every key in `required` is present.
+    ///
+    /// # Errors
+    /// Names the first missing key kind and level.
+    pub fn check(&self, required: &BootstrapKeyRequirements) -> CkksResult<()> {
+        if let Some(level) = required
+            .relinearization
+            .iter()
+            .find(|l| !self.relin.contains_key(l))
+        {
+            return Err(invalid_parameter(&format!(
+                "missing relinearization key at level {level}"
+            )));
+        }
+        if let Some((level, offset)) = required
+            .rotations
+            .iter()
+            .find(|k| !self.rotations.contains_key(k))
+        {
+            return Err(invalid_parameter(&format!(
+                "missing rotation key ({offset}) at level {level}"
+            )));
+        }
+        if let Some(level) = required
+            .conjugation
+            .iter()
+            .find(|l| !self.conjugation.contains_key(l))
+        {
+            return Err(invalid_parameter(&format!(
+                "missing conjugation key at level {level}"
+            )));
+        }
+        Ok(())
+    }
+}
+
 impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
     /// Validate `config` against the chain, derive the schedule and encode
     /// the transform diagonals at their scheduled levels.
     ///
     /// # Errors
-    /// Rejects unsupported settings or chains (see [`Self::validate_profile`])
-    /// and schedules that do not fit the chain.
+    /// Rejects invalid settings (see [`Self::validate_config`]) and
+    /// schedules that do not fit the chain (see [`BootstrapSchedule::derive`]).
     pub fn new(context: P::Context, config: BootstrapConfig) -> CkksResult<Self> {
         let zero = P::zero(&context);
-        Self::validate_profile(&zero, &config)?;
+        Self::validate_config(&config)?;
         let bottom_modulus = zero.mod_switch_to(1)?.rescale_divisor();
         let coeffs_to_slots = FactoredTransform::slots_to_coefficients(
             N,
@@ -78,27 +123,28 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
             &coeffs_to_slots,
             &slots_to_coeffs,
         )?;
-        let level_of = |stage| {
-            schedule
-                .stage(stage)
-                .map(|s| s.input_level)
-                .ok_or_else(|| invalid_parameter("missing bootstrap stage"))
-        };
         let radius = config.radius();
         let bottom = bottom_modulus as f64;
-        let forward = Self::encode_diagonals(
+        // The interval normalization shrinks the signal by 2*radius. Fusing
+        // it into the last group keeps the signal large while earlier groups
+        // add rotation and rescale noise.
+        let forward = EncodedTransform::encode(
             &zero,
-            &coeffs_to_slots.factors()[0],
+            &coeffs_to_slots,
+            &schedule
+                .stages_of(BootstrapStage::CoeffsToSlots)
+                .collect::<Vec<_>>(),
+            1.0,
             config.working_scale.value() / bottom / (2.0 * radius),
-            config.working_scale,
-            level_of(BootstrapStage::CoeffsToSlots)?,
         )?;
-        let inverse = Self::encode_diagonals(
+        let inverse = EncodedTransform::encode(
             &zero,
-            &slots_to_coeffs.factors()[0],
-            bottom / config.message_scale.value() / std::f64::consts::TAU,
-            config.message_scale,
-            level_of(BootstrapStage::SlotsToCoeffs)?,
+            &slots_to_coeffs,
+            &schedule
+                .stages_of(BootstrapStage::SlotsToCoeffs)
+                .collect::<Vec<_>>(),
+            1.0,
+            bottom / schedule.message_scale().value() / std::f64::consts::TAU,
         )?;
         Ok(Self {
             config,
@@ -125,64 +171,36 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         self.bottom_modulus
     }
 
-    /// Only the reference settings are validated so far: N=16/64, message
-    /// scale 2^44, working scale 2^61, degree 31, four double angles,
-    /// one-level transforms, secret weight 1..=N/2, and exactly 18 primes
-    /// within 2^20 of 2^61.
-    fn validate_profile(zero: &P, config: &BootstrapConfig) -> CkksResult<()> {
-        if ![16, 64].contains(&N)
-            || config.message_scale != Scale::power_of_two(44)?
-            || config.working_scale != Scale::power_of_two(61)?
-            || config.polynomial_degree != 31
-            || config.double_angles != 4
-            || config.coeffs_to_slots_levels != 1
-            || config.slots_to_coeffs_levels != 1
-            || !(1..=N / 2).contains(&config.max_secret_weight)
+    /// Checks the settings that do not depend on the chain: a power-of-two
+    /// ring degree of at least 8, transform budgets `1..=log2(N/2)`, secret
+    /// weight `1..=N` and polynomial degree at least 1. The schedule then
+    /// checks the chain: the message ratio against `q0`, chain length,
+    /// product headroom and scale drift.
+    fn validate_config(config: &BootstrapConfig) -> CkksResult<()> {
+        if N < 8 || !N.is_power_of_two() {
+            return Err(invalid_parameter(
+                "bootstrap ring degree must be a power of two >= 8",
+            ));
+        }
+        let budgets = 1..=(N / 2).ilog2() as usize;
+        if !budgets.contains(&config.coeffs_to_slots_levels)
+            || !budgets.contains(&config.slots_to_coeffs_levels)
         {
             return Err(invalid_parameter(
-                "unsupported educational bootstrap profile",
+                "bootstrap transform budgets must be in 1..=log2(N/2)",
             ));
         }
-        let level = zero.level();
-        if level != 18 {
+        if !(1..=N).contains(&config.max_secret_weight) {
             return Err(invalid_parameter(
-                "bootstrap requires exactly 18 near-2^61 primes",
+                "bootstrap secret weight must be in 1..=N",
             ));
         }
-        for current in 1..=level {
-            if zero
-                .mod_switch_to(current)?
-                .rescale_divisor()
-                .abs_diff(1u64 << 61)
-                > (1u64 << 20)
-            {
-                return Err(invalid_parameter(
-                    "bootstrap primes must be within 2^20 of 2^61",
-                ));
-            }
+        if config.polynomial_degree == 0 {
+            return Err(invalid_parameter(
+                "bootstrap polynomial degree must be at least 1",
+            ));
         }
         Ok(())
-    }
-
-    fn encode_diagonals(
-        zero: &P,
-        factor: &transforms::DiagonalFactor,
-        normalization: f64,
-        scale: Scale,
-        level: usize,
-    ) -> CkksResult<Vec<Plaintext<P, N>>> {
-        let slots = N / 2;
-        let ctx = zero.mod_switch_to(level)?.context().clone();
-        (0..slots)
-            .map(|offset| {
-                let diagonal: Vec<_> = factor.diagonals()[&offset]
-                    .iter()
-                    .map(|value| *value * normalization)
-                    .collect();
-                Ok(CkksEncoder::new(scale)
-                    .try_encode_complex(&diagonal, ctx.clone())?)
-            })
-            .collect()
     }
 
     /// Generate level-specific evaluation keys during client setup.
@@ -267,28 +285,21 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
     fn transform(
         &self,
         ct: &Ciphertext<P, N>,
-        diagonals: &[Plaintext<P, N>],
+        transform: &EncodedTransform<P, N>,
         keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
-        let mut sum = ct.zero_like();
-        sum.scale = sum.scale.checked_mul(diagonals[0].scale)?;
-        for (offset, diagonal) in diagonals.iter().enumerate() {
-            let rotated = if offset == 0 {
-                ct.clone()
-            } else {
-                let key = keys
-                    .rotations
-                    .get(&(ct.level(), offset))
-                    .ok_or_else(|| invalid_parameter("missing rotation key"))?;
-                let mut exponent = 1u64;
-                for _ in 0..offset {
-                    exponent = exponent * 5 % (2 * N) as u64;
-                }
-                self.switch(ct, exponent, key)
-            };
-            sum = sum.add(&rotated.mul_plain(diagonal))?;
-        }
-        sum.rescale()
+        transform.evaluate(ct, |ct, offset| {
+            let key =
+                keys.rotations.get(&(ct.level(), offset)).ok_or_else(|| {
+                    invalid_parameter(&format!(
+                        "missing rotation key ({offset}) at level {}",
+                        ct.level()
+                    ))
+                })?;
+            let exponent =
+                (0..offset).fold(1u64, |exponent, _| exponent * 5 % (2 * N) as u64);
+            Ok(self.switch(ct, exponent, key))
+        })
     }
 
     fn multiply(
@@ -336,7 +347,8 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
     /// Refresh a fully packed complex ciphertext, preparing its scale and level.
     ///
     /// Accepts any level in this plan's chain and any scale `s` from 2 up to
-    /// about `message_scale * 2^0.5`. Preparation lifts the input by the
+    /// about `message_scale * 2^0.5`, where `message_scale` is
+    /// [`BootstrapSchedule::message_scale`]. Preparation lifts the input by the
     /// exact power of two `2^k`, `k = round(log2(message_scale / s))`, so the
     /// lifted scale `s'` is within half a bit of the message scale. The
     /// output is at [`BootstrapSchedule::output_level`] with scale
@@ -352,6 +364,7 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         input: &Ciphertext<P, N>,
         keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
+        keys.check(self.schedule.required_keys())?;
         let prepared = self.prepare_input(input, keys)?;
         self.bootstrap_prepared(&prepared, keys)
     }
@@ -361,7 +374,7 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         input: &Ciphertext<P, N>,
         keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
-        let target = self.config.message_scale;
+        let target = self.schedule.message_scale();
         let increase = target.checked_div(input.scale)?.log2().round();
         if input.scale.log2() < 1.0 || increase < 0.0 {
             return Err(invalid_parameter("invalid bootstrap ciphertext or keys"));
@@ -439,6 +452,8 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ckks::encoding::ckks_encoder::CkksEncoder;
+    use crate::ckks::types::Plaintext;
     use num_complex::Complex64;
     use std::collections::BTreeSet;
 
@@ -475,6 +490,7 @@ mod tests {
         .unwrap();
         check_schedule(&plan);
         check_invalid_configs(&basis);
+        check_multi_group_schedule(&basis);
         let encoder = CkksEncoder::new(pow2(44));
         let engine = CkksEngine::new(
             basis.clone(),
@@ -584,23 +600,31 @@ mod tests {
         let reference = BootstrapConfig::reference(N).unwrap();
         let invalid = [
             BootstrapConfig {
-                polynomial_degree: 30,
+                slots_to_coeffs_levels: (N / 2).ilog2() as usize + 1,
                 ..reference.clone()
             },
             BootstrapConfig {
-                double_angles: 3,
+                coeffs_to_slots_levels: 0,
                 ..reference.clone()
             },
             BootstrapConfig {
-                slots_to_coeffs_levels: 2,
+                message_ratio_bits: 0,
                 ..reference.clone()
             },
             BootstrapConfig {
-                message_scale: pow2(43),
+                message_ratio_bits: 61,
                 ..reference.clone()
             },
             BootstrapConfig {
-                max_secret_weight: N / 2 + 1,
+                polynomial_degree: 0,
+                ..reference.clone()
+            },
+            BootstrapConfig {
+                max_secret_weight: 0,
+                ..reference.clone()
+            },
+            BootstrapConfig {
+                max_secret_weight: N + 1,
                 ..reference.clone()
             },
         ];
@@ -609,10 +633,95 @@ mod tests {
                 BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config).is_err()
             );
         }
-        let short = Arc::new(
-            RnsBasis::<N>::new(generate_primes(61, 17, N as u64)).unwrap(),
+        // A working scale one bit above the primes doubles its drift with
+        // every squaring.
+        let oversized = BootstrapConfig {
+            working_scale: pow2(62),
+            ..reference.clone()
+        };
+        let error = BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), oversized)
+            .err()
+            .expect("oversized working scale drifts")
+            .to_string();
+        assert!(error.contains("drift"), "{error}");
+        // Alternating 60/61-bit primes drift the reference working scale.
+        let alternating: Vec<_> = generate_primes(61, 9, N as u64)
+            .into_iter()
+            .zip(generate_primes(60, 9, N as u64))
+            .flat_map(|(wide, narrow)| [wide, narrow])
+            .collect();
+        let alternating = Arc::new(RnsBasis::<N>::new(alternating).unwrap());
+        let error =
+            BootstrapPlan::<RnsPoly<N>, N>::new(alternating, reference.clone())
+                .err()
+                .expect("alternating widths drift")
+                .to_string();
+        assert!(error.contains("drift"), "{error}");
+        // Full radix-two budgets need 2*log2(N/2) + 9 levels below the top;
+        // at N=64 that is 19 > 17, so the schedule rejects the chain.
+        let full = (N / 2).ilog2() as usize;
+        let deepest = BootstrapConfig {
+            coeffs_to_slots_levels: full,
+            slots_to_coeffs_levels: full,
+            ..reference.clone()
+        };
+        let fits = 2 * full + 9 <= 17;
+        assert_eq!(
+            BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), deepest).is_ok(),
+            fits
         );
-        assert!(BootstrapPlan::<RnsPoly<N>, N>::new(short, reference).is_err());
+        // The reference consumes 11 levels above the bottom prime: 12 primes
+        // are the shortest chain that holds it.
+        for (count, fits) in [(12, true), (11, false)] {
+            let chain = Arc::new(
+                RnsBasis::<N>::new(generate_primes(61, count, N as u64)).unwrap(),
+            );
+            assert_eq!(
+                BootstrapPlan::<RnsPoly<N>, N>::new(chain, reference.clone())
+                    .is_ok(),
+                fits
+            );
+        }
+    }
+
+    fn check_multi_group_schedule<const N: usize>(basis: &Arc<RnsBasis<N>>) {
+        let config = BootstrapConfig {
+            coeffs_to_slots_levels: 3,
+            slots_to_coeffs_levels: 3,
+            ..BootstrapConfig::reference(N).unwrap()
+        };
+        let plan =
+            BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config).unwrap();
+        let schedule = plan.schedule();
+        assert_eq!(schedule.depth(), 3 + 5 + 4 + 3);
+        let required = &schedule.required_keys().rotations;
+        for (encoded, stage) in [
+            (&plan.forward, BootstrapStage::CoeffsToSlots),
+            (&plan.inverse, BootstrapStage::SlotsToCoeffs),
+        ] {
+            let stages: Vec<_> = schedule.stages_of(stage).collect();
+            assert_eq!(encoded.groups().len(), 3);
+            for (group, stage) in encoded.groups().iter().zip(stages) {
+                assert_eq!(group.level, stage.input_level);
+                let offsets: BTreeSet<_> = group
+                    .diagonals
+                    .iter()
+                    .map(|(offset, _)| *offset)
+                    .filter(|offset| *offset != 0)
+                    .collect();
+                let needed: BTreeSet<_> = required
+                    .range((group.level, 0)..(group.level + 1, 0))
+                    .map(|(_, offset)| *offset)
+                    .collect();
+                assert_eq!(offsets, needed);
+            }
+        }
+        // Only the last slots-to-coefficients group lands on the message scale.
+        let scales: Vec<_> = schedule
+            .stages_of(BootstrapStage::SlotsToCoeffs)
+            .map(|s| s.plaintext_scale.unwrap())
+            .collect();
+        assert_eq!(scales, [pow2(61), pow2(61), pow2(44)]);
     }
     fn check_forward_transform<const N: usize>(
         plan: &BootstrapPlan<RnsPoly<N>, N>,
@@ -727,6 +836,65 @@ mod tests {
             }
         }
     }
+    /// Build a plan and check its derived depth and message scale.
+    fn accepted<const N: usize>(
+        bits: usize,
+        config: BootstrapConfig,
+        polynomial_depth: usize,
+        message_bits: i32,
+    ) {
+        let basis = Arc::new(
+            RnsBasis::<N>::new(generate_primes(bits, 18, N as u64)).unwrap(),
+        );
+        let plan = BootstrapPlan::<RnsPoly<N>, N>::new(basis, config.clone())
+            .unwrap_or_else(|e| panic!("N={N} bits={bits} {config:?}: {e}"));
+        let schedule = plan.schedule();
+        assert_eq!(
+            schedule.depth(),
+            config.coeffs_to_slots_levels
+                + polynomial_depth
+                + config.double_angles as usize
+                + config.slots_to_coeffs_levels
+        );
+        assert_eq!(schedule.output_level(), 18 - schedule.depth());
+        assert_eq!(schedule.message_scale(), pow2(message_bits));
+    }
+
+    #[test]
+    fn accepted_configs() {
+        accepted::<32>(61, BootstrapConfig::reference(32).unwrap(), 5, 44);
+        accepted::<128>(61, BootstrapConfig::reference(128).unwrap(), 5, 44);
+        accepted::<16>(
+            60,
+            BootstrapConfig {
+                working_scale: pow2(60),
+                ..BootstrapConfig::reference(16).unwrap()
+            },
+            5,
+            43,
+        );
+        accepted::<16>(
+            61,
+            BootstrapConfig {
+                polynomial_degree: 63,
+                double_angles: 3,
+                ..BootstrapConfig::reference(16).unwrap()
+            },
+            6,
+            44,
+        );
+        accepted::<64>(
+            61,
+            BootstrapConfig {
+                max_secret_weight: 16,
+                message_ratio_bits: 20,
+                ..BootstrapConfig::reference(64).unwrap()
+            },
+            5,
+            41,
+        );
+    }
+
     #[test]
     fn private_stages_16() {
         check_stages::<16>();

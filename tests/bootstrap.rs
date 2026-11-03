@@ -182,6 +182,200 @@ fn complex_bootstrap_64() {
     suite::<64>();
 }
 
+/// Multi-group transforms: several (CtS, StC) budgets, one seed, two
+/// scenarios, two cycles each, against the same 1e-3 gate.
+fn multi_group<const N: usize>() {
+    let primes = generate_primes(61, 18, N as u64);
+    let basis = Arc::new(RnsBasis::<N>::new(primes).unwrap());
+    let encoder = CkksEncoder::new(pow2(44));
+    let engine = CkksEngine::new(
+        basis.clone(),
+        CkksParams {
+            error_variance: 3.2,
+            hamming_weight: N / 2,
+            scale: pow2(44),
+        },
+    );
+    let mut rng = ChaCha20Rng::seed_from_u64(0);
+    let secret = engine.generate_secret_key(&mut rng).unwrap();
+    let public = engine.generate_public_key(&secret, &mut rng).unwrap();
+    let reference = BootstrapConfig::reference(N).unwrap();
+    let reference_plan =
+        BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), reference.clone())
+            .unwrap();
+    let reference_keys = reference_plan
+        .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
+        .unwrap();
+
+    for (cts, stc) in [(2, 2), (3, 3), (1, 3), (3, 1)] {
+        let config = BootstrapConfig {
+            coeffs_to_slots_levels: cts,
+            slots_to_coeffs_levels: stc,
+            ..reference.clone()
+        };
+        let plan =
+            BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config).unwrap();
+        let schedule = plan.schedule();
+        assert_eq!(schedule.depth(), cts + 5 + 4 + stc);
+        let keys = plan
+            .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
+            .unwrap();
+
+        for scenario in ["asymmetric", "random_disk"] {
+            let values: Vec<_> = (0..N / 2)
+                .map(|j| match scenario {
+                    "asymmetric" => Complex64::from_polar(0.8, j as f64 * 0.7),
+                    _ => Complex64::from_polar(
+                        rng.random::<f64>().sqrt(),
+                        rng.random::<f64>() * std::f64::consts::TAU,
+                    ),
+                })
+                .collect();
+            let initial = engine.encrypt(
+                &encoder.encode_complex(&values, basis.clone()),
+                &public,
+                &mut rng,
+            );
+            // Keys for another schedule miss this plan's levels (deeper CtS
+            // shifts every later stage); the check runs before any
+            // evaluation and names the kind and level of the first gap.
+            let error = plan
+                .bootstrap(&initial, &reference_keys)
+                .expect_err("reference keys lack this schedule's keys")
+                .to_string();
+            assert!(
+                error.contains("missing") && error.contains("at level"),
+                "{error}"
+            );
+
+            let mut current = initial;
+            let mut expected = values;
+            for cycle in 0..2 {
+                let refreshed = plan.bootstrap(&current, &keys).unwrap();
+                assert_eq!(refreshed.level(), schedule.output_level());
+                // Bootstrap lifts the input by 2^k to within half a bit of 2^44.
+                let lift = (44.0 - current.scale.log2()).round() as i32;
+                let prepared = current.scale.checked_mul(pow2(lift)).unwrap();
+                assert!(
+                    refreshed
+                        .scale
+                        .is_compatible(schedule.output_scale(prepared).unwrap())
+                );
+                let sk = secret.mod_switch_to(refreshed.level()).unwrap();
+                let actual =
+                    encoder.decode_complex(&CkksEngine::decrypt(&refreshed, &sk));
+                for (a, want) in actual.iter().zip(&expected) {
+                    assert!(
+                        (*a - *want).norm() < 1e-3,
+                        "N={N} budgets=({cts},{stc}) case={scenario} cycle={cycle} \
+                         got={a} expected={want}"
+                    );
+                }
+                let relin =
+                    RelinearizationKey::generate(&sk, 3.2f64.sqrt(), &mut rng);
+                current = refreshed.mul(&refreshed, &relin).rescale().unwrap();
+                for x in &mut expected {
+                    *x *= *x;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn multi_group_bootstrap_16() {
+    multi_group::<16>();
+}
+#[test]
+fn multi_group_bootstrap_64() {
+    multi_group::<64>();
+}
+
+/// Settings outside the reference: one seed, the asymmetric case and two
+/// cycles against the same 1e-3 gate.
+fn smoke<const N: usize>(bits: usize, config: BootstrapConfig, message_bits: i32) {
+    let basis =
+        Arc::new(RnsBasis::<N>::new(generate_primes(bits, 18, N as u64)).unwrap());
+    let plan = BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config.clone())
+        .unwrap_or_else(|e| panic!("N={N} bits={bits} {config:?}: {e}"));
+    let schedule = plan.schedule();
+    let message_scale = pow2(message_bits);
+    assert_eq!(schedule.message_scale(), message_scale);
+    let encoder = CkksEncoder::new(message_scale);
+    let engine = CkksEngine::new(
+        basis.clone(),
+        CkksParams {
+            error_variance: 3.2,
+            hamming_weight: config.max_secret_weight,
+            scale: message_scale,
+        },
+    );
+    let mut rng = ChaCha20Rng::seed_from_u64(0);
+    let secret = engine.generate_secret_key(&mut rng).unwrap();
+    let public = engine.generate_public_key(&secret, &mut rng).unwrap();
+    let keys = plan
+        .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
+        .unwrap();
+    let mut expected: Vec<_> = (0..N / 2)
+        .map(|j| Complex64::from_polar(0.8, j as f64 * 0.7))
+        .collect();
+    let mut current = engine.encrypt(
+        &encoder.encode_complex(&expected, basis.clone()),
+        &public,
+        &mut rng,
+    );
+    for cycle in 0..2 {
+        let refreshed = plan.bootstrap(&current, &keys).unwrap();
+        assert_eq!(refreshed.level(), schedule.output_level());
+        let lift = (f64::from(message_bits) - current.scale.log2()).round() as i32;
+        let prepared = current.scale.checked_mul(pow2(lift)).unwrap();
+        assert!(
+            refreshed
+                .scale
+                .is_compatible(schedule.output_scale(prepared).unwrap())
+        );
+        let sk = secret.mod_switch_to(refreshed.level()).unwrap();
+        let actual = CkksEncoder::new(refreshed.scale)
+            .decode_complex(&CkksEngine::decrypt(&refreshed, &sk));
+        let error = actual
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (*a - *b).norm())
+            .fold(0f64, f64::max);
+        assert!(
+            error < 1e-3,
+            "N={N} bits={bits} {config:?} cycle={cycle} max_error={error}"
+        );
+        let relin = RelinearizationKey::generate(&sk, 3.2f64.sqrt(), &mut rng);
+        current = refreshed.mul(&refreshed, &relin).rescale().unwrap();
+        for x in &mut expected {
+            *x *= *x;
+        }
+    }
+}
+
+#[test]
+fn general_configs() {
+    smoke::<32>(61, BootstrapConfig::reference(32).unwrap(), 44);
+    smoke::<16>(
+        60,
+        BootstrapConfig {
+            working_scale: pow2(60),
+            ..BootstrapConfig::reference(16).unwrap()
+        },
+        43,
+    );
+    smoke::<16>(
+        61,
+        BootstrapConfig {
+            polynomial_degree: 63,
+            double_angles: 3,
+            ..BootstrapConfig::reference(16).unwrap()
+        },
+        44,
+    );
+}
+
 fn check_automorphisms<const N: usize>(
     initial: &Ciphertext<RnsPoly<N>, N>,
     values: &[Complex64],
