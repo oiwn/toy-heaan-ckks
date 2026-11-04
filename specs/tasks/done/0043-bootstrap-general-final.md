@@ -1,6 +1,6 @@
 ---
 id: 0043-bootstrap-general-final
-status: approval
+status: done
 scope: [src/ckks/algorithms/bootstrap.rs, tests/bootstrap.rs, src/ckks/algorithms/bootstrap/*.rs]
 created: 2026-11-02
 source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
@@ -71,3 +71,5 @@ Bootstrap takes a message ratio and validates any config against the chain (leve
 - 2026-11-02 advance in-progress/implement → in-progress/verify
 - 2026-11-02 advance in-progress/verify → in-progress/review
 - 2026-11-02 advance in-progress/review → approval
+- 2026-11-04 approved: approved by operator
+- 2026-11-04 advance approval → done

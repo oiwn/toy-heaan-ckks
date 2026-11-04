@@ -9,6 +9,16 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-04 — bootstrap general final
+
+- Bootstrap takes a message ratio and validates any config against the chain (levels, headroom, scale drift) instead of a fixed reference profile.
+- Task `0043-bootstrap-general-final`; source: Operator-approved bootstrap split plan 2026-11-02 (from 0037)
+
+## 2026-11-04 — op benchmarks
+
+- Criterion benchmark foundation: backend-generic harness with arithmetic, ring, scheme and bootstrap benches, a quick default run plus `BENCH_FULL`, and a saved u128 baseline for 0052.
+- Task `0018-op-benchmarks`; source: operator request 2026-10-16; benchmark plan 2026-11-03
+
 ## 2026-11-02 — multi group transforms
 
 - Bootstrap evaluates factored transforms group by group at scheduled levels, with per-level rotation keys, configurable CtS/StC budgets and an upfront key check.

@@ -16,7 +16,7 @@ created: 2026-10-31
 
 ## Context
 
-0018 remains the per-operation benchmark implementation task. This task researches complete computations; it neither adds a duplicate operation suite nor implements the harness. Research can proceed now; comparative measurements need the second backend from 0022.
+0018 remains the per-operation benchmark implementation task; its harness (generic over backends) and bench IDs are the base for complete-workload benches. This task researches complete computations; it neither adds a duplicate operation suite nor implements the harness. Research can proceed now; comparative measurements need the second backend from 0022.
 
 - Criterion: https://bheisler.github.io/criterion.rs/book/ . Alternative: https://github.com/gungraun/gungraun . Check current host support rather than assuming Valgrind is available on the development machine.
 - Use the same mathematical parameters, input values, slot layout, operation schedule and accuracy target across backends; allow backend-specific construction outside timed evaluation. Include toy degrees for the schoolbook reference backend and separate practical-size RNS runs without misleading speed ratios.

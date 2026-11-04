@@ -15,6 +15,7 @@ Second `PolyRing` backend on big integers (roadmap M2.6): one modulus Q per leve
 - [ ] `PolyRing` impl: add/sub/neg mod Q, schoolbook negacyclic mul, automorphism by reindexing, `rescale` = `round(c / q_last)` mod `Q_(l-1)`, `mod_switch_to` = reduce mod `Q_l`, `from_rounded_f64`/`to_centered_f64` with the bound check, sampling mod Q.
 - [ ] Gadget: base-2^d digits of the centered coefficient, `gadget_len = ceil(logQ / d)`, `gadget_term(k) = t * 2^(d*k)`; unit test of the gadget invariant.
 - [ ] Backend-generic scheme tests run on both backends; cross-check: same inputs decrypt within tolerance, deterministic ops (mul, rescale, automorphism on equal coefficients) agree exactly.
+- [ ] Register the reference backend in the 0018 bench harness at toy N (one macro line), next to `rns_ntt`; extend scope with `benches/**` first.
 - [ ] Docs: `specs/overview.md` backend section, README, roadmap M2.6 done.
 
 ## Open questions
@@ -43,3 +44,5 @@ Second `PolyRing` backend on big integers (roadmap M2.6): one modulus Q per leve
 - 2026-10-17 scope add tests/** — bigint reference backend and backend-generic scheme tests
 - 2026-10-17 scope add Cargo.toml — bigint reference backend and backend-generic scheme tests
 - 2026-10-17 scope add README.md — bigint reference backend and backend-generic scheme tests
+- 2026-11-03 scope add benches/** — Register the reference backend in the 0018 bench harness
+- 2026-11-03 scope rm benches/** — Over the scope limit; extend when implementing the bench registration

@@ -6,6 +6,7 @@ use num_traits::ToPrimitive;
 use crate::math::is_ntt_friendly_prime;
 
 use super::errors::{RnsNttError, RnsNttResult};
+use super::poly::{forward_twisted, inverse_untwisted};
 
 #[derive(Debug, Clone)]
 pub struct NttTable<const DEGREE: usize> {
@@ -85,6 +86,20 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
             twist_factors,
             untwist_factors,
         })
+    }
+
+    /// Negacyclic forward transform of one channel in place: pre-twist by
+    /// `psi^j`, then forward NTT (coefficient form -> NTT form). This is the
+    /// kernel `RnsPoly` uses per channel; it is public for benchmarks and
+    /// backend comparisons. Inputs must be reduced (`< modulus`).
+    pub fn forward(&self, values: &mut [u64; DEGREE]) {
+        forward_twisted(values, self);
+    }
+
+    /// Inverse of [`Self::forward`]: inverse NTT, then post-untwist by
+    /// `psi^-j` (NTT form -> coefficient form). Inputs must be reduced.
+    pub fn inverse(&self, values: &mut [u64; DEGREE]) {
+        inverse_untwisted(values, self);
     }
 }
 
@@ -353,6 +368,24 @@ mod tests {
         let table = NttTable::<8>::new(17).unwrap();
         assert_eq!(table.modulus, 17);
         assert_eq!(table.forward_roots[0], 1);
+    }
+
+    #[test]
+    fn public_transforms_round_trip_and_match_negacyclic_product() {
+        // x * x^7 = x^8 = -1 in Z_17[X]/(X^8 + 1).
+        let table = NttTable::<8>::new(17).unwrap();
+        let mut x = [0, 1, 0, 0, 0, 0, 0, 0];
+        let mut x7 = [0, 0, 0, 0, 0, 0, 0, 1];
+        table.forward(&mut x);
+        table.forward(&mut x7);
+        let mut product = [0u64; 8];
+        for (p, (a, b)) in product.iter_mut().zip(x.iter().zip(&x7)) {
+            *p = a * b % 17;
+        }
+        table.inverse(&mut product);
+        assert_eq!(product, [16, 0, 0, 0, 0, 0, 0, 0]);
+        table.inverse(&mut x);
+        assert_eq!(x, [0, 1, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]

@@ -87,11 +87,44 @@ Useful stricter lint pass:
 cargo clippy -- -D clippy::pedantic -D clippy::nursery
 ```
 
-Benchmarks currently available:
+## Benchmarks
+
+Criterion benches, generic over the ring backend (`benches/common.rs`):
+
+| Bench | Covers |
+|---|---|
+| `arith` | modular mul/add/sub/pow on 30/50/61-bit primes, batched products |
+| `ring` | NTT, add/mul/neg, automorphism, decompose, rescale, mod switch/raise, coefficient conversion; per N, level and prime width |
+| `scheme` | encode/decode, encrypt/decrypt, mul + relin, rescale, rotate, conjugate, key generation, bootstrap (plan, keys, refresh) |
+| `primes` | primality tests and prime generation |
 
 ```bash
-cargo bench --bench primes
+cargo bench                          # quick survey, ~130 benches, about 5 minutes
+BENCH_FULL=1 cargo bench             # N up to 2^14, 20-prime chains, bootstrap N=1024, budget sweep
+cargo bench --bench ring -- ntt      # one group (Criterion filter)
+BENCH_FULL=1 cargo bench --bench ring -- 'ring/mul/.*/N4096'  # precise numbers for a subset
 ```
+
+The default run uses short timing (10 samples, 1 s each, no plots); numbers
+are stable to about 1%. `BENCH_FULL=1` restores Criterion's defaults (100
+samples, 5 s, HTML plots) and adds the large parameters, so use it with a
+filter when you need precise comparisons.
+
+Bench ids read `<group>/<op>/<backend>/N<degree>/<bits>b/L<level>`. To compare
+a change, save a baseline first and compare against it:
+
+```bash
+cargo bench -- --save-baseline before
+# ... change the code ...
+cargo bench -- --baseline before
+```
+
+Each bench checks its results once before timing (decryption error, NTT round
+trip, bootstrap within 1e-3), so a fast but wrong path fails instead of
+reporting numbers. With `BENCH_FULL=1`, HTML reports land in
+`target/criterion/report/index.html`.
+Bootstrap above N=1024 is too slow for Criterion sampling; use
+`cargo run --release --example bootstrap_large` instead.
 
 ## Examples
 

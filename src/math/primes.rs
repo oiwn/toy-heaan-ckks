@@ -15,34 +15,12 @@
 //! Reference:
 //! https://en.wikipedia.org/wiki/Miller%E2%80%93Rabin_primality_test
 
+use super::modular::{mul_mod, pow_mod};
+
 // These bases are deterministic for all n < 318,665,857,834,031,151,167,461,
 // which covers all u64 values.
 // Source: https://miller-rabin.appspot.com/
 const MILLER_RABIN_BASES: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
-
-/// Computes `(a * b) mod modulus` using `u128` intermediate arithmetic.
-fn mul_mod(a: u64, b: u64, modulus: u64) -> u64 {
-    assert!(modulus > 0, "mul_mod: modulus must be positive");
-    ((a as u128 * b as u128) % modulus as u128) as u64
-}
-
-/// Computes `base^exp mod modulus` via binary exponentiation.
-fn mod_pow(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
-    assert!(modulus > 0, "mod_pow: modulus must be positive");
-    if modulus == 1 {
-        return 0;
-    }
-    let mut acc = 1 % modulus;
-    base %= modulus;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            acc = mul_mod(acc, base, modulus);
-        }
-        base = mul_mod(base, base, modulus);
-        exp >>= 1;
-    }
-    acc
-}
 
 /// Returns `(odd_part, power_of_two)` such that `n = odd_part * 2^power_of_two`.
 fn decompose(n: u64) -> (u64, u32) {
@@ -77,7 +55,7 @@ pub fn is_prime(n: u64) -> bool {
         if a >= n {
             continue;
         }
-        let mut x = mod_pow(a, d, n);
+        let mut x = pow_mod(a, d, n);
         if x == 1 || x == n - 1 {
             continue;
         }
@@ -235,35 +213,6 @@ mod tests {
             assert!(!is_prime(composite));
             assert!(!is_prime_reference(composite));
         }
-    }
-
-    #[test]
-    fn mul_mod_matches_widened_reference() {
-        let a = u64::MAX - 11;
-        let b = u64::MAX - 17;
-        let modulus = 1_073_750_017u64;
-        let expected = ((a as u128 * b as u128) % modulus as u128) as u64;
-        assert_eq!(mul_mod(a, b, modulus), expected);
-    }
-
-    #[test]
-    #[should_panic(expected = "mul_mod: modulus must be positive")]
-    fn mul_mod_panics_on_zero_modulus() {
-        let _ = mul_mod(5, 7, 0);
-    }
-
-    #[test]
-    fn mod_pow_handles_edge_cases() {
-        assert_eq!(mod_pow(2, 0, 17), 1);
-        assert_eq!(mod_pow(5, 0, 1), 0);
-        assert_eq!(mod_pow(0, 5, 17), 0);
-        assert_eq!(mod_pow(7, 1, 19), 7);
-    }
-
-    #[test]
-    #[should_panic(expected = "mod_pow: modulus must be positive")]
-    fn mod_pow_panics_on_zero_modulus() {
-        let _ = mod_pow(2, 10, 0);
     }
 
     #[test]

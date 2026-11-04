@@ -542,10 +542,10 @@ fn rounded_to_residue(value: f64, prime: u64) -> u64 {
     }
 }
 
-// ─── NTT kernels (private) ────────────────────────────────────────────────────
+// ─── NTT kernels (public through NttTable::forward/inverse) ──────────────────
 
 /// Pre-twist by psi^j, then forward NTT: coefficients -> NTT form.
-fn forward_twisted<const DEGREE: usize>(
+pub(super) fn forward_twisted<const DEGREE: usize>(
     channel: &mut [u64; DEGREE],
     table: &NttTable<DEGREE>,
 ) {
@@ -556,7 +556,7 @@ fn forward_twisted<const DEGREE: usize>(
 }
 
 /// Inverse NTT, then post-untwist by psi^-j: NTT form -> coefficients.
-fn inverse_untwisted<const DEGREE: usize>(
+pub(super) fn inverse_untwisted<const DEGREE: usize>(
     channel: &mut [u64; DEGREE],
     table: &NttTable<DEGREE>,
 ) {
