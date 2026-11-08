@@ -34,18 +34,17 @@ fn assert_same<const N: usize>(
 fn suite<const N: usize>() {
     let primes = generate_primes(61, 18, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes.clone()).unwrap());
-    let plan = BootstrapPlan::<RnsPoly<N>, N>::new(
-        basis.clone(),
-        BootstrapConfig::reference(N).unwrap(),
-    )
-    .unwrap();
-    let encoder = CkksEncoder::new(pow2(44));
+    let config = BootstrapConfig::reference(N).unwrap();
+    let plan =
+        BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config.clone()).unwrap();
+    let message = plan.schedule().message_scale();
+    let encoder = CkksEncoder::new(message);
     let engine = CkksEngine::new(
         basis.clone(),
         CkksParams {
             error_variance: 3.2,
-            hamming_weight: N / 2,
-            scale: pow2(44),
+            hamming_weight: config.max_secret_weight,
+            scale: message,
         },
     );
     let other = Arc::new(RnsBasis::<N>::new(primes.clone()).unwrap());
@@ -92,8 +91,9 @@ fn suite<const N: usize>() {
                 RelinearizationKey::generate(&secret, 3.2f64.sqrt(), &mut rng);
             let mut squared = initial.mul(&initial, &relin).rescale().unwrap();
             let mut expected: Vec<_> = values.iter().map(|x| x * x).collect();
-            let not_power_of_two = Scale::new(1.5 * 2f64.powi(44)).unwrap();
-            for scale in [pow2(0), pow2(45), not_power_of_two] {
+            let not_power_of_two = Scale::new(1.5 * message.value()).unwrap();
+            let above = message.checked_mul(pow2(1)).unwrap();
+            for scale in [pow2(0), above, not_power_of_two] {
                 let mut wrong_scale = squared.clone();
                 wrong_scale.scale = scale;
                 assert!(plan.bootstrap(&wrong_scale, &keys).is_err());
@@ -127,8 +127,9 @@ fn suite<const N: usize>() {
 
             for cycle in 0..2 {
                 let snapshot = squared.clone();
+                let lift = (message.log2() - squared.scale.log2()).round() as i32;
                 let explicit =
-                    squared.mul_const(1.0, pow2(17)).mod_switch_to(1).unwrap();
+                    squared.mul_const(1.0, pow2(lift)).mod_switch_to(1).unwrap();
 
                 let refreshed = plan.bootstrap(&squared, &keys).unwrap();
                 assert_same(&squared, &snapshot);
@@ -139,7 +140,7 @@ fn suite<const N: usize>() {
                     );
                 }
                 // Output properties come from the schedule; the scale is
-                // tracked, not snapped, and the input is lifted by 2^17.
+                // tracked, not snapped, and the input is lifted by 2^lift.
                 let schedule = plan.schedule();
                 assert_eq!(refreshed.level(), schedule.output_level());
                 assert!(
@@ -147,7 +148,7 @@ fn suite<const N: usize>() {
                         schedule.output_scale(explicit.scale).unwrap()
                     )
                 );
-                assert!((refreshed.scale.log2() - 44.0).abs() < 1e-9);
+                assert!((refreshed.scale.log2() - message.log2()).abs() < 1e-9);
                 let sk = secret.mod_switch_to(refreshed.level()).unwrap();
                 let actual =
                     encoder.decode_complex(&CkksEngine::decrypt(&refreshed, &sk));
@@ -187,22 +188,23 @@ fn complex_bootstrap_64() {
 fn multi_group<const N: usize>() {
     let primes = generate_primes(61, 18, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).unwrap());
-    let encoder = CkksEncoder::new(pow2(44));
+    let reference = BootstrapConfig::reference(N).unwrap();
+    let reference_plan =
+        BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), reference.clone())
+            .unwrap();
+    let message = reference_plan.schedule().message_scale();
+    let encoder = CkksEncoder::new(message);
     let engine = CkksEngine::new(
         basis.clone(),
         CkksParams {
             error_variance: 3.2,
-            hamming_weight: N / 2,
-            scale: pow2(44),
+            hamming_weight: reference.max_secret_weight,
+            scale: message,
         },
     );
     let mut rng = ChaCha20Rng::seed_from_u64(0);
     let secret = engine.generate_secret_key(&mut rng).unwrap();
     let public = engine.generate_public_key(&secret, &mut rng).unwrap();
-    let reference = BootstrapConfig::reference(N).unwrap();
-    let reference_plan =
-        BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), reference.clone())
-            .unwrap();
     let reference_keys = reference_plan
         .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
         .unwrap();
@@ -216,7 +218,11 @@ fn multi_group<const N: usize>() {
         let plan =
             BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config).unwrap();
         let schedule = plan.schedule();
-        assert_eq!(schedule.depth(), cts + 5 + 4 + stc);
+        let polynomial_depth = reference.polynomial_degree.ilog2() as usize + 1;
+        assert_eq!(
+            schedule.depth(),
+            cts + polynomial_depth + reference.double_angles as usize + stc
+        );
         let keys = plan
             .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
             .unwrap();
@@ -253,8 +259,9 @@ fn multi_group<const N: usize>() {
             for cycle in 0..2 {
                 let refreshed = plan.bootstrap(&current, &keys).unwrap();
                 assert_eq!(refreshed.level(), schedule.output_level());
-                // Bootstrap lifts the input by 2^k to within half a bit of 2^44.
-                let lift = (44.0 - current.scale.log2()).round() as i32;
+                // Bootstrap lifts the input by 2^k to within half a bit of
+                // the message scale.
+                let lift = (message.log2() - current.scale.log2()).round() as i32;
                 let prepared = current.scale.checked_mul(pow2(lift)).unwrap();
                 assert!(
                     refreshed
@@ -291,13 +298,22 @@ fn multi_group_bootstrap_64() {
     multi_group::<64>();
 }
 
+/// `count` primes of `bits` bits.
+fn uniform<const N: usize>(bits: usize, count: usize) -> Vec<u64> {
+    generate_primes(bits, count, N as u64)
+}
+
 /// Settings outside the reference: one seed, the asymmetric case and two
 /// cycles against the same 1e-3 gate.
-fn smoke<const N: usize>(bits: usize, config: BootstrapConfig, message_bits: i32) {
-    let basis =
-        Arc::new(RnsBasis::<N>::new(generate_primes(bits, 18, N as u64)).unwrap());
+fn smoke<const N: usize>(
+    primes: Vec<u64>,
+    config: BootstrapConfig,
+    message_bits: i32,
+) {
+    let bits: Vec<_> = primes.iter().map(|p| 64 - p.leading_zeros()).collect();
+    let basis = Arc::new(RnsBasis::<N>::new(primes).unwrap());
     let plan = BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), config.clone())
-        .unwrap_or_else(|e| panic!("N={N} bits={bits} {config:?}: {e}"));
+        .unwrap_or_else(|e| panic!("N={N} bits={bits:?} {config:?}: {e}"));
     let schedule = plan.schedule();
     let message_scale = pow2(message_bits);
     assert_eq!(schedule.message_scale(), message_scale);
@@ -342,9 +358,18 @@ fn smoke<const N: usize>(bits: usize, config: BootstrapConfig, message_bits: i32
             .zip(&expected)
             .map(|(a, b)| (*a - *b).norm())
             .fold(0f64, f64::max);
+        // Shown with `--nocapture`; the validation matrix records these.
+        println!(
+            "smoke N={N} primes={} weight={} poly={} angles={} cycle={cycle} \
+             max_error={error:.1e}",
+            bits.len(),
+            config.max_secret_weight,
+            config.polynomial_degree,
+            config.double_angles
+        );
         assert!(
             error < 1e-3,
-            "N={N} bits={bits} {config:?} cycle={cycle} max_error={error}"
+            "N={N} bits={bits:?} {config:?} cycle={cycle} max_error={error}"
         );
         let relin = RelinearizationKey::generate(&sk, 3.2f64.sqrt(), &mut rng);
         current = refreshed.mul(&refreshed, &relin).rescale().unwrap();
@@ -356,23 +381,63 @@ fn smoke<const N: usize>(bits: usize, config: BootstrapConfig, message_bits: i32
 
 #[test]
 fn general_configs() {
-    smoke::<32>(61, BootstrapConfig::reference(32).unwrap(), 44);
+    let reference = BootstrapConfig::reference(16).unwrap();
+    smoke::<32>(
+        uniform::<32>(61, 18),
+        BootstrapConfig::reference(32).unwrap(),
+        44,
+    );
     smoke::<16>(
-        60,
+        uniform::<16>(60, 18),
         BootstrapConfig {
             working_scale: pow2(60),
-            ..BootstrapConfig::reference(16).unwrap()
+            ..reference.clone()
         },
         43,
     );
     smoke::<16>(
-        61,
+        uniform::<16>(61, 18),
         BootstrapConfig {
             polynomial_degree: 63,
             double_angles: 3,
-            ..BootstrapConfig::reference(16).unwrap()
+            ..reference.clone()
         },
         44,
+    );
+    // Secret weights below and at the ring degree.
+    for weight in [4, 16] {
+        smoke::<16>(
+            uniform::<16>(61, 18),
+            BootstrapConfig {
+                max_secret_weight: weight,
+                ..reference.clone()
+            },
+            44,
+        );
+    }
+    // A longer chain: the input enters four levels above the minimum.
+    smoke::<16>(uniform::<16>(61, 22), reference.clone(), 44);
+    // Mixed widths: a 61-bit bottom prime under 60-bit primes, working
+    // scale 2^60; the message scale follows the bottom prime.
+    let mut mixed = uniform::<16>(61, 1);
+    mixed.extend(uniform::<16>(60, 17));
+    smoke::<16>(
+        mixed,
+        BootstrapConfig {
+            working_scale: pow2(60),
+            ..reference
+        },
+        44,
+    );
+}
+
+/// The degree-dependent reference above N=64: ratio 10, message 2^51.
+#[test]
+fn reference_128() {
+    smoke::<128>(
+        uniform::<128>(61, 19),
+        BootstrapConfig::reference(128).unwrap(),
+        51,
     );
 }
 

@@ -15,7 +15,6 @@
 - **0025-ckks-backend-benchmark-research** — draft — ckks backend benchmark research
 - **0034-nonlinear-smoothing-demo** — draft — nonlinear smoothing demo
 - **0035-cubic-activation-demo** — draft — cubic activation demo
-- **0044-bootstrap-validation-matrix** — draft — bootstrap validation matrix (Operator split of 0043, 2026-11-02)
 - **0046-bootstrap-stage-noise** — draft — bootstrap stage noise (Operator agreed large-degree roadmap, 2026-11-03)
 - **0047-rns-basis-extension** — draft — rns basis extension (Operator agreed large-degree roadmap, 2026-11-03)
 - **0048-hybrid-key-switching** — draft — hybrid key switching (Operator agreed large-degree roadmap, 2026-11-03)
@@ -59,5 +58,6 @@
 - **0041-bootstrap-config-schedule** — done — bootstrap config schedule (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
 - **0042-multi-group-transforms** — done — multi group transforms (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
 - **0043-bootstrap-general-final** — done — bootstrap general final (Operator-approved bootstrap split plan 2026-11-02 (from 0037))
+- **0044-bootstrap-validation-matrix** — done — bootstrap validation matrix (Operator split of 0043, 2026-11-02)
 - **0045-bootstrap-ratio-default** — done — bootstrap ratio default (Operator agreed large-degree roadmap, 2026-11-03)
 - **0052-rns-fast-modmul** — done — rns fast modmul (Operator: tests too slow, 2026-11-03)

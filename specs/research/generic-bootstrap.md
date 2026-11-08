@@ -2,9 +2,9 @@
 
 ## Status
 
-Incomplete. Ciphertexts carry a `Scale` (0039). Rescale divides by the actual prime, and EvalMod and the Chebyshev evaluator run on the encrypted `ChebyshevPlan` executor (0040). Bootstrap is driven by `BootstrapConfig` and a derived `BootstrapSchedule` (0041) and evaluates multi-group transforms at scheduled levels (0042). Since 0043 the reference whitelist is gone: validation is derived from the config and the chain. Recurrence/examples migration and the final matrix are 0044.
+Complete (0044, 2026-11-08). Ciphertexts carry a `Scale` (0039). Rescale divides by the actual prime, and EvalMod and the Chebyshev evaluator run on the encrypted `ChebyshevPlan` executor (0040). Bootstrap is driven by `BootstrapConfig` and a derived `BootstrapSchedule` (0041) and evaluates multi-group transforms at scheduled levels (0042). Since 0043 the reference whitelist is gone: validation is derived from the config and the chain. 0045 made `reference(N)` degree-dependent. 0044 removed the recurrence's N=16/64, near-2^61 and 2^44 assumptions (`RecurrencePlan::new(context, scale)` derives its refresh level from the chain) and ran the final matrix below.
 
-The umbrella `specs/tasks/0037-cleanup-and-refactoring.md` is blocked until the chain 0038-0044 lands. Do not mark the general-bootstrap acceptance complete before 0044.
+The umbrella `specs/tasks/0037-cleanup-and-refactoring.md` resumes.
 
 ## Implemented components
 
@@ -46,7 +46,7 @@ Tracked as separate task files (operator decision 2026-11-02); each has its own 
 - [x] `specs/tasks/done/0041-bootstrap-config-schedule.md` — `BootstrapConfig` + `BootstrapSchedule` replace `toy()` and fixed offsets/constants (one-level transforms).
 - [x] `specs/tasks/done/0042-multi-group-transforms.md` — transform groups at scheduled levels, per-level derived keys.
 - [x] `specs/tasks/done/0043-bootstrap-general-final.md` — message ratio config; derived validation replaces the profile whitelist.
-- [ ] `specs/tasks/0044-bootstrap-validation-matrix.md` — migrate recurrence/examples, final validation matrix below.
+- [x] `specs/tasks/done/0044-bootstrap-validation-matrix.md` — migrate recurrence/examples, final validation matrix below.
 
 Why two phases: with actual-divisor rescale, values reaching an add by different paths differ in scale by up to about 2^-41 (relative), above the 64*eps tolerance. Flipping rescale before the executor exists breaks bootstrap `term`/`eval_mod`, Clenshaw and examples at once.
 
@@ -60,12 +60,28 @@ Keep f64 precision/range, backend-generic PolyRing and compile-time degree. Reta
 
 ## Required final validation
 
-- [ ] Scale integration: non-power-of-two encode/decode, actual-divisor and mixed-width rescaling, mismatches, invalid factors and modulus switching.
-- [ ] Encrypted polynomial evaluation and multi-group transforms with varied budgets/divisors; verify actual execution follows the graph.
-- [ ] Noisy bootstrap at N=16/64 with original eight seeds/two cycles, plus N=32/128, different scales, secret weights, polynomial settings, budgets, chain lengths and mixed-width chains. Retain the 1e-3 accuracy gate; do not weaken tolerances or disable noise.
-- [ ] At most 12 levels consumed for legacy numerical settings with one-level transforms; assert derived output properties rather than a hardcoded six.
-- [ ] Invalid configuration, wrong context, excessive secret weight, missing keys, insufficient headroom and input immutability.
-- [ ] Full formatting, strict Clippy, tests, example builds, bootstrap/recurrence demos at both degrees, spelling, specdev and diff checks on the completed integration.
+Each item names the tests that cover it.
+
+- [x] Scale integration: non-power-of-two encode/decode, actual-divisor and mixed-width rescaling, mismatches, invalid factors and modulus switching — `scale.rs` tests, encoder and `ops.rs` tests (1.5*2^k scales, mismatch errors), `tests/integration_mul.rs::mod_switch_keeps_slots_and_meets_rescaled_level`, recurrence `mixed_width_chain`.
+- [x] Encrypted polynomial evaluation and multi-group transforms with varied budgets/divisors; verify actual execution follows the graph — `executor.rs`, `polynomial.rs`, `linear.rs` (N=16..128), `tests/bootstrap.rs::multi_group_*`.
+- [x] Noisy bootstrap at N=16/64 with original eight seeds/two cycles, plus N=32/128, different scales, secret weights, polynomial settings, budgets, chain lengths and mixed-width chains. Retain the 1e-3 accuracy gate; do not weaken tolerances or disable noise — `tests/bootstrap.rs` `complex_bootstrap_*`, `general_configs`, `reference_128`; results below.
+- [x] At most 12 levels consumed for legacy numerical settings with one-level transforms; assert derived output properties rather than a hardcoded six — `bootstrap.rs::private_stages_*` (depth 11), output level and scale from the schedule in `tests/bootstrap.rs`.
+- [x] Invalid configuration, wrong context, excessive secret weight, missing keys, insufficient headroom and input immutability — `bootstrap.rs` invalid configs, heavier-secret and short-chain checks; `tests/bootstrap.rs` wrong context, missing keys and `assert_same` snapshots; recurrence rejections.
+- [x] Full formatting, strict Clippy, tests, example builds, bootstrap/recurrence demos at both degrees, spelling, specdev and diff checks on the completed integration — 0044 Acceptance.
+
+Final matrix (0044, seed 0, asymmetric input, cycle0/cycle1 max error, 1e-3 gate):
+
+| Case | Errors |
+|---|---|
+| N=32 reference, 18 primes | 1.7e-5 / 5.4e-5 |
+| N=16, 60-bit chain, working 2^60, message 2^43 | 2.7e-5 / 5.1e-5 |
+| N=16, polynomial 63, three double angles | 9.5e-6 / 1.8e-5 |
+| N=16, weight 4 / weight 16 | 1.3e-5 / 1.8e-5; 1.1e-5 / 1.8e-5 |
+| N=16, 22 primes | 1.4e-5 / 2.5e-5 |
+| N=16, 61-bit bottom under 60-bit primes, working 2^60 | 1.2e-5 / 2.4e-5 |
+| N=128 reference, 19 primes, message 2^51 | 2.3e-6 / 5.7e-6 |
+
+Recurrence demo, 32 rounds with three refreshes: N=16 8.59e-6, N=32 3.73e-5, N=64 3.29e-5 (unchanged), N=128 1.34e-6 at scale 2^51.
 
 ## Verification evidence and skill experiment
 

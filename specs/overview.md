@@ -26,7 +26,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 | Homomorphic Multiplication | ✅ | `ct.mul(&other, &rlk)` (gadget relin), `mul_plain`, `mul_const`; rescale is explicit. |
 | Rescaling | ✅ | `Ciphertext::rescale` divides by the last prime; `mod_switch_to`/`match_level` drop primes. |
 | Rotation | ✅ | Gadget rotation keys, slot rotations. |
-| Bootstrapping | Partial | Full-complex N=16/64 path works; general encrypted scheduling remains incomplete. |
+| Bootstrapping | ✅ | Full-complex; `BootstrapConfig` (with `message_ratio_bits`) drives a chain-derived schedule; `reference(N)` passes 1e-3 at N=16..8192. |
 
 ## Architecture Design
 
@@ -97,7 +97,7 @@ All polynomial arithmetic is implemented with a single `RnsNttPoly` backend:
 
 ## Current Limitations
 
-- Encrypted bootstrap still enforces N=16/64 and a fixed profile; remaining work: `specs/research/generic-bootstrap.md`.
+- Bootstrap validates levels, headroom and drift, not approximation accuracy (`specs/research/generic-bootstrap.md`).
 - Encode/decode is O(N^2) (special DFT).
 - Encoder f64 staging limits relative precision to about 52 bits; coefficient magnitude must fit the modulus.
 - Demo parameters (N = 8192, 61-bit primes) are below 128-bit security; see `specs/demo.md`.

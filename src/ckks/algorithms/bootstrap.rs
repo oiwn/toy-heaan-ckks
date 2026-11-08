@@ -507,6 +507,22 @@ mod tests {
         let mut keys = plan
             .generate_keys(&secret, 3.2f64.sqrt(), &mut rng)
             .unwrap();
+        // A secret heavier than the configured weight is rejected at key
+        // generation (weight N/2 here, against a plan for N/2 - 1).
+        let lighter = BootstrapPlan::<RnsPoly<N>, N>::new(
+            basis.clone(),
+            BootstrapConfig {
+                max_secret_weight: N / 2 - 1,
+                ..BootstrapConfig::reference(N).unwrap()
+            },
+        )
+        .unwrap();
+        let error = lighter
+            .generate_keys(&secret, 3.2f64.sqrt(), &mut rng.clone())
+            .err()
+            .expect("secret above the configured weight")
+            .to_string();
+        assert!(error.contains("within the configured weight"), "{error}");
         let required = plan.schedule().required_keys();
         assert_eq!(
             keys.relin.keys().copied().collect::<BTreeSet<_>>(),

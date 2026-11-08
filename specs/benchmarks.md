@@ -1,6 +1,27 @@
 # Benchmarks
 
-Measured results of the Criterion benches (`benches/`, task 0018). Each run records its environment and the change it measures; newer runs go on top. Bench ids read `<group>/<op>/<backend>/N<degree>/<bits>b/L<level>`. How to run: README "Benchmarks".
+Measured results of the Criterion benches (`benches/`, task 0018). Each run records its environment and the change it measures; newer runs go on top. Bench ids read `<group>/<op>/<backend>/N<degree>/<bits>b/L<level>`. 
+
+## How to run
+
+Criterion benches, generic over the ring backend (`benches/common.rs`):
+
+| Bench | Covers |
+|---|---|
+| `arith` | modular mul/add/sub/pow on 30/50/61-bit primes, batched products |
+| `ring` | NTT, add/mul/neg, automorphism, decompose, rescale, mod switch/raise, coefficient conversion; per N, level and prime width |
+| `scheme` | encode/decode, encrypt/decrypt, mul + relin, rescale, rotate, conjugate, key generation, bootstrap (plan, keys, refresh) |
+| `primes` | primality tests and prime generation |
+
+```bash
+cargo bench                          # quick survey, ~130 benches, about 5 minutes
+BENCH_FULL=1 cargo bench             # N up to 2^14, 20-prime chains, bootstrap N=1024, budget sweep
+cargo bench --bench ring -- ntt      # one group (Criterion filter)
+cargo bench -- --save-baseline before    # then, after a change:
+cargo bench -- --baseline before         # --baseline-lenient also measures new benches
+```
+
+The default run uses short timing (10 samples, 1 s each, no plots), stable to about 1%. `BENCH_FULL=1` restores Criterion's defaults (100 samples, 5 s, HTML plots in `target/criterion/report/index.html`) and adds the large parameters; use it with a filter. Each bench checks its result once before timing (decryption error, NTT round trip, bootstrap within 1e-3). Bootstrap above N=1024 is too slow for Criterion; use `cargo run --release --example bootstrap_large`.
 
 ## 2026-11-06 — Shoup/Barrett (`post-0052`)
 

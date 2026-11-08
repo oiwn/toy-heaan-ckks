@@ -4,7 +4,6 @@ use std::sync::Arc;
 use num_complex::Complex64;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::algorithms::bootstrap::{BootstrapConfig, BootstrapPlan};
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
@@ -15,23 +14,26 @@ use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 fn run<const N: usize>() -> Result<(), Box<dyn std::error::Error>> {
     let primes = generate_primes(61, 18, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes)?);
-    let scale = Scale::power_of_two(44)?;
+    let config = BootstrapConfig::reference(N)?;
+    let plan = BootstrapPlan::new(basis.clone(), config.clone())?;
+    // Encrypt at the bootstrap's message scale (2^44 at N=16/64).
+    let scale = plan.schedule().message_scale();
     let engine = CkksEngine::<RnsPoly<N>, N>::new(
         basis.clone(),
         CkksParams {
             error_variance: 3.2,
-            hamming_weight: N / 2,
+            hamming_weight: config.max_secret_weight,
             scale,
         },
     );
     let mut rng = ChaCha20Rng::seed_from_u64(0);
     let secret = engine.generate_secret_key(&mut rng)?;
     let public = engine.generate_public_key(&secret, &mut rng)?;
-    let plan = BootstrapPlan::new(basis.clone(), BootstrapConfig::reference(N)?)?;
     println!(
-        "N={N} bootstrap depth={} output_level={}",
+        "N={N} bootstrap depth={} output_level={} message_scale=2^{:.0}",
         plan.schedule().depth(),
-        plan.schedule().output_level()
+        plan.schedule().output_level(),
+        scale.log2()
     );
     let keys = plan.generate_keys(&secret, 3.2f64.sqrt(), &mut rng)?;
     let encoder = CkksEncoder::new(scale);

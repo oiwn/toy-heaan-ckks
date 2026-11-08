@@ -9,6 +9,11 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-08 — bootstrap validation matrix
+
+- Recurrence and the bootstrap demos/tests run at any degree and scale the chain supports. Breaking change: `RecurrencePlan::new(context, scale)`, with a refresh level derived from the chain. `recurrence_bootstrap_demo` runs N=16/32/64/128, the final validation matrix passes, and `generic-bootstrap.md` is complete.
+- Task `0044-bootstrap-validation-matrix`; source: Operator split of 0043, 2026-11-02
+
 ## 2026-11-08 — bootstrap ratio default
 
 - `BootstrapConfig::reference(N)` picks the message ratio from N (17 up to N=64, then `17 - log2 N`, at least 4), caps the secret weight at 64 with five double angles above weight 32, and the schedule checks the output can be squared once; bootstrap now passes 1e-3 at N=16 to 8192 with the defaults.
