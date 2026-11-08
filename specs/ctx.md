@@ -1,6 +1,6 @@
 # Current Task Context: Publication review: architecture, code, docs
 
-State: no implementation task in progress. Next workstream: cleanup and refactoring, draft0037.
+State: bootstrap chain 0038-0045 done; 0037 (repository review) resumes.
 
 ## Plan
 
@@ -17,6 +17,9 @@ State: no implementation task in progress. Next workstream: cleanup and refactor
 
 ## Findings
 
+- **Current audit:** task 0037 (cleanup-and-refactoring, blocked on 0038-0043). Authoritative implemented/remaining checklist: `specs/research/generic-bootstrap.md`; inventory/experiment log: `specs/research/file-review.md`. General encrypted bootstrap is incomplete; fixed-profile checks remain. "Toy" means experimental status, not restricted functionality. Keep default metric thresholds.
+- **Historical observations below:** "today" describes the original publication audit, not current code. Negative rotations now use inverse offsets without conjugation; encryption/key noise inconsistency is confirmed and needs a separate numerical decision.
+
 - **Order:** compose first on the concrete `RnsPoly` (0008-0010), then generalize the small, clean ops behind the trait (0011-0012).
 - **Rescale today:** `RnsPoly::rescale_into` (exact RNS division) wrapped by `CkksEngine::rescale_ciphertext`. **Mod switch today:** `pipeline::align_level` truncates channels, caller passes `logq`. `PolyRescale`/`PolyModSwitch` have no impls.
 - **Leak today:** `CkksEngine<P>` is generic only up to add; rescale, mul_plaintext, gadget keys and key switch are `impl CkksEngine<RnsPoly>` walking `moduli()`/`channels()[i]`; the encoder and `pipeline.rs` read RNS channels too.
@@ -28,10 +31,10 @@ State: no implementation task in progress. Next workstream: cleanup and refactor
 
 ## Context
 
-Cleanup planning: review every repository-owned file with the operator, record a per-file checklist and agree scoped refactoring tasks. Draft0037 is queued, not active. Preserve the publication audit plan and findings above; recheck historical observations against current code. Tasks0034/0035 remain future demo drafts.
+Active cleanup task0037: review every repository-owned file with the operator, maintain the per-file checklist and agree scoped refactoring tasks. Preserve the publication audit plan and findings above; recheck historical observations against current code. Tasks0034/0035 remain future demo drafts.
 
 ## Next
 
-Review draft0037 and begin the file inventory when starting cleanup. Record active-task decisions here. Side research remains0023 (Creusot),0024 (Kani) and0025 (backend benchmarks).
+Next: unblock and resume 0037 (file review; roadmap item: move `recurrence.rs` out of the library). Bench results: `specs/benchmarks.md`. Research: 0023/0024/0025, `specs/research/large-degree-bootstrap.md`.
 
 Other drafts 0015-0022 (wasm, debug tooling, operation benchmarks, SIMD, GPU, Apple NPU, reference backend) wait for operator review; the `tracing` candidate moved to 0017. Side task 0013 (educational Sage scripts) remains independent.

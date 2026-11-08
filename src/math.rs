@@ -1,3 +1,4 @@
+pub mod modular;
 pub mod primes;
 pub mod sampling;
 pub mod utils;

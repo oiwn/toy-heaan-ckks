@@ -18,13 +18,13 @@
 //!
 //! ## Why 7 primes with SCALE = 61
 //!
-//! In CKKS, each multiplication doubles the scale (`logp`); rescaling then
-//! drops one prime and brings `logp` back down.  After k rescalings the
+//! In CKKS, each multiplication squares the scale; rescaling then drops one
+//! prime and brings the scale back down.  After k rescalings the
 //! ciphertext lives in a (7 - k)-prime RNS basis.  Five multiplications
 //! leave **two** primes (Q ≈ 2^122).
 //!
 //! The rule `SCALE = prime_bit_size` ensures that after every rescale the
-//! recovered `logp` equals SCALE exactly.
+//! recovered scale equals 2^SCALE exactly.
 //!
 //! A single remaining prime (Q ≈ 2^61 = Δ) is not enough: the plaintext
 //! polynomial's constant (DC) coefficient equals `mean(slots) * Δ`.  With
@@ -45,6 +45,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::ckks::keys::RelinearizationKey;
@@ -58,7 +59,7 @@ use toy_heaan_ckks::table;
 const N: usize = 8192;
 
 /// Encoding scale.  With 61-bit primes: bits_dropped = 61 per rescale, so
-/// logp returns exactly to SCALE after every mul+rescale pair.
+/// the scale returns exactly to 2^SCALE after every mul+rescale pair.
 const SCALE: u32 = 61;
 
 /// Number of (mul + add) iterations = 10 total homomorphic operations.
@@ -82,6 +83,11 @@ const BETA: f64 = 0.1;
 type Ct = toy_heaan_ckks::ckks::types::Ciphertext<RnsPoly<N>, N>;
 type Basis = Arc<RnsBasis<N>>;
 
+/// The encoding scale `2^SCALE`.
+fn scale() -> Scale {
+    Scale::power_of_two(SCALE as i32).expect("valid scale")
+}
+
 /// Build a `CkksEngine` at `basis` with standard noise parameters.
 fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
     CkksEngine::new(
@@ -89,7 +95,7 @@ fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale: scale(),
         },
     )
 }
@@ -148,7 +154,7 @@ fn main() {
     // ── 2. Top-level engine and keys ─────────────────────────────────────────
     println!("Generating top-level keys (sk, pk, rlk) …");
     let engine_top = make_engine(basis_top.clone());
-    let encoder = CkksEncoder::<N>::new(SCALE);
+    let encoder = CkksEncoder::<N>::new(scale());
     let mut rng = ChaCha20Rng::seed_from_u64(42);
 
     let sk_top = engine_top.generate_secret_key(&mut rng).expect("sk");
@@ -167,8 +173,8 @@ fn main() {
     let pt_x0 = encoder.encode(&x0, basis_top.clone());
     let mut ct_x = engine_top.encrypt(&pt_x0, &pk_top, &mut rng);
     println!(
-        "  ct_x: logp={}, logq={}, primes={}\n",
-        ct_x.logp,
+        "  ct_x: log2(scale)={:.1}, logq={}, primes={}\n",
+        ct_x.scale.log2(),
         ct_x.logq(),
         ct_x.level()
     );
@@ -208,8 +214,8 @@ fn main() {
         ct_x = ct_prod.rescale().expect("rescale");
         let level_after = ct_x.level();
         println!(
-            "  After mul+rescale: {level_after} primes, logp={}, logq={}",
-            ct_x.logp,
+            "  After mul+rescale: {level_after} primes, log2(scale)={:.1}, logq={}",
+            ct_x.scale.log2(),
             ct_x.logq()
         );
 
@@ -222,18 +228,20 @@ fn main() {
             .expect("pk");
 
         // ── 4d. Add: ct_x ← ct_x + β ─────────────────────────────────────────
+        // Rescale divides by the actual prime, so ct_x's scale drifts from
+        // 2^SCALE; β is encoded at ct_x's exact scale to stay compatible.
         let ct_beta = encrypt_scalar(
             BETA,
             basis_cur.clone(),
-            &encoder,
+            &CkksEncoder::<N>::new(ct_x.scale),
             &engine_cur,
             &pk_cur,
             &mut rng,
         );
-        ct_x = &ct_x + &ct_beta;
+        ct_x = ct_x.add(&ct_beta).expect("beta encrypted at ct_x's level");
         println!(
-            "  After add β      : {level_after} primes, logp={}, logq={}",
-            ct_x.logp,
+            "  After add β      : {level_after} primes, log2(scale)={:.1}, logq={}",
+            ct_x.scale.log2(),
             ct_x.logq()
         );
 

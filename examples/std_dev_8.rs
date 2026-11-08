@@ -64,14 +64,14 @@
 //!
 //! ```text
 //! ct.rotate(&rotk)
-//! &ct1 + &ct2
+//! ct1.add(&ct2)?
 //! rotation keys for offsets 1, 2, 4
 //! ```
 //!
 //! 3. Compute the encrypted mean.
 //!
 //! ```text
-//! mean_ct = sum_ct.mul_const(1.0 / 8.0, logp).rescale()
+//! mean_ct = sum_ct.mul_const_to_scale(1.0 / 8.0, input_ct.scale)?
 //! ```
 //!
 //! After this step:
@@ -83,14 +83,14 @@
 //! Required operations:
 //!
 //! ```text
-//! ct.mul_const(scalar, scale_bits)
+//! ct.mul_const(scalar, scale)
 //! rescale
 //! ```
 //!
 //! 4. Subtract the mean from the original input.
 //!
 //! ```text
-//! centered_ct = &ct.match_level(&mean_ct) - &mean_ct
+//! centered_ct = ct.match_level(&mean_ct)?.sub(&mean_ct)?
 //! ```
 //!
 //! After this step:
@@ -102,7 +102,7 @@
 //! Required operations:
 //!
 //! ```text
-//! &ct1 - &ct2
+//! ct1.sub(&ct2)?
 //! match_level before subtraction
 //! ```
 //!
@@ -149,7 +149,7 @@
 //! 7. Divide by 8 to get encrypted variance.
 //!
 //! ```text
-//! variance_ct = var_sum_ct.mul_const(1.0 / 8.0, logp).rescale()
+//! variance_ct = var_sum_ct.mul_const(1.0 / 8.0, scale).rescale()
 //! ```
 //!
 //! This is the first implementation milestone:
@@ -195,6 +195,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::algorithms::sum_slots::sum_slots;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
@@ -207,7 +208,6 @@ use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 const N: usize = 16;
 const SLOTS: usize = 8;
 const SCALE: u32 = 61;
-const SCALAR_SCALE: u32 = SCALE;
 const NUM_PRIMES: usize = 5;
 const INPUT: [f64; SLOTS] = [0.12, 0.18, 0.21, 0.27, 0.31, 0.38, 0.42, 0.49];
 
@@ -217,13 +217,18 @@ type Basis = Arc<RnsBasis<N>>;
 type RotKeyMap = RotationKeyMap<RnsPoly<N>, N>;
 type Rlk = RelinearizationKey<RnsPoly<N>, N>;
 
+/// The encoding scale `2^SCALE`.
+fn scale() -> Scale {
+    Scale::power_of_two(SCALE as i32).expect("valid scale")
+}
+
 fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
     CkksEngine::new(
         basis,
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale: scale(),
         },
     )
 }
@@ -242,10 +247,12 @@ fn mul_and_rescale(ct_a: &Ct, ct_b: &Ct, rlk: &Rlk) -> Ct {
         .expect("mul_and_rescale: rescale")
 }
 
-/// Multiplies every slot by `1 / SLOTS` and rescales.
-fn divide_by_slots(ct: &Ct) -> Ct {
-    ct.mul_const(1.0 / SLOTS as f64, SCALAR_SCALE)
-        .rescale()
+/// Multiplies every slot by `1 / SLOTS` and rescales, landing at `target`
+/// scale. Rescale divides by the actual prime, so a plain multiply would
+/// leave the mean slightly off the input's scale; the target-scale encoding
+/// keeps the later subtraction compatible.
+fn divide_by_slots(ct: &Ct, target: Scale) -> Ct {
+    ct.mul_const_to_scale(1.0 / SLOTS as f64, target)
         .expect("divide_by_slots: rescale")
 }
 
@@ -277,7 +284,7 @@ fn main() {
     let primes = generate_primes(SCALE as usize, NUM_PRIMES, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
     let engine = make_engine(basis.clone());
-    let encoder = CkksEncoder::<N>::new(SCALE);
+    let encoder = CkksEncoder::<N>::new(scale());
     let mut rng = ChaCha20Rng::seed_from_u64(42);
 
     let sk = engine.generate_secret_key(&mut rng).expect("sk");
@@ -288,8 +295,8 @@ fn main() {
     let ct_input = engine.encrypt(&pt_input, &pk, &mut rng);
     let ct_sum = sum_slots(&ct_input, SLOTS, &rotkeys);
     println!(
-        "After sum_slots: logp={}, logq={}, primes={}",
-        ct_sum.logp,
+        "After sum_slots: log2(scale)={:.1}, logq={}, primes={}",
+        ct_sum.scale.log2(),
         ct_sum.logq(),
         ct_sum.level()
     );
@@ -303,10 +310,10 @@ fn main() {
     );
     println!();
 
-    let ct_mean = divide_by_slots(&ct_sum);
+    let ct_mean = divide_by_slots(&ct_sum, ct_input.scale);
     println!(
-        "After mean = sum * 1/{SLOTS}: logp={}, logq={}, primes={}",
-        ct_mean.logp,
+        "After mean = sum * 1/{SLOTS}: log2(scale)={:.1}, logq={}, primes={}",
+        ct_mean.scale.log2(),
         ct_mean.logq(),
         ct_mean.level()
     );
@@ -321,10 +328,10 @@ fn main() {
     println!();
 
     let ct_input_mean_level = ct_input.match_level(&ct_mean).expect("level");
-    let ct_centered = &ct_input_mean_level - &ct_mean;
+    let ct_centered = ct_input_mean_level.sub(&ct_mean).expect("center");
     println!(
-        "After centered = input - mean: logp={}, logq={}, primes={}",
-        ct_centered.logp,
+        "After centered = input - mean: log2(scale)={:.1}, logq={}, primes={}",
+        ct_centered.scale.log2(),
         ct_centered.logq(),
         ct_centered.level()
     );
@@ -334,8 +341,8 @@ fn main() {
     let rlk_centered = engine_centered.generate_relin_key(&sk_centered, &mut rng);
     let ct_sq_diff = mul_and_rescale(&ct_centered, &ct_centered, &rlk_centered);
     println!(
-        "After squared differences: logp={}, logq={}, primes={}",
-        ct_sq_diff.logp,
+        "After squared differences: log2(scale)={:.1}, logq={}, primes={}",
+        ct_sq_diff.scale.log2(),
         ct_sq_diff.logq(),
         ct_sq_diff.level()
     );
@@ -344,10 +351,10 @@ fn main() {
     let engine_sq = make_engine(ct_sq_diff.c0.basis().clone());
     let rotkeys_sq = make_rotkeys(&engine_sq, &sk_sq, &mut rng);
     let ct_var_sum = sum_slots(&ct_sq_diff, SLOTS, &rotkeys_sq);
-    let ct_variance = divide_by_slots(&ct_var_sum);
+    let ct_variance = divide_by_slots(&ct_var_sum, ct_var_sum.scale);
     println!(
-        "After variance = sum_sq_diff * 1/{SLOTS}: logp={}, logq={}, primes={}",
-        ct_variance.logp,
+        "After variance = sum_sq_diff * 1/{SLOTS}: log2(scale)={:.1}, logq={}, primes={}",
+        ct_variance.scale.log2(),
         ct_variance.logq(),
         ct_variance.level()
     );

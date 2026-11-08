@@ -45,7 +45,10 @@ pub fn sum_slots<P: PolyRing<DEGREE>, const DEGREE: usize>(
         let rotkey = rotkeys
             .get(&offset)
             .unwrap_or_else(|| panic!("missing rotation key for offset {offset}"));
-        acc = &acc + &acc.rotate(rotkey);
+        // Rotation keeps level, context and scale, so the sum cannot fail.
+        acc = acc
+            .add(&acc.rotate(rotkey))
+            .expect("sum_slots: rotation preserves level and scale");
     }
 
     acc

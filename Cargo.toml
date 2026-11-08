@@ -2,6 +2,13 @@
 name = "toy-heaan-ckks"
 version = "0.1.0"
 edition = "2024"
+# Bench targets are listed below; `benches/common.rs` is a shared module.
+autobenches = false
+
+[lib]
+# Unit tests are not benches; this keeps Criterion flags such as
+# `--save-baseline` away from the libtest harness under `cargo bench`.
+bench = false
 
 [dependencies]
 rand = "0.10"
@@ -21,13 +28,30 @@ num-traits = "0.2.19"
 [dev-dependencies]
 approx = "0.5"
 criterion = { version = "0.8", features = ["html_reports"] }
+owo-colors = { version = "4.4.0", features = ["supports-colors"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 debug = 1
 
+[profile.test]
+# Tests run the NTT-heavy bootstrap suite; unoptimized they take minutes.
+opt-level = 1
+
 [[bench]]
 name = "primes"
+harness = false
+
+[[bench]]
+name = "arith"
+harness = false
+
+[[bench]]
+name = "ring"
+harness = false
+
+[[bench]]
+name = "scheme"
 harness = false
 
 [[example]]

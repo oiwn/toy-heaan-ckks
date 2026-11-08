@@ -4,8 +4,29 @@ use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 
 use crate::math::is_ntt_friendly_prime;
+use crate::math::modular::{
+    Barrett, MAX_FAST_MODULUS, mul_mod, pow_mod, shoup_companion, sub_mod,
+};
 
 use super::errors::{RnsNttError, RnsNttResult};
+use super::poly::{forward_twisted, inverse_untwisted};
+
+/// Fixed factors of one NTT prime with their Shoup companions
+/// ([`shoup_companion`]), so every multiplication by them avoids division.
+#[derive(Debug, Clone)]
+pub(super) struct ShoupFactors<const DEGREE: usize> {
+    pub(super) values: [u64; DEGREE],
+    pub(super) companions: [u64; DEGREE],
+}
+
+impl<const DEGREE: usize> ShoupFactors<DEGREE> {
+    fn new(values: [u64; DEGREE], modulus: u64) -> Self {
+        Self {
+            companions: values.map(|value| shoup_companion(value, modulus)),
+            values,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct NttTable<const DEGREE: usize> {
@@ -20,12 +41,23 @@ pub struct NttTable<const DEGREE: usize> {
     /// `untwist_factors[j] = ψ^{-j} mod q`. Applied after the inverse NTT to
     /// undo the pre-twist.
     pub untwist_factors: [u64; DEGREE],
+    /// Kernel copies of the factors above, with Shoup companions.
+    pub(super) forward_shoup: ShoupFactors<DEGREE>,
+    pub(super) inverse_shoup: ShoupFactors<DEGREE>,
+    pub(super) twist_shoup: ShoupFactors<DEGREE>,
+    /// `untwist_factors[j] * n_inv`: the inverse NTT's `1/N` scaling folded
+    /// into the untwist, so it costs no separate pass.
+    pub(super) untwist_scaled_shoup: ShoupFactors<DEGREE>,
+    barrett: Barrett,
 }
 
 impl<const DEGREE: usize> NttTable<DEGREE> {
     pub fn new(modulus: u64) -> RnsNttResult<Self> {
         if !DEGREE.is_power_of_two() {
             return Err(RnsNttError::InvalidDegree { degree: DEGREE });
+        }
+        if modulus >= MAX_FAST_MODULUS {
+            return Err(RnsNttError::ModulusTooLarge { modulus });
         }
         if !is_ntt_friendly_prime(modulus, DEGREE as u64) {
             return Err(RnsNttError::NonNttFriendlyModulus {
@@ -43,7 +75,7 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
         // negacyclic transform for Z[X]/(X^N + 1).
         let order = 2 * DEGREE;
         let psi = find_primitive_root(modulus, order); // order 2N
-        let omega = mod_pow(psi, 2, modulus); // order N
+        let omega = pow_mod(psi, 2, modulus); // order N
         let _bit_count = DEGREE.trailing_zeros() as usize;
 
         let omega_inv = mod_inverse(omega, modulus);
@@ -52,32 +84,31 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
         // The cooley_tukey_ntt accesses roots[offset * step], which equals
         // ω^{offset * (N/len)} — exactly the twiddle needed for the DIT NTT
         // to compute the standard circular DFT at evaluation points ω^0,...,ω^{N-1}.
-        let mut forward_roots = [1u64; DEGREE];
-        for (i, item) in forward_roots.iter_mut().enumerate().skip(1) {
-            *item = mod_pow(omega, i as u64, modulus);
-        }
+        let barrett = Barrett::new(modulus);
+        let powers = |base: u64| {
+            let mut powers = [1u64; DEGREE];
+            for i in 1..DEGREE {
+                powers[i] = barrett.mul(powers[i - 1], base);
+            }
+            powers
+        };
 
-        let mut inverse_roots = [1u64; DEGREE];
-        for (i, item) in inverse_roots.iter_mut().enumerate().skip(1) {
-            *item = mod_pow(omega_inv, i as u64, modulus);
-        }
-
+        let forward_roots = powers(omega);
+        let inverse_roots = powers(omega_inv);
         let n_inv = mod_inverse(DEGREE as u64, modulus);
 
         // ψ^j for j = 0..N: pre-twist before forward NTT.
-        let psi_inv = mod_inverse(psi, modulus);
-        let mut twist_factors = [1u64; DEGREE];
-        for (j, item) in twist_factors.iter_mut().enumerate().skip(1) {
-            *item = mod_pow(psi, j as u64, modulus);
-        }
-
+        let twist_factors = powers(psi);
         // ψ^{-j} for j = 0..N: post-untwist after inverse NTT.
-        let mut untwist_factors = [1u64; DEGREE];
-        for (j, item) in untwist_factors.iter_mut().enumerate().skip(1) {
-            *item = mod_pow(psi_inv, j as u64, modulus);
-        }
+        let untwist_factors = powers(mod_inverse(psi, modulus));
+        let untwist_scaled = untwist_factors.map(|f| barrett.mul(f, n_inv));
 
         Ok(Self {
+            forward_shoup: ShoupFactors::new(forward_roots, modulus),
+            inverse_shoup: ShoupFactors::new(inverse_roots, modulus),
+            twist_shoup: ShoupFactors::new(twist_factors, modulus),
+            untwist_scaled_shoup: ShoupFactors::new(untwist_scaled, modulus),
+            barrett,
             forward_roots,
             inverse_roots,
             n_inv,
@@ -85,6 +116,25 @@ impl<const DEGREE: usize> NttTable<DEGREE> {
             twist_factors,
             untwist_factors,
         })
+    }
+
+    /// Barrett constant of this table's modulus, for general products.
+    pub fn barrett(&self) -> &Barrett {
+        &self.barrett
+    }
+
+    /// Negacyclic forward transform of one channel in place: pre-twist by
+    /// `psi^j`, then forward NTT (coefficient form -> NTT form). This is the
+    /// kernel `RnsPoly` uses per channel; it is public for benchmarks and
+    /// backend comparisons. Inputs must be reduced (`< modulus`).
+    pub fn forward(&self, values: &mut [u64; DEGREE]) {
+        forward_twisted(values, self);
+    }
+
+    /// Inverse of [`Self::forward`]: inverse NTT, then post-untwist by
+    /// `psi^-j` (NTT form -> coefficient form). Inputs must be reduced.
+    pub fn inverse(&self, values: &mut [u64; DEGREE]) {
+        inverse_untwisted(values, self);
     }
 }
 
@@ -227,14 +277,13 @@ impl<const DEGREE: usize> RnsBasis<DEGREE> {
             let current_mod = (&value % prime)
                 .to_u64()
                 .expect("value mod u64 prime always fits in u64");
-            let delta = sub_mod(residues[idx], current_mod, prime);
+            let delta = sub_mod(residues[idx] % prime, current_mod, prime);
             if delta != 0 {
                 let prefix_mod = (&prefix_product % prime)
                     .to_u64()
                     .expect("prefix_product mod u64 prime always fits in u64");
                 let prefix_inv = mod_inverse(prefix_mod, prime);
-                let adjustment =
-                    ((delta as u128 * prefix_inv as u128) % prime as u128) as u64;
+                let adjustment = mul_mod(delta, prefix_inv, prime);
                 if adjustment != 0 {
                     value += &prefix_product * BigUint::from(adjustment);
                 }
@@ -260,27 +309,6 @@ fn biguint_to_i64(value: &BigUint) -> i64 {
 
 // ─── Private number-theory helpers ───────────────────────────────────────────
 
-fn mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
-    let mut result = 1u64;
-    base %= modulus;
-    while exponent > 0 {
-        if exponent & 1 == 1 {
-            result = ((result as u128 * base as u128) % modulus as u128) as u64;
-        }
-        base = ((base as u128 * base as u128) % modulus as u128) as u64;
-        exponent >>= 1;
-    }
-    result
-}
-
-fn sub_mod(value: u64, subtrahend: u64, modulus: u64) -> u64 {
-    if value >= subtrahend {
-        (value - subtrahend) % modulus
-    } else {
-        (value + modulus - subtrahend) % modulus
-    }
-}
-
 pub(super) fn mod_inverse(value: u64, modulus: u64) -> u64 {
     fn extended_gcd(a: i128, b: i128) -> (i128, i128, i128) {
         if a == 0 {
@@ -305,12 +333,12 @@ fn find_primitive_root(modulus: u64, order: usize) -> u64 {
     let factors = distinct_prime_factors(order);
 
     'candidate: for candidate in 2..modulus {
-        let root = mod_pow(candidate, exponent, modulus);
+        let root = pow_mod(candidate, exponent, modulus);
         if root == 1 {
             continue;
         }
         for &factor in &factors {
-            if mod_pow(root, (order / factor) as u64, modulus) == 1 {
+            if pow_mod(root, (order / factor) as u64, modulus) == 1 {
                 continue 'candidate;
             }
         }
@@ -356,6 +384,24 @@ mod tests {
     }
 
     #[test]
+    fn public_transforms_round_trip_and_match_negacyclic_product() {
+        // x * x^7 = x^8 = -1 in Z_17[X]/(X^8 + 1).
+        let table = NttTable::<8>::new(17).unwrap();
+        let mut x = [0, 1, 0, 0, 0, 0, 0, 0];
+        let mut x7 = [0, 0, 0, 0, 0, 0, 0, 1];
+        table.forward(&mut x);
+        table.forward(&mut x7);
+        let mut product = [0u64; 8];
+        for (p, (a, b)) in product.iter_mut().zip(x.iter().zip(&x7)) {
+            *p = a * b % 17;
+        }
+        table.inverse(&mut product);
+        assert_eq!(product, [16, 0, 0, 0, 0, 0, 0, 0]);
+        table.inverse(&mut x);
+        assert_eq!(x, [0, 1, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
     fn rejects_non_friendly_modulus() {
         let result = NttTable::<8>::new(19);
         assert!(matches!(
@@ -365,6 +411,18 @@ mod tests {
                 degree: 8
             })
         ));
+    }
+
+    #[test]
+    fn rejects_modulus_above_fast_arithmetic_limit() {
+        // The size check runs before the primality check.
+        let modulus = MAX_FAST_MODULUS + 17;
+        assert_eq!(
+            NttTable::<8>::new(modulus).unwrap_err(),
+            RnsNttError::ModulusTooLarge { modulus }
+        );
+        let largest = crate::math::generate_primes(62, 1, 8)[0];
+        assert!(NttTable::<8>::new(largest).is_ok());
     }
 
     #[test]

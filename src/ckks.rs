@@ -8,9 +8,11 @@ pub mod errors;
 pub mod evaluator;
 pub mod keys;
 pub mod ops;
+pub mod scale;
 pub mod types;
 
 // Re-export the main types users need
 pub use engine::CkksEngine;
 pub use errors::{CkksError, CkksResult};
+pub use scale::{Scale, ScaleError};
 pub use types::{Ciphertext, Plaintext};

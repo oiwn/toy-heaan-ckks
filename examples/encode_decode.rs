@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use rustfft::num_complex::Complex64;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::types::Plaintext;
 use toy_heaan_ckks::math::generate_primes;
@@ -55,7 +56,8 @@ fn main() {
     }
 
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let encoder = CkksEncoder::<N>::new(SCALE_BITS);
+    let scale = Scale::power_of_two(SCALE_BITS as i32).expect("valid scale");
+    let encoder = CkksEncoder::<N>::new(scale);
 
     // ── 3 & 4. Real-value round-trip ──────────────────────────────────────────
     println!(
@@ -137,7 +139,9 @@ fn main() {
 
     let pi_slice = [std::f64::consts::PI];
     for bits in [10u32, 20, 30, 40] {
-        let enc = CkksEncoder::<N>::new(bits);
+        let enc = CkksEncoder::<N>::new(
+            Scale::power_of_two(bits as i32).expect("valid scale"),
+        );
         let pt: Plaintext<RnsPoly<N>, N> = enc.encode(&pi_slice, basis.clone());
         let dec = enc.decode(&pt);
         let err = (std::f64::consts::PI - dec[0]).abs();

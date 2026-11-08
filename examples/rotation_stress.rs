@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
@@ -32,15 +33,16 @@ fn main() {
     let primes = generate_primes(30, 3, N as u64);
     let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid primes"));
 
+    let scale = Scale::power_of_two(SCALE as i32).expect("valid scale");
     let engine = CkksEngine::new(
         basis.clone(),
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale,
         },
     );
-    let encoder = CkksEncoder::<N>::new(SCALE);
+    let encoder = CkksEncoder::<N>::new(scale);
     let mut rng = ChaCha20Rng::seed_from_u64(42);
 
     let sk = engine.generate_secret_key(&mut rng).unwrap();

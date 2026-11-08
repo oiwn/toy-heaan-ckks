@@ -1,11 +1,12 @@
 use super::{CkksEngine, CkksError};
 use crate::PolyRing;
+use crate::ckks::Scale;
 use crate::ckks::engine::CkksParams;
 
 pub struct CkksEngineBuilder<const DEGREE: usize> {
     error_variance: Option<f64>,
     hamming_weight: Option<usize>,
-    scale_bits: Option<u32>,
+    scale: Option<Scale>,
 }
 
 impl<const DEGREE: usize> Default for CkksEngineBuilder<DEGREE> {
@@ -19,7 +20,7 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
         Self {
             error_variance: None,
             hamming_weight: None,
-            scale_bits: None,
+            scale: None,
         }
     }
 
@@ -33,20 +34,20 @@ impl<const DEGREE: usize> CkksEngineBuilder<DEGREE> {
         self
     }
 
-    pub fn scale_bits(mut self, scale_bits: u32) -> Self {
-        self.scale_bits = Some(scale_bits);
+    pub fn scale(mut self, scale: Scale) -> Self {
+        self.scale = Some(scale);
         self
     }
 
     pub fn build<P: PolyRing<DEGREE>>(
         self,
         context: P::Context,
-        scale_bits: u32,
+        scale: Scale,
     ) -> Result<CkksEngine<P, DEGREE>, CkksError> {
         let params = CkksParams {
             error_variance: self.error_variance.unwrap_or(3.2),
             hamming_weight: self.hamming_weight.unwrap_or(DEGREE / 2),
-            scale_bits,
+            scale,
         };
 
         Ok(CkksEngine::new(context, params))

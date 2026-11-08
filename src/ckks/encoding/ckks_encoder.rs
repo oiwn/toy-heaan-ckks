@@ -12,6 +12,7 @@
 use rustfft::num_complex::Complex64;
 
 use crate::PolyRing;
+use crate::ckks::Scale;
 use crate::ckks::types::Plaintext;
 use crate::rings::RingResult;
 
@@ -23,31 +24,40 @@ use super::special_fft::{
 ///
 /// # Example
 /// ```ignore
-/// let encoder = CkksEncoder::<8>::new(30);
+/// let encoder = CkksEncoder::<8>::new(Scale::power_of_two(30)?);
 /// let basis   = Arc::new(RnsBasis::<8>::new(primes)?);
 /// let pt: Plaintext<RnsPoly<8>, 8> = encoder.encode(&[1.5, -2.0], basis.clone());
-/// let out     = encoder.decode(&pt);             // ≈ [1.5, -2.0]
+/// let out     = encoder.decode(&pt);             // ~ [1.5, -2.0]
 /// ```
 pub struct CkksEncoder<const DEGREE: usize> {
-    scale_bits: u32,
+    scale: Scale,
     tables: VandermondeTables<DEGREE>,
 }
 
 impl<const DEGREE: usize> CkksEncoder<DEGREE> {
-    pub fn new(scale_bits: u32) -> Self {
+    /// Creates an encoder that multiplies values by `scale` before rounding.
+    ///
+    /// # Panics
+    /// Panics if `DEGREE` is not a power of two.
+    pub fn new(scale: Scale) -> Self {
         assert!(
             DEGREE.is_power_of_two(),
             "CkksEncoder: DEGREE must be a power of two"
         );
-        assert!(scale_bits > 0, "CkksEncoder: scale_bits must be positive");
         Self {
-            scale_bits,
+            scale,
             tables: VandermondeTables::new(),
         }
     }
 
+    /// The encoding scale recorded on every plaintext this encoder makes.
+    pub fn scale(&self) -> Scale {
+        self.scale
+    }
+
+    /// The encoding factor as `f64` (`scale().value()`).
     pub fn scale_factor(&self) -> f64 {
-        2f64.powi(self.scale_bits as i32)
+        self.scale.value()
     }
 
     pub fn max_slots(&self) -> usize {
@@ -174,7 +184,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
     /// Panicking wrapper around [`CkksEncoder::try_encode_constant`].
     ///
     /// # Panics
-    /// Panics if `value * 2^scale_bits` does not fit the modulus.
+    /// Panics if `value * scale` does not fit the modulus.
     pub fn encode_constant<P: PolyRing<DEGREE>>(
         &self,
         value: f64,
@@ -187,7 +197,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
     /// Encodes one real value into every slot (SEAL-style scalar encode).
     ///
     /// A value repeated in all `DEGREE/2` slots is the constant polynomial
-    /// `round(value * 2^scale_bits)`, so this skips the DFT entirely: it is
+    /// `round(value * scale)`, so this skips the DFT entirely: it is
     /// exact and O(DEGREE). Scalars must always fill every slot — spreading
     /// a constant over fewer slots gives a non-constant polynomial whose
     /// coefficients can round away (e.g. `0.5` at 1 bit).
@@ -214,7 +224,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
     ) -> RingResult<Plaintext<P, DEGREE>> {
         Ok(Plaintext {
             poly: P::from_rounded_f64(rounded, &context)?,
-            scale_bits: self.scale_bits,
+            scale: self.scale,
             slots,
         })
     }
@@ -236,7 +246,7 @@ impl<const DEGREE: usize> CkksEncoder<DEGREE> {
         &self,
         pt: &Plaintext<P, DEGREE>,
     ) -> Vec<Complex64> {
-        let delta = 2f64.powi(pt.scale_bits as i32);
+        let delta = pt.scale.value();
 
         // Centered coefficients straight into f64 (no i64 limit), then the
         // forward canonical embedding (DFT).
@@ -272,14 +282,18 @@ mod tests {
 
     // For degree 8, NTT-friendly primes must satisfy p ≡ 1 (mod 16).
     // 97 ≡ 1 (mod 16), 113 ≡ 1 (mod 16).
-    // With scale_bits=5 (Δ=32), encoded coefficients fit comfortably mod 97.
+    // With scale 2^5 (= 32), encoded coefficients fit comfortably mod 97.
     fn basis() -> Arc<RnsBasis<8>> {
         Arc::new(RnsBasis::new(vec![97, 113]).unwrap())
     }
 
+    fn pow2(exponent: i32) -> Scale {
+        Scale::power_of_two(exponent).unwrap()
+    }
+
     #[test]
     fn roundtrip_real_values() {
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let values = [1.0f64, -1.0, 0.5, -0.5];
 
         let pt: Pt<8> = encoder.encode(&values, basis());
@@ -292,7 +306,7 @@ mod tests {
 
     #[test]
     fn roundtrip_complex_values() {
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let values = [Complex64::new(1.0, 0.5), Complex64::new(-0.5, 0.25)];
 
         let pt: Pt<8> = encoder.encode_complex(&values, basis());
@@ -306,7 +320,7 @@ mod tests {
 
     #[test]
     fn single_value_roundtrip() {
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let pt: Pt<8> = encoder.encode(&[3.0], basis());
         let out = encoder.decode(&pt);
         assert_relative_eq!(out[0], 3.0, epsilon = 0.1);
@@ -314,7 +328,7 @@ mod tests {
 
     #[test]
     fn slot_count_preserved() {
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let pt: Pt<8> = encoder.encode(&[1.0, 2.0, 3.0], basis());
         let out = encoder.decode(&pt);
         assert_eq!(out.len(), 3);
@@ -322,14 +336,14 @@ mod tests {
 
     #[test]
     fn max_slots_is_half_degree() {
-        let encoder = CkksEncoder::<8>::new(10);
+        let encoder = CkksEncoder::<8>::new(pow2(10));
         assert_eq!(encoder.max_slots(), 4);
     }
 
     #[test]
     #[should_panic(expected = "exceed max slots")]
     fn panics_on_too_many_values() {
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let _: Pt<8> = encoder.encode(&[0.0; 5], basis()); // 5 > 8/2
     }
 
@@ -344,7 +358,7 @@ mod tests {
     /// At scale 2^61, |x| >= 4 overflowed the old i64 staging and saturated.
     #[test]
     fn roundtrip_values_beyond_i64_staging() {
-        let encoder = CkksEncoder::<16>::new(61);
+        let encoder = CkksEncoder::<16>::new(pow2(61));
         let values = [10.0f64, -250.0, 1.0e6, 6.49, -3.5, 0.0, 1.0e-4, 42.0];
 
         let pt: Pt<16> = encoder.try_encode(&values, wide_basis()).unwrap();
@@ -361,9 +375,25 @@ mod tests {
         }
     }
 
+    /// A non-power-of-two scale is recorded on the plaintext and divided out
+    /// exactly on decode.
+    #[test]
+    fn roundtrip_non_power_of_two_scale() {
+        let scale = Scale::new(1.5 * 2f64.powi(40)).unwrap();
+        let encoder = CkksEncoder::<16>::new(scale);
+        let values = [0.75f64, -1.25, 3.0, 1.0e-3];
+
+        let pt: Pt<16> = encoder.encode(&values, wide_basis());
+        assert_eq!(pt.scale, scale);
+        let decoded = encoder.decode(&pt);
+        for (orig, got) in values.iter().zip(decoded.iter()) {
+            assert!((orig - got).abs() < 1e-10, "expected {orig}, got {got}");
+        }
+    }
+
     #[test]
     fn rejects_coefficients_at_half_modulus() {
-        let encoder = CkksEncoder::<16>::new(1);
+        let encoder = CkksEncoder::<16>::new(pow2(1));
         let basis = wide_basis();
         let max_bits = basis.total_bits() - 1;
 
@@ -397,7 +427,7 @@ mod tests {
     #[test]
     fn encode_constant_is_exact_constant_polynomial() {
         let basis = wide_basis();
-        let encoder = CkksEncoder::<16>::new(1);
+        let encoder = CkksEncoder::<16>::new(pow2(1));
 
         // 0.5 at 1 bit -> the integer 1 in coefficient 0, zeros elsewhere.
         let pt: Pt<16> = encoder.encode_constant(0.5, basis.clone());
@@ -405,7 +435,7 @@ mod tests {
         want[0] = 1.0;
         assert_eq!(pt.poly.to_centered_f64(), want);
 
-        let encoder = CkksEncoder::<16>::new(61);
+        let encoder = CkksEncoder::<16>::new(pow2(61));
         let pt: Pt<16> = encoder.encode_constant(-635.25, basis);
         let decoded = encoder.decode(&pt);
         assert_eq!(decoded.len(), 8, "a scalar fills all DEGREE/2 slots");
@@ -417,7 +447,7 @@ mod tests {
     #[test]
     fn encode_constant_rejects_out_of_range() {
         let basis = wide_basis();
-        let encoder = CkksEncoder::<16>::new(61);
+        let encoder = CkksEncoder::<16>::new(pow2(61));
         assert!(
             encoder
                 .try_encode_constant::<RnsPoly<16>>(2f64.powi(200), basis.clone())
@@ -432,7 +462,7 @@ mod tests {
 
     #[test]
     fn rejects_non_finite_values() {
-        let encoder = CkksEncoder::<16>::new(61);
+        let encoder = CkksEncoder::<16>::new(pow2(61));
         for bad in [f64::NAN, f64::INFINITY] {
             let result: RingResult<Pt<16>> =
                 encoder.try_encode(&[bad], wide_basis());
@@ -444,7 +474,7 @@ mod tests {
     #[should_panic(expected = "does not fit the modulus")]
     fn encode_panics_with_clear_message() {
         // Basis 97 * 113 holds |coeff| < 2^11; 1000 * 2^5 does not fit.
-        let encoder = CkksEncoder::<8>::new(5);
+        let encoder = CkksEncoder::<8>::new(pow2(5));
         let _: Pt<8> = encoder.encode(&[1000.0], basis());
     }
 }

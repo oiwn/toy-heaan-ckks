@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
 use toy_heaan_ckks::math::generate_primes;
@@ -31,6 +32,7 @@ fn main() {
 
     // ── 1. Parameters ──────────────────────────────────────────────────────────
     let delta = 2f64.powi(SCALE_BITS as i32);
+    let scale = Scale::power_of_two(SCALE_BITS as i32).expect("valid scale");
     println!("Ring degree N    : {N}");
     println!("Slots  (N/2)     : {}", N / 2);
     println!("Scale bits       : {SCALE_BITS}  →  Δ ≈ {delta:.3e}\n");
@@ -52,7 +54,7 @@ fn main() {
     let params = CkksParams {
         error_variance: 3.2,
         hamming_weight: N / 2,
-        scale_bits: SCALE_BITS,
+        scale,
     };
     let engine = CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params);
 
@@ -71,7 +73,7 @@ fn main() {
     println!("Expected: {:?}\n", expected);
 
     // ── 5. Encode ──────────────────────────────────────────────────────────────
-    let encoder = CkksEncoder::<N>::new(SCALE_BITS);
+    let encoder = CkksEncoder::<N>::new(scale);
     let pt_a = encoder.encode(&a, basis.clone());
     let pt_b = encoder.encode(&b, basis.clone());
 
@@ -79,15 +81,19 @@ fn main() {
     let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
     let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
     println!(
-        "Both plaintexts encrypted (logp={}, logq={}).\n",
-        ct_a.logp,
+        "Both plaintexts encrypted (log2(scale)={:.1}, logq={}).\n",
+        ct_a.scale.log2(),
         ct_a.logq()
     );
 
     // ── 7. Homomorphic add ─────────────────────────────────────────────────────
-    let ct_sum = &ct_a + &ct_b;
+    let ct_sum = ct_a.add(&ct_b).expect("same level and scale");
     println!("Homomorphic addition done (no secret key used).");
-    println!("  Result logp={}, logq={}\n", ct_sum.logp, ct_sum.logq());
+    println!(
+        "  Result log2(scale)={:.1}, logq={}\n",
+        ct_sum.scale.log2(),
+        ct_sum.logq()
+    );
 
     // ── 8. Decrypt ─────────────────────────────────────────────────────────────
     let pt_sum = CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk);

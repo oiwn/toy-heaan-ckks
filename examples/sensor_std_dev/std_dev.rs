@@ -21,8 +21,8 @@ pub struct Stage {
     pub name: &'static str,
     /// RNS channels left in the stage's output ciphertext.
     pub channels: usize,
-    /// Scale bits of the stage's output ciphertext.
-    pub logp: u32,
+    /// `log2` of the stage's output ciphertext scale.
+    pub log2_scale: f64,
     pub elapsed: Duration,
 }
 
@@ -45,7 +45,7 @@ fn record<const DEGREE: usize>(
     stages.push(Stage {
         name,
         channels: ct.c0.basis().channel_count(),
-        logp: ct.logp,
+        log2_scale: ct.scale.log2(),
         elapsed: started.elapsed(),
     });
 }
@@ -69,10 +69,10 @@ fn record<const DEGREE: usize>(
 /// per-stage trace. The sqrt is fitted on
 /// [`SensorContract::variance_interval`].
 ///
-/// Levels consumed: 3 + degree + 1 (mean, square, variance, affine map,
-/// `degree - 1` recurrence muls, final mul). With 61-bit primes the
-/// ciphertext must start with at least `degree + 6` RNS channels (the final
-/// Clenshaw mul needs >= 3).
+/// Levels consumed: 3 + 1 + depth (mean, square, variance, affine map, then
+/// the compiled Chebyshev plan of depth `floor(log2(degree)) + 1`). With
+/// 61-bit primes the plan's products need >= 3 RNS channels, so at least
+/// two channels must remain after the plan; the plan checks this.
 ///
 /// # Panics
 /// Panics if the ciphertext runs out of channels.
@@ -94,9 +94,10 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     record(&mut stages, "sum readings", &sum_ct, started);
 
     let started = Instant::now();
+    // Land exactly on the input's scale so the centering subtraction is
+    // compatible (rescale divides by the actual prime).
     let mean_ct = sum_ct
-        .mul_const(1.0 / slots as f64, ct.logp)
-        .rescale()
+        .mul_const_to_scale(1.0 / slots as f64, ct.scale)
         .expect("mean: rescale");
     record(&mut stages, "mean (x 1/n)", &mean_ct, started);
 
@@ -105,7 +106,7 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     let ct_aligned = ct
         .match_level(&mean_ct)
         .expect("input sits above the mean's level");
-    let centered = &ct_aligned - &mean_ct;
+    let centered = ct_aligned.sub(&mean_ct).expect("center: same level");
     record(&mut stages, "center", &centered, started);
 
     // variance = sum of squared deviations * 1/slots
@@ -119,7 +120,7 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
 
     let started = Instant::now();
     let variance = var_sum
-        .mul_const(1.0 / slots as f64, sq_diff.logp)
+        .mul_const(1.0 / slots as f64, sq_diff.scale)
         .rescale()
         .expect("variance: rescale");
     record(&mut stages, "variance (x 1/n)", &variance, started);
@@ -128,7 +129,8 @@ pub fn encrypted_std_dev<R: Rng, const DEGREE: usize>(
     let started = Instant::now();
     let std_normalized = eval_chebyshev_encrypted(
         &variance, &coeffs, var_lo, var_hi, evaluator, rng,
-    );
+    )
+    .expect("chebyshev sqrt: plan fits the remaining levels");
     record(&mut stages, "chebyshev sqrt", &std_normalized, started);
 
     StdDevRun {
@@ -144,20 +146,20 @@ mod tests {
 
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
-    use toy_heaan_ckks::ckks::CkksEngine;
     use toy_heaan_ckks::ckks::algorithms::chebyshev::{
         eval_chebyshev_clenshaw, to_chebyshev_domain,
     };
     use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
     use toy_heaan_ckks::ckks::engine::CkksParams;
+    use toy_heaan_ckks::ckks::{CkksEngine, Scale};
     use toy_heaan_ckks::math::generate_primes;
     use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
     use super::*;
 
     /// Full encrypted std-dev at toy params with the demo contract:
-    /// N = 16, 8 diurnal-style readings, degree 7. Levels: 3 + 8 = 11, and
-    /// the final mul needs >= 3 channels -> 13 primes, 2 left at the end.
+    /// N = 16, 8 diurnal-style readings, degree 7. Levels: 3 + 1 + 3 = 7,
+    /// so 13 primes leave 6 channels at the end.
     /// The fit interval is narrow ([1e-4, 6.4e-3]), so the affine map
     /// multiplies by ~635 — no longer an encoder problem.
     #[test]
@@ -185,10 +187,11 @@ mod tests {
         let primes = generate_primes(SCALE as usize, degree + 6, N as u64);
         let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
 
+        let scale = Scale::power_of_two(SCALE as i32).expect("valid scale");
         let params = CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale_bits: SCALE,
+            scale,
         };
         let engine =
             CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params.clone());
@@ -197,7 +200,7 @@ mod tests {
         let sk = engine.generate_secret_key(&mut rng).expect("sk");
         let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
 
-        let encoder = CkksEncoder::<N>::new(SCALE);
+        let encoder = CkksEncoder::<N>::new(scale);
         let pt = encoder.encode(&normalized, basis);
         let ct = engine.encrypt(&pt, &pk, &mut rng);
 
@@ -212,8 +215,8 @@ mod tests {
         );
         assert_eq!(
             result.std_normalized.c0.basis().channel_count(),
-            2,
-            "13 primes - 11 levels = 2 channels left"
+            6,
+            "13 primes - 7 levels = 6 channels left"
         );
         assert_eq!(result.stages.len(), 7, "one trace entry per stage");
 

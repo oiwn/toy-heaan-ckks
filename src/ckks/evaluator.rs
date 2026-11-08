@@ -77,17 +77,28 @@ impl<P: PolyRing<DEGREE>, const DEGREE: usize> LeveledEvaluator<P, DEGREE> {
         b: &Ciphertext<P, DEGREE>,
         rng: &mut R,
     ) -> Ciphertext<P, DEGREE> {
-        let level = a.level();
-        let rlk = self.rlks.remove(&level).unwrap_or_else(|| {
-            RelinearizationKey::generate(
+        let product = a.mul(b, self.relin_key(a.level(), rng));
+        product.rescale().expect("LeveledEvaluator::mul: rescale")
+    }
+
+    /// The relinearization key for `level`, generated on first use.
+    ///
+    /// # Panics
+    /// Panics if `level` is above the secret key's level.
+    pub fn relin_key<R: Rng>(
+        &mut self,
+        level: usize,
+        rng: &mut R,
+    ) -> &RelinearizationKey<P, DEGREE> {
+        if !self.rlks.contains_key(&level) {
+            let key = RelinearizationKey::generate(
                 &self.secret_key_at(level),
                 self.key_error_std(),
                 rng,
-            )
-        });
-        let product = a.mul(b, &rlk);
-        self.rlks.insert(level, rlk);
-        product.rescale().expect("LeveledEvaluator::mul: rescale")
+            );
+            self.rlks.insert(level, key);
+        }
+        &self.rlks[&level]
     }
 
     /// [`sum_slots`] with rotation keys generated (and cached) per level.
