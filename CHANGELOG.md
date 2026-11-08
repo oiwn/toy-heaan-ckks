@@ -9,6 +9,16 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-08 — bootstrap ratio default
+
+- `BootstrapConfig::reference(N)` picks the message ratio from N (17 up to N=64, then `17 - log2 N`, at least 4), caps the secret weight at 64 with five double angles above weight 32, and the schedule checks the output can be squared once; bootstrap now passes 1e-3 at N=16 to 8192 with the defaults.
+- Task `0045-bootstrap-ratio-default`; source: Operator agreed large-degree roadmap, 2026-11-03
+
+## 2026-11-06 — rns fast modmul
+
+- Shoup and Barrett modular multiplication replace the u128 remainder in the RNS-NTT backend: NTT 5-6x, ring and key-switching operations 4-5x, bootstrap 4x faster, results bit-identical.
+- Task `0052-rns-fast-modmul`; source: Operator: tests too slow, 2026-11-03
+
 ## 2026-11-04 — bootstrap general final
 
 - Bootstrap takes a message ratio and validates any config against the chain (levels, headroom, scale drift) instead of a fixed reference profile.

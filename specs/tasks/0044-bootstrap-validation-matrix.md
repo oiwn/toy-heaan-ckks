@@ -12,6 +12,8 @@ depends: [0043-bootstrap-general-final, 0045-bootstrap-ratio-default]
 
 Second half of the old 0043 (split by the operator 2026-11-02). 0043 generalizes bootstrap validation; this task migrates its users, runs the final validation matrix in `specs/research/generic-bootstrap.md` and marks it complete. After acceptance, 0037 returns to the file review.
 
+^^^ wtf is "mgrates it's users"? which one?
+
 Large-degree behaviour (N up to 8192, `examples/bootstrap_large.rs`) is recorded in `specs/research/large-degree-bootstrap.md`: the reference ratio 17 does not hold above N=128, and the error follows q0/message. The matrix uses the degree-dependent reference ratio from 0045.
 
 Rules: touch only scoped files (extend with `specdev task scope` first). If the same check fails twice, stop, record the failure and a hypothesis in Findings and ask the operator. Never weaken tolerances, disable noise or add `#[ignore]`.

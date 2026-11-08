@@ -32,7 +32,12 @@ Run `cargo run --release --example bootstrap_demo` for encrypted computation,
 refresh, multiplication and a second refresh at degrees 16 and 64.
 
 The supported toy profile uses 18 NTT primes within 2^20 of 2^61, input/output
-scale 2^44, degree-31 cosine and four double-angle steps. Bootstrap accepts any
+scale 2^44, degree-31 cosine and four double-angle steps.
+Above N=64, `BootstrapConfig::reference(N)` derives the settings from N:
+message ratio `17 - log2 N` (at least 4), so the scale grows to 2^51 at
+N=128 and 2^57 at N=8192; secret weight min(N/2, 64); and five
+double-angle steps above weight 32. Every measured degree from 16 to 8192
+passes 1e-3 by at least 3x (`examples/bootstrap_large.rs`). Bootstrap accepts any
 level in its context chain and a positive scale no greater than 2^44; it
 normalizes a copy and prepares the bottom level internally. It returns level 6
 at scale 2^44. All N/2 complex slots must have magnitude at most 1. This is a caller
@@ -119,6 +124,10 @@ cargo bench -- --save-baseline before
 cargo bench -- --baseline before
 ```
 
+`--baseline` aborts on benches the baseline does not contain (a new variant,
+say); `--baseline-lenient before` compares what exists and just measures the
+rest.
+
 Each bench checks its results once before timing (decryption error, NTT round
 trip, bootstrap within 1e-3), so a fast but wrong path fails instead of
 reporting numbers. With `BENCH_FULL=1`, HTML reports land in
@@ -146,6 +155,7 @@ Current examples:
 | `rotation_stress` | Rotation checks across a wider set of offsets. |
 | `horner_chain` | Multi-level affine Horner-style chain over many slots. |
 | `std_dev_8` | Documented scaffold for encrypted standard deviation over 8 slots. |
+| `modmul_methods` | Narrated u128, Barrett and Shoup modular multiplication: how each works, worked steps, agreement, rough timing (`--release`). |
 
 Good starting points:
 

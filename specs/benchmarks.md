@@ -2,6 +2,66 @@
 
 Measured results of the Criterion benches (`benches/`, task 0018). Each run records its environment and the change it measures; newer runs go on top. Bench ids read `<group>/<op>/<backend>/N<degree>/<bits>b/L<level>`. How to run: README "Benchmarks".
 
+## 2026-11-06 — Shoup/Barrett (`post-0052`)
+
+Task 0052: NTT butterflies, twist/untwist and fixed factors (rescale, gadget terms) use Shoup multiplication; pointwise products use Barrett. Plain Shoup, values always fully reduced; results bit-identical to the baseline.
+
+- Machine, toolchain and config as the baseline below.
+- Command: `cargo bench -- --baseline-lenient pre-0052`, then `--save-baseline post-0052`. Before = `pre-0052` median, after = this run's median.
+
+### Modular arithmetic (`arith`)
+
+| Op | 30-bit | 50-bit | 61-bit |
+|---|---|---|---|
+| mul u128 | 1.48 ns | 5.52 ns | 5.52 ns |
+| mul barrett | 6.06 ns | 6.13 ns | 6.12 ns |
+| mul shoup | 0.89 ns | 0.87 ns | 0.87 ns |
+| pow u128 / barrett | 145 / 125 ns | 739 / 214 ns | 967 / 264 ns |
+| pointwise mul x4096, u128 / barrett | 6.08 / 4.12 us | 28.7 / 4.15 us | 21.3 / 4.14 us |
+| pointwise mul by a constant x4096, u128 / shoup | 6.09 / 1.83 us | 26.3 / 1.83 us | 21.1 / 1.82 us |
+
+The scalar `mul` bench measures latency: one Barrett product is a chain of four dependent multiplies (6 ns), while the u128 remainder on a 30-bit modulus takes the routine's fast path. In a loop the products overlap, and Barrett costs 1.0 ns against 5.2 ns (61-bit) — the case the library uses.
+
+### Before -> after (61-bit primes)
+
+| Bench | Before | After | Speedup |
+|---|---|---|---|
+| NTT forward N1024 / N4096 | 33.0 / 156 us | 6.10 / 31.9 us | 5.4x / 4.9x |
+| NTT inverse N1024 / N4096 | 38.4 / 177 us | 6.03 / 31.9 us | 6.4x / 5.5x |
+| ring mul N1024 L3 / N4096 L12 | 16.7 / 267 us | 3.45 / 57.3 us | 4.8x / 4.7x |
+| automorphism N4096 L12 | 4.02 ms | 788 us | 5.1x |
+| decompose N1024 L12 / N4096 L12 | 18.2 / 87.1 ms | 4.16 / 20.7 ms | 4.4x / 4.2x |
+| rescale N4096 L12 | 2.20 ms | 452 us | 4.9x |
+| mod_raise N4096 L12 | 2.19 ms | 557 us | 3.9x |
+| from_coeffs N4096 L12 | 2.01 ms | 471 us | 4.3x |
+| to_coeffs N4096 L3 / L12 | 1.64 / 11.6 ms | 1.11 / 9.50 ms | 1.5x / 1.2x |
+| gadget_term N4096 L12 | 8.43 us | 3.37 us | 2.5x |
+| encode / decode N2048 | 9.41 / 11.8 ms | 8.84 / 11.1 ms | 1.06x |
+| encrypt / decrypt N2048 | 2.09 ms / 93.6 us | 538 / 23.8 us | 3.9x |
+| mul + relin N1024 / N2048 | 11.4 / 24.4 ms | 2.73 / 5.71 ms | 4.2x / 4.3x |
+| rotate N2048 | 26.5 ms | 6.09 ms | 4.4x |
+| relin keygen N2048 | 48.0 ms | 15.1 ms | 3.2x |
+| bootstrap N64: plan / keygen / bootstrap | 694 us / 55.0 / 60.7 ms | 429 us / 21.9 / 15.9 ms | 1.6x / 2.5x / 3.8x |
+| bootstrap N256: plan / keygen / bootstrap | 9.95 / 532 / 503 ms | 7.35 / 186 / 126 ms | 1.4x / 2.9x / 4.0x |
+| generate_primes 61-bit x5 | 164 us | 76.4 us | 2.1x |
+
+50-bit primes now cost the same as 61-bit (mul 3.49 vs 3.45 us, rescale 22.1 vs 22.2 us at N1024 L3); the gap in the baseline came from the u128 remainder. Add, neg and mod_switch are unchanged (no products).
+
+Outside Criterion (release):
+
+| Run | Before | After |
+|---|---|---|
+| `bootstrap_large --degree 1024`: keygen / one bootstrap / whole run | 3.35 / 2.82 / 9.75 s | 1.11 / 0.68 / 3.14 s |
+| `bootstrap_demo` whole run | 1.08 s | 0.65 s |
+| `cargo test --all-features`: lib / `tests/bootstrap.rs` | 4.75 / 36.2 s | 2.39 / 15.2 s |
+
+### Observations
+
+- Everything built on the NTT is 4-5x faster; the remaining costs are elsewhere. `to_coeffs` (BigUint CRT) and encode/decode (special FFT in f64, BigUint) barely moved and now dominate their operations.
+- `decompose` (20.7 ms at N4096 L12) is still about 360x a multiply: 4L digit polynomials, each one forward NTT per channel, so it grows with L^2. Key switching follows it (rotate about 300x a ring multiply at N1024 L8). Hybrid key switching (0048) cuts the digit count.
+- `automorphism` is still a coefficient-form round trip (~14x a multiply); an NTT-domain permutation would remove both transforms.
+- Lazy Harvey butterflies would save the conditional subtractions in the NTT; worth it only once the NTT dominates again.
+
 ## 2026-11-04 — u128 baseline (`pre-0052`)
 
 Baseline before Shoup/Barrett (0052): every modular product is `(a * b as u128) % q`.

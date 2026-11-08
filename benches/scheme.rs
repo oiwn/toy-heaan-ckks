@@ -143,31 +143,17 @@ fn scheme_ops<P: Backend<N>, const N: usize>(c: &mut Criterion) {
 }
 
 /// Bootstrap config for degree `N`, matching `examples/bootstrap_large.rs`:
-/// weight min(N/2, 64), ratio 8 above N=64 (the reference ratio 17 fails
-/// there; 0045 replaces this with a degree-dependent reference), five
-/// double angles above weight 32, grouped transforms.
+/// the reference (weight, ratio and double angles chosen from N) with
+/// grouped transforms.
 fn bootstrap_config<const N: usize>(
     cts: Option<usize>,
     stc: Option<usize>,
 ) -> BootstrapConfig {
     let stages = (N / 2).ilog2() as usize;
-    let weight = (N / 2).min(64);
-    let reference = BootstrapConfig::reference(N).expect("reference");
     BootstrapConfig {
-        max_secret_weight: weight,
-        message_ratio_bits: if N > 64 {
-            8
-        } else {
-            reference.message_ratio_bits
-        },
-        double_angles: if weight > 32 {
-            5
-        } else {
-            reference.double_angles
-        },
         coeffs_to_slots_levels: cts.unwrap_or(stages.div_ceil(2)),
         slots_to_coeffs_levels: stc.unwrap_or(stages.div_ceil(3)),
-        ..reference
+        ..BootstrapConfig::reference(N).expect("reference")
     }
 }
 

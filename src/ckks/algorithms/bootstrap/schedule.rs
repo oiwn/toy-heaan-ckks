@@ -25,6 +25,43 @@ fn invalid(message: &str) -> CkksError {
 /// doubles the shift; past this bound the polynomial loses its precision.
 pub const MAX_SCALE_DRIFT_BITS: f64 = 1.0;
 
+/// Largest secret weight of the reference settings. The mod-raise overflow
+/// bound, and with it the EvalMod interval, grows with the weight; 64
+/// (radius 34) is what the large-degree measurements use.
+pub const MAX_REFERENCE_WEIGHT: usize = 64;
+
+/// Message ratio of the reference settings at small degrees (message scale
+/// 2^44 on a 61-bit `q0`); recurrence and the small-degree demos rely on it.
+pub const SMALL_DEGREE_RATIO_BITS: u32 = 17;
+
+/// Largest degree that keeps [`SMALL_DEGREE_RATIO_BITS`].
+pub const SMALL_DEGREE_LIMIT: usize = 64;
+
+/// Smallest reference ratio; below it the sine linearization error grows
+/// 16x per 2 bits (measured).
+pub const MIN_REFERENCE_RATIO_BITS: u32 = 4;
+
+/// Reference message ratio for ring degree `ring_degree`.
+///
+/// The bootstrap error is U-shaped in the ratio: above the optimum the
+/// noise before EvalMod is amplified by `q0 / message_scale` (doubling per
+/// bit), below it the cubic sine linearization error takes over. The
+/// optimum drops about one bit per doubling of N, because large-N message
+/// coefficients are small while key-switching noise grows. Fitted to the
+/// sweep in `specs/research/large-degree-bootstrap.md` (20-bit digits,
+/// weight min(N/2, 64)): `17 - log2 N` above N=64, at least 4, which gives
+/// 10 at N=128 and 4 at N=8192. N <= 64 keeps 17 (worst measured 2.6e-4).
+/// OpenFHE fits a similar line in log2 N for its correction factor. Hybrid
+/// key switching (task 0048) lowers the noise, so the fit is redone there.
+pub fn reference_ratio_bits(ring_degree: usize) -> u32 {
+    if ring_degree <= SMALL_DEGREE_LIMIT {
+        return SMALL_DEGREE_RATIO_BITS;
+    }
+    SMALL_DEGREE_RATIO_BITS
+        .saturating_sub(ring_degree.ilog2())
+        .max(MIN_REFERENCE_RATIO_BITS)
+}
+
 /// Numerical settings of a bootstrap.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BootstrapConfig {
@@ -49,21 +86,24 @@ pub struct BootstrapConfig {
 }
 
 impl BootstrapConfig {
-    /// The reference settings, measured with 18 near-2^61 primes: message
-    /// ratio 2^17 (message scale 2^44), working scale 2^61, degree 31, four
-    /// double angles, one-level transforms and secret weight up to N/2.
+    /// The reference settings, measured with near-2^61 primes: message
+    /// ratio from [`reference_ratio_bits`] (2^17, message scale 2^44, up to
+    /// N=64), working scale 2^61, degree 31, secret weight min(N/2, 64),
+    /// four double angles (five above weight 32) and one-level transforms.
     ///
     /// # Errors
     /// Never fails for these constants; the signature follows `Scale`.
     pub fn reference(ring_degree: usize) -> CkksResult<Self> {
+        let max_secret_weight = (ring_degree / 2).min(MAX_REFERENCE_WEIGHT);
         Ok(Self {
-            message_ratio_bits: 17,
+            message_ratio_bits: reference_ratio_bits(ring_degree),
             working_scale: Scale::power_of_two(61)?,
             polynomial_degree: 31,
-            double_angles: 4,
+            // A wider EvalMod interval needs one more halving of the period.
+            double_angles: if max_secret_weight > 32 { 5 } else { 4 },
             coeffs_to_slots_levels: 1,
             slots_to_coeffs_levels: 1,
-            max_secret_weight: ring_degree / 2,
+            max_secret_weight,
         })
     }
 
@@ -257,6 +297,7 @@ impl BootstrapSchedule {
                 diagonal_scale,
             )?;
         }
+        builder.output_headroom(message_scale)?;
         Ok(Self {
             stages: builder.stages,
             keys: builder.keys,
@@ -368,6 +409,22 @@ impl<P: PolyRing<N>, const N: usize> Builder<'_, P, N> {
             return Err(invalid(&format!(
                 "bootstrap product lacks headroom at level {}",
                 self.level
+            )));
+        }
+        Ok(())
+    }
+
+    /// The output must survive one squaring and its rescale: a level to
+    /// drop and room for `message_scale^2` (a smaller message ratio raises
+    /// the message scale, so this is checked, not assumed).
+    fn output_headroom(&self, message_scale: Scale) -> CkksResult<()> {
+        let square = message_scale.checked_mul(message_scale)?;
+        if self.level < 2 || self.headroom(square, 1.0).is_err() {
+            return Err(invalid(&format!(
+                "bootstrap output at level {} cannot be squared: needs a \
+                 level to rescale and room for a 2^{:.0} product",
+                self.level,
+                square.log2()
             )));
         }
         Ok(())

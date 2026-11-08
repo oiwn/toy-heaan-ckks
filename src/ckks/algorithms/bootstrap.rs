@@ -27,7 +27,7 @@ pub mod transforms;
 use linear::EncodedTransform;
 pub use schedule::{
     BootstrapConfig, BootstrapKeyRequirements, BootstrapSchedule, BootstrapStage,
-    StageSchedule,
+    StageSchedule, reference_ratio_bits,
 };
 use transforms::FactoredTransform;
 
@@ -657,30 +657,37 @@ mod tests {
                 .expect("alternating widths drift")
                 .to_string();
         assert!(error.contains("drift"), "{error}");
-        // Full radix-two budgets need 2*log2(N/2) + 9 levels below the top;
-        // at N=64 that is 19 > 17, so the schedule rejects the chain.
+        // Full radix-two budgets need 2*log2(N/2) + 9 levels below the top,
+        // and the output keeps one spare level for a squaring: at N=64 that
+        // is 19 > 16, so the schedule rejects the 18-prime chain.
         let full = (N / 2).ilog2() as usize;
         let deepest = BootstrapConfig {
             coeffs_to_slots_levels: full,
             slots_to_coeffs_levels: full,
             ..reference.clone()
         };
-        let fits = 2 * full + 9 <= 17;
+        let fits = 2 * full + 9 <= 16;
         assert_eq!(
             BootstrapPlan::<RnsPoly<N>, N>::new(basis.clone(), deepest).is_ok(),
             fits
         );
-        // The reference consumes 11 levels above the bottom prime: 12 primes
-        // are the shortest chain that holds it.
-        for (count, fits) in [(12, true), (11, false)] {
+        // The reference consumes 11 levels and its output must be squared
+        // once more: 13 primes are the shortest chain that holds it. With 12
+        // the output lands on level 1 and the error names it.
+        for (count, fits) in [(13, true), (12, false), (11, false)] {
             let chain = Arc::new(
                 RnsBasis::<N>::new(generate_primes(61, count, N as u64)).unwrap(),
             );
-            assert_eq!(
-                BootstrapPlan::<RnsPoly<N>, N>::new(chain, reference.clone())
-                    .is_ok(),
-                fits
-            );
+            let result =
+                BootstrapPlan::<RnsPoly<N>, N>::new(chain, reference.clone());
+            assert_eq!(result.is_ok(), fits, "{count} primes");
+            if count == 12 {
+                let error = result.err().expect("no headroom").to_string();
+                assert!(
+                    error.contains("output at level 1 cannot be squared"),
+                    "{error}"
+                );
+            }
         }
     }
 
@@ -861,9 +868,34 @@ mod tests {
     }
 
     #[test]
+    fn reference_follows_degree() {
+        let ratios: Vec<_> = [16, 64, 128, 256, 1024, 8192, 1 << 14]
+            .into_iter()
+            .map(reference_ratio_bits)
+            .collect();
+        assert_eq!(ratios, [17, 17, 10, 9, 7, 4, 4]);
+        for (degree, weight, angles) in [(64, 32, 4), (128, 64, 5), (8192, 64, 5)] {
+            let config = BootstrapConfig::reference(degree).unwrap();
+            assert_eq!(config.max_secret_weight, weight, "N={degree}");
+            assert_eq!(config.double_angles, angles, "N={degree}");
+        }
+    }
+
+    #[test]
     fn accepted_configs() {
         accepted::<32>(61, BootstrapConfig::reference(32).unwrap(), 5, 44);
-        accepted::<128>(61, BootstrapConfig::reference(128).unwrap(), 5, 44);
+        // Above N=64 the reference ratio is 17 - log2 N: 2^51 at N=128.
+        accepted::<128>(61, BootstrapConfig::reference(128).unwrap(), 5, 51);
+        accepted::<1024>(
+            61,
+            BootstrapConfig {
+                coeffs_to_slots_levels: 2,
+                slots_to_coeffs_levels: 2,
+                ..BootstrapConfig::reference(1024).unwrap()
+            },
+            5,
+            54,
+        );
         accepted::<16>(
             60,
             BootstrapConfig {

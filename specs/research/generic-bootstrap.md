@@ -45,7 +45,7 @@ Tracked as separate task files (operator decision 2026-11-02); each has its own 
 - [x] `specs/tasks/done/0040-encrypted-polynomial-executor.md` — rescale divides by the actual prime; encrypted `ChebyshevPlan` executor; bootstrap EvalMod and the Chebyshev evaluator migrate to it.
 - [x] `specs/tasks/done/0041-bootstrap-config-schedule.md` — `BootstrapConfig` + `BootstrapSchedule` replace `toy()` and fixed offsets/constants (one-level transforms).
 - [x] `specs/tasks/done/0042-multi-group-transforms.md` — transform groups at scheduled levels, per-level derived keys.
-- [ ] `specs/tasks/0043-bootstrap-general-final.md` — message ratio config; derived validation replaces the profile whitelist.
+- [x] `specs/tasks/done/0043-bootstrap-general-final.md` — message ratio config; derived validation replaces the profile whitelist.
 - [ ] `specs/tasks/0044-bootstrap-validation-matrix.md` — migrate recurrence/examples, final validation matrix below.
 
 Why two phases: with actual-divisor rescale, values reaching an add by different paths differ in scale by up to about 2^-41 (relative), above the 64*eps tolerance. Flipping rescale before the executor exists breaks bootstrap `term`/`eval_mod`, Clenshaw and examples at once.

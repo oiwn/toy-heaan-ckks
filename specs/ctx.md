@@ -1,6 +1,6 @@
 # Current Task Context: Publication review: architecture, code, docs
 
-State: bootstrap chain 0038-0044 active (0038-0042 done; 0043 awaiting operator acceptance; 0044 draft); 0037 blocked until the chain lands, then the repository review resumes.
+State: bootstrap chain 0038-0044 active (0038-0043, 0045 done; 0044 draft); 0037 blocked until the chain lands, then the repository review resumes.
 
 ## Plan
 
@@ -35,6 +35,6 @@ Active cleanup task0037: review every repository-owned file with the operator, m
 
 ## Next
 
-Next: operator accepts 0043; then 0052 or 0045 (baseline: `specs/benchmarks.md`). Research: 0023/0024/0025, `specs/research/large-degree-bootstrap.md`.
+Next: 0044 (validation matrix). Bench results: `specs/benchmarks.md`. Research: 0023/0024/0025, `specs/research/large-degree-bootstrap.md`.
 
 Other drafts 0015-0022 (wasm, debug tooling, operation benchmarks, SIMD, GPU, Apple NPU, reference backend) wait for operator review; the `tracing` candidate moved to 0017. Side task 0013 (educational Sage scripts) remains independent.

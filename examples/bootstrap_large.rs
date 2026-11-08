@@ -6,17 +6,18 @@
 //! a secure parameter set: N=8192 supports only ~218 modulus bits at
 //! 128-bit security, and this chain has over a thousand.
 //!
-//! Defaults are the measured N=8192 setting: weight 64 (radius 34) needs
-//! five double angles with degree 31, and the message ratio drops from the
-//! reference 2^17 to 2^6. Key-switching noise (20-bit gadget digits, no
-//! special modulus) grows about N^1.5 in the output, and bootstrap
-//! amplifies it by q0/message_scale; a smaller ratio trades that for sine
-//! linearization error, which stays small because large-N message
+//! Weight, message ratio and double angles default to
+//! `BootstrapConfig::reference(N)`, which picks them from N: weight
+//! min(N/2, 64), five double angles above weight 32, and a ratio that drops
+//! from 2^17 at small N as N grows. Key-switching noise (20-bit gadget
+//! digits, no special modulus) grows about N^1.5 in the output, and
+//! bootstrap amplifies it by q0/message_scale; a smaller ratio trades that
+//! for sine linearization error, which stays small because large-N message
 //! coefficients are small. N=8192 needs ~7.5 GB, mostly rotation keys.
 //!
 //! ```text
-//! cargo run --release --example bootstrap_large -- [--degree 64..8192]
-//!     [--weight 64] [--cts L] [--stc L] [--ratio 6] [--poly 31] [--angles 5]
+//! cargo run --release --example bootstrap_large -- [--degree 16..8192]
+//!     [--weight W] [--cts L] [--stc L] [--ratio R] [--poly 31] [--angles A]
 //!     [--cycles 2] [--plan-only]
 //! ```
 use std::sync::Arc;
@@ -37,12 +38,12 @@ type Error = Box<dyn std::error::Error>;
 
 struct Options {
     degree: usize,
-    weight: usize,
+    weight: Option<usize>,
     cts: Option<usize>,
     stc: Option<usize>,
-    ratio: u32,
+    ratio: Option<u32>,
     poly: usize,
-    angles: u32,
+    angles: Option<u32>,
     cycles: usize,
     plan_only: bool,
 }
@@ -50,12 +51,12 @@ struct Options {
 fn parse() -> Result<Options, Error> {
     let mut options = Options {
         degree: 8192,
-        weight: 64,
+        weight: None,
         cts: None,
         stc: None,
-        ratio: 6,
+        ratio: None,
         poly: 31,
-        angles: 5,
+        angles: None,
         cycles: 2,
         plan_only: false,
     };
@@ -68,12 +69,12 @@ fn parse() -> Result<Options, Error> {
         let value = args.next().ok_or(format!("{flag} needs a value"))?;
         match flag.as_str() {
             "--degree" => options.degree = value.parse()?,
-            "--weight" => options.weight = value.parse()?,
+            "--weight" => options.weight = Some(value.parse()?),
             "--cts" => options.cts = Some(value.parse()?),
             "--stc" => options.stc = Some(value.parse()?),
-            "--ratio" => options.ratio = value.parse()?,
+            "--ratio" => options.ratio = Some(value.parse()?),
             "--poly" => options.poly = value.parse()?,
-            "--angles" => options.angles = value.parse()?,
+            "--angles" => options.angles = Some(value.parse()?),
             "--cycles" => options.cycles = value.parse()?,
             _ => return Err(format!("unknown option {flag}").into()),
         }
@@ -90,14 +91,15 @@ fn run<const N: usize>(options: &Options) -> Result<(), Error> {
     // Defaults: CtS groups of two butterfly stages (6 rotations per level,
     // keys at the large top levels stay few), StC groups of three (14
     // rotations, but at small levels).
+    let reference = BootstrapConfig::reference(N)?;
     let config = BootstrapConfig {
-        max_secret_weight: options.weight,
-        message_ratio_bits: options.ratio,
+        max_secret_weight: options.weight.unwrap_or(reference.max_secret_weight),
+        message_ratio_bits: options.ratio.unwrap_or(reference.message_ratio_bits),
         polynomial_degree: options.poly,
-        double_angles: options.angles,
+        double_angles: options.angles.unwrap_or(reference.double_angles),
         coeffs_to_slots_levels: options.cts.unwrap_or(stages.div_ceil(2)),
         slots_to_coeffs_levels: options.stc.unwrap_or(stages.div_ceil(3)),
-        ..BootstrapConfig::reference(N)?
+        ..reference
     };
     let polynomial_depth = config.polynomial_degree.ilog2() as usize + 1;
     let depth = config.coeffs_to_slots_levels
@@ -207,10 +209,15 @@ fn run<const N: usize>(options: &Options) -> Result<(), Error> {
         let mean = errors.iter().sum::<f64>() / errors.len() as f64;
         println!(
             "cycle={cycle} time={elapsed:?} level={} log2(scale)={:.2} \
-             max_error={max:.3e} mean_error={mean:.3e} precision_bits={:.1}",
+             max_error={max:.3e} mean_error={mean:.3e} precision_bits={:.1} {}",
             refreshed.level(),
             refreshed.scale.log2(),
-            -max.log2()
+            -max.log2(),
+            if max < 1e-3 {
+                "pass"
+            } else {
+                "FAIL (gate 1e-3)"
+            }
         );
         if cycle + 1 < options.cycles {
             let relin = RelinearizationKey::generate(&sk, 3.2f64.sqrt(), &mut rng);
@@ -226,6 +233,8 @@ fn run<const N: usize>(options: &Options) -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     let options = parse()?;
     match options.degree {
+        16 => run::<16>(&options),
+        32 => run::<32>(&options),
         64 => run::<64>(&options),
         128 => run::<128>(&options),
         256 => run::<256>(&options),

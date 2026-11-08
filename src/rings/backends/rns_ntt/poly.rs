@@ -1,6 +1,9 @@
-use super::basis::{NttTable, RnsBasis, mod_inverse, reverse_bits};
+use super::basis::{NttTable, RnsBasis, ShoupFactors, mod_inverse, reverse_bits};
 use crate::{
-    math::sampling::{ternary_coefficients, uniform_coefficients},
+    math::{
+        modular::{add_mod, mul_mod, mul_shoup, pow_mod, shoup_companion, sub_mod},
+        sampling::{ternary_coefficients, uniform_coefficients},
+    },
     rings::{
         errors::{RingError, RingResult},
         traits::PolyRing,
@@ -168,9 +171,9 @@ impl<const DEGREE: usize> MulAssign<&RnsPoly<DEGREE>> for RnsPoly<DEGREE> {
         self.make_ntt_form();
         let rhs = rhs.ntt_form();
         for (ch, channel) in self.channels.iter_mut().enumerate() {
-            let q = self.basis.moduli()[ch];
+            let barrett = self.basis.ntt_table(ch).barrett();
             for (a, &b) in channel.iter_mut().zip(rhs.channels[ch].iter()) {
-                *a = mul_mod(*a, b, q);
+                *a = barrett.mul(*a, b);
             }
         }
     }
@@ -418,11 +421,12 @@ impl<const DEGREE: usize> PolyRing<DEGREE> for RnsPoly<DEGREE> {
         for (i, new_channel) in channels.iter_mut().enumerate() {
             let q_i = self.basis.moduli()[i];
             let q_last_inv = mod_inverse(q_last % q_i, q_i);
+            let companion = shoup_companion(q_last_inv, q_i);
             let mut last_mod_qi = last_coeffs.map(|c| c % q_i);
             forward_twisted(&mut last_mod_qi, self.basis.ntt_table(i));
             for (j, value) in new_channel.iter_mut().enumerate() {
                 let diff = sub_mod(source.channels[i][j], last_mod_qi[j], q_i);
-                *value = mul_mod(diff, q_last_inv, q_i);
+                *value = mul_shoup(diff, q_last_inv, companion, q_i);
             }
         }
 
@@ -495,9 +499,11 @@ impl<const DEGREE: usize> PolyRing<DEGREE> for RnsPoly<DEGREE> {
         for (i, &q_i) in self.basis.moduli().iter().enumerate() {
             let digits = digit_count(q_i, digit_bits);
             if remaining < digits {
-                let factor = pow2_mod(remaining as u64 * digit_bits as u64, q_i);
+                let factor = pow_mod(2, remaining as u64 * digit_bits as u64, q_i);
+                let companion = shoup_companion(factor, q_i);
                 let mut channels = vec![[0u64; DEGREE]; self.basis.channel_count()];
-                channels[i] = self.channels[i].map(|c| mul_mod(c, factor, q_i));
+                channels[i] =
+                    self.channels[i].map(|c| mul_shoup(c, factor, companion, q_i));
                 return Self {
                     channels,
                     basis: self.basis.clone(),
@@ -532,7 +538,7 @@ fn rounded_to_residue(value: f64, prime: u64) -> u64 {
         let exponent = ((bits >> 52) & 0x7ff) as i64 - 1075;
         let mantissa = (bits & ((1u64 << 52) - 1)) | (1u64 << 52);
         debug_assert!(exponent > 0, "values >= 2^63 have a positive exponent");
-        mul_mod(mantissa % prime, pow2_mod(exponent as u64, prime), prime)
+        mul_mod(mantissa % prime, pow_mod(2, exponent as u64, prime), prime)
     };
 
     if value < 0.0 && residue != 0 {
@@ -549,45 +555,46 @@ pub(super) fn forward_twisted<const DEGREE: usize>(
     channel: &mut [u64; DEGREE],
     table: &NttTable<DEGREE>,
 ) {
-    for (j, v) in channel.iter_mut().enumerate() {
-        *v = mul_mod(*v, table.twist_factors[j], table.modulus);
-    }
-    forward_ntt(channel, table);
+    scale_pointwise(channel, &table.twist_shoup, table.modulus);
+    bit_reverse_permute(channel);
+    cooley_tukey_ntt(channel, &table.forward_shoup, table.modulus);
 }
 
 /// Inverse NTT, then post-untwist by psi^-j: NTT form -> coefficients.
+///
+/// The `1/N` of the inverse NTT is folded into the untwist factors
+/// (`untwist_scaled_shoup`), so both happen in one pass.
 pub(super) fn inverse_untwisted<const DEGREE: usize>(
     channel: &mut [u64; DEGREE],
     table: &NttTable<DEGREE>,
 ) {
-    inverse_ntt(channel, table);
-    for (j, v) in channel.iter_mut().enumerate() {
-        *v = mul_mod(*v, table.untwist_factors[j], table.modulus);
+    bit_reverse_permute(channel);
+    cooley_tukey_ntt(channel, &table.inverse_shoup, table.modulus);
+    scale_pointwise(channel, &table.untwist_scaled_shoup, table.modulus);
+}
+
+/// `values[j] *= factors[j]` with Shoup multiplication.
+fn scale_pointwise<const DEGREE: usize>(
+    values: &mut [u64; DEGREE],
+    factors: &ShoupFactors<DEGREE>,
+    modulus: u64,
+) {
+    for ((v, &factor), &companion) in values
+        .iter_mut()
+        .zip(&factors.values)
+        .zip(&factors.companions)
+    {
+        *v = mul_shoup(*v, factor, companion, modulus);
     }
 }
 
-fn forward_ntt<const DEGREE: usize>(
-    coeffs: &mut [u64; DEGREE],
-    table: &NttTable<DEGREE>,
-) {
-    bit_reverse_permute(coeffs);
-    cooley_tukey_ntt(coeffs, &table.forward_roots, table.modulus);
-}
-
-fn inverse_ntt<const DEGREE: usize>(
-    evals: &mut [u64; DEGREE],
-    table: &NttTable<DEGREE>,
-) {
-    bit_reverse_permute(evals);
-    cooley_tukey_ntt(evals, &table.inverse_roots, table.modulus);
-    for v in evals.iter_mut() {
-        *v = mul_mod(*v, table.n_inv, table.modulus);
-    }
-}
-
+/// Iterative radix-2 Cooley-Tukey butterflies over bit-reversed input.
+///
+/// Plain Shoup multiplication by each twiddle; every value stays fully
+/// reduced (`< modulus`) after each butterfly.
 fn cooley_tukey_ntt<const DEGREE: usize>(
     values: &mut [u64; DEGREE],
-    roots: &[u64; DEGREE],
+    roots: &ShoupFactors<DEGREE>,
     modulus: u64,
 ) {
     let mut len = 2;
@@ -598,8 +605,9 @@ fn cooley_tukey_ntt<const DEGREE: usize>(
             for offset in 0..half {
                 let left = start + offset;
                 let right = left + half;
-                let twiddle = roots[offset * step];
-                let t = mul_mod(values[right], twiddle, modulus);
+                let twiddle = roots.values[offset * step];
+                let companion = roots.companions[offset * step];
+                let t = mul_shoup(values[right], twiddle, companion, modulus);
                 let u = values[left];
                 values[left] = add_mod(u, t, modulus);
                 values[right] = sub_mod(u, t, modulus);
@@ -617,34 +625,6 @@ fn bit_reverse_permute<const DEGREE: usize>(values: &mut [u64; DEGREE]) {
             values.swap(i, j);
         }
     }
-}
-
-// ─── Modular arithmetic helpers (private) ─────────────────────────────────────
-
-fn pow2_mod(mut exponent: u64, modulus: u64) -> u64 {
-    let mut result = 1 % modulus;
-    let mut base = 2 % modulus;
-    while exponent > 0 {
-        if exponent & 1 == 1 {
-            result = mul_mod(result, base, modulus);
-        }
-        base = mul_mod(base, base, modulus);
-        exponent >>= 1;
-    }
-    result
-}
-
-fn add_mod(a: u64, b: u64, q: u64) -> u64 {
-    let s = a + b;
-    if s >= q { s - q } else { s }
-}
-
-fn sub_mod(a: u64, b: u64, q: u64) -> u64 {
-    if a >= b { a - b } else { a + q - b }
-}
-
-fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
-    ((a as u128 * b as u128) % q as u128) as u64
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

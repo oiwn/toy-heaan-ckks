@@ -22,6 +22,20 @@ Ratio sweep (2026-11-03, `--ratio`, input |x| = 0.8 per slot, 20-bit digits):
 - N=8192, weight 64, five double angles: ratio 12 3.5e-2 / 8.6e-2, 10 8.8e-3 / 2.1e-2, 8 2.2e-3 / 4.7e-3, 6 5.6e-4 / 1.0e-3, 4 2.0e-4 / 3.2e-4.
 - The error is U-shaped in the ratio. Above the optimum it doubles per bit (noise amplification); below it, it grows 16x per 2 bits, the cubic sine linearization error. The optimum moves down with N: 10 at N=64, 6 at N=1024, 4 or lower at N=8192, because large-N message coefficients are small. No single ratio passes everywhere: ratio 8 fails at N=8192, ratio 4 fails at N=64. The best N=8192 result is 12 bits (ratio 4), against 26 bits Lattigo reports at N=2^16 with ratio 8.
 
+Full sweep (2026-11-08, task 0045, after 0052; weight min(N/2, 64), five double angles above weight 32, default budgets, `cycle0 / cycle1`; rows N=64/1024/8192 above):
+
+| N | 17 | 14 | 12 | 10 | 8 | 6 | 4 |
+|---|---|---|---|---|---|---|---|
+| 16 | 1.6e-5 / 3.3e-5 | 1.9e-6 / 3.9e-6 | 5.3e-7 / 1.2e-6 | 1.3e-6 / 3.0e-6 | 2.0e-5 / 4.5e-5 | 3.3e-4 / 7.2e-4 | 5.2e-3 / 1.1e-2 |
+| 32 | 4.9e-5 / 1.0e-4 | 6.2e-6 / 1.5e-5 | 1.4e-6 / 2.8e-6 | 1.5e-6 / 3.0e-6 | 2.1e-5 / 4.4e-5 | 3.3e-4 / 7.0e-4 | 5.3e-3 / 1.1e-2 |
+| 128 | 3.7e-4 / 7.0e-4 | 4.4e-5 / 9.8e-5 | 1.1e-5 / 2.3e-5 | 2.7e-6 / 7.3e-6 | 3.4e-6 / 7.4e-6 | 4.9e-5 / 1.0e-4 | 7.8e-4 / 1.7e-3 |
+| 256 | 1.7e-3 / 4.1e-3 | 2.1e-4 / 5.0e-4 | 5.4e-5 / 1.3e-4 | 1.3e-5 / 3.4e-5 | 5.0e-6 / 1.1e-5 | 4.2e-5 / 7.8e-5 | 6.7e-4 / 1.2e-3 |
+| 512 | 4.3e-3 / 8.9e-3 | 5.3e-4 / 1.1e-3 | 1.3e-4 / 2.9e-4 | 3.3e-5 / 7.0e-5 | 8.1e-6 / 1.6e-5 | 1.7e-5 / 3.2e-5 | 2.6e-4 / 5.2e-4 |
+| 2048 | 3.9e-2 / 7.8e-2 | 4.8e-3 / 9.5e-3 | 1.2e-3 / 2.5e-3 | 3.1e-4 / 6.5e-4 | 7.5e-5 / 1.4e-4 | 2.2e-5 / 4.2e-5 | 1.0e-4 / 2.6e-4 |
+| 4096 | 1.5e-1 / 3.3e-1 | 1.8e-2 / 3.8e-2 | 4.5e-3 / 8.2e-3 | 1.2e-3 / 2.3e-3 | 2.8e-4 / 5.6e-4 | 7.1e-5 / 1.9e-4 | 1.0e-4 / 2.2e-4 |
+
+The optimum falls about one bit per doubling of N: 12 at N=16, 10 at 64-128, 8 at 256-512, 6 at 1024-4096, 4 at 8192. The reference rule (0045): ratio 17 up to N=64 (recurrence and the small demos rely on 2^44; worst 2.6e-4), above it `17 - log2 N`, at least 4. The odd points on that line also pass: N=256 ratio 9 7.1e-6 / 1.4e-5, N=1024 ratio 7 1.6e-5 / 2.7e-5, N=4096 ratio 5 4.6e-5 / 9.9e-5.
+
 Digit width (temporary `DIGIT_BITS` change, reverted; weight 64, five double angles, cycle0):
 - N=256: ratio 17 at 10/20/30 bits: 1.1e-4, 1.7e-3, 2.3. Ratio 8: 2.7e-6, 5.0e-6, 4.5e-3.
 - N=1024: ratio 17: 3.9e-3, 1.7e-2, 1.2e1. Ratio 8: 7.7e-6, 3.3e-5, 2.3e-2.
@@ -80,7 +94,7 @@ Reduces noise: hybrid key switching, a smaller ratio, arcsine correction, Meta-B
 
 Operator order (2026-11-03): ratio default first, then hybrid key switching. Operator agreed the roadmap 2026-11-03; drafts: 0045 ratio default (before 0044), 0046 stage noise, 0047 RNS basis extension, 0048 hybrid key switching, 0049 BSGS/hoisting, 0050 arcsine correction, 0051 Meta-BTS. Step 3 gets a task once 0046 names the source.
 
-1. Ratio default. The sweep shows no fixed ratio passes at all degrees (8 fails at N=8192, 4 fails at N=64), so the default must depend on N, like OpenFHE's fit but from our data: about 10 at N<=64, 6 at N=1024, 4 at N=8192 with 20-bit digits. A larger message scale (2^51-2^57) needs a headroom review of the output level and of recurrence (0044); the N=16/64 regression numbers change. Fold into 0044 or a task before it (operator decision). The fit must be redone after step 2.
+1. Done in 0045 (2026-11-08): `reference(N)` uses ratio 17 up to N=64, else `17 - log2 N` (at least 4), weight min(N/2, 64), five double angles above weight 32; the output must survive one squaring. Original note: the sweep shows no fixed ratio passes at all degrees (8 fails at N=8192, 4 fails at N=64), so the default must depend on N, like OpenFHE's fit but from our data: about 10 at N<=64, 6 at N=1024, 4 at N=8192 with 20-bit digits. A larger message scale (2^51-2^57) needs a headroom review of the output level and of recurrence (0044); the N=16/64 regression numbers change. Fold into 0044 or a task before it (operator decision). The fit must be redone after step 2.
 2. Hybrid key switching: special primes P, a QP basis, basis-extension ModUp and ModDown in the RNS backend, a `PolyRing` extension and a new `KeySwitchingKey`. Likely two tasks: backend basis conversion, then key switching. Expected: removes the dominant 20-bit term (x4 at N=1024 ratio 8, x15 at N=256 ratio 17 by the 10-bit proxy) and cuts key memory. The per-stage experiment should run first, so the second source is known before this lands.
 3. The second noise source, once the per-stage experiment names it.
 4. BSGS with hoisted rotations in CtS/StC: fewer key switches and roundings, much less time and key memory at large N.

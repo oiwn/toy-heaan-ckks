@@ -9,6 +9,9 @@ pub enum RnsNttError {
     EmptyBasis,
     #[error("modulus {modulus} is not NTT-friendly for degree {degree}")]
     NonNttFriendlyModulus { modulus: u64, degree: usize },
+    /// Shoup and Barrett arithmetic need `modulus < 2^62`.
+    #[error("modulus {modulus} must be below 2^62")]
+    ModulusTooLarge { modulus: u64 },
 }
 
 pub type RnsNttResult<T> = Result<T, RnsNttError>;
