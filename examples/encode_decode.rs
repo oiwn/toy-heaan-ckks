@@ -1,167 +1,163 @@
-//! CKKS encode / decode demonstration.
+//! Encoding and decoding: numbers in slots, a polynomial in the ring.
 //!
-//! Walks through the textbook CKKS encoding pipeline step by step:
+//! ```bash
+//! cargo run --example encode_decode
+//! ```
 //!
-//!   1. Pick ring degree N and scaling factor Δ = 2^scale_bits.
-//!   2. Build an RNS basis of NTT-friendly primes (p_i ≡ 1 mod 2N).
-//!   3. Encode real slot values → polynomial plaintext via the special IDFT.
-//!   4. Decode the plaintext back → approximate slot values via the special DFT.
-//!   5. Verify the round-trip error is bounded by ≈ 1/Δ per slot.
+//! A narrated walk-through: why CKKS encodes vectors as polynomials, how the
+//! scale turns real numbers into integers, a round trip of real and complex
+//! slots, and how the scale sets the precision. No encryption yet.
 //!
-//! Reference: <https://fhetextbook.github.io/EncodingandDecoding.html>
-
+//! Colors are on in a terminal and off when piped or with `NO_COLOR=1`.
+use std::f64::consts::{E, PI, SQRT_2};
 use std::sync::Arc;
 
 use rustfft::num_complex::Complex64;
+use toy_heaan_ckks::PolyRing;
 use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::types::Plaintext;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
-/// Ring degree. Polynomial lives in Z[X]/(X^N + 1).
-/// N/2 complex values (or N/2 real values) can be packed as slots.
+#[path = "support/narrate.rs"]
+mod narrate;
+use narrate::{check, dim, formula, heading, ok, param, say, step, value};
+
 const N: usize = 16;
+const SCALE_BITS: i32 = 30;
 
-/// Scaling factor exponent. Δ = 2^SCALE_BITS controls encoding precision.
-/// Larger values reduce rounding error at the cost of larger coefficients.
-const SCALE_BITS: u32 = 30;
+type Pt = Plaintext<RnsPoly<N>, N>;
 
-fn main() {
-    println!("╔═══════════════════════════════════════╗");
-    println!("║   CKKS Encode / Decode  —  Demo       ║");
-    println!("╚═══════════════════════════════════════╝\n");
-
-    // ── 1. Parameters ─────────────────────────────────────────────────────────
-    let delta = 2f64.powi(SCALE_BITS as i32);
-    println!("Ring degree N    : {N}");
-    println!("Max slots (N/2)  : {}", N / 2);
-    println!(
-        "Scale bits       : {SCALE_BITS}  →  Δ = 2^{SCALE_BITS} ≈ {delta:.3e}"
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}\n", heading("Encoding: from slots to a polynomial"));
+    say(
+        "CKKS computes on vectors of real or complex numbers, but encrypts\n\
+         polynomials with integer coefficients in Z_Q[X]/(X^N + 1). The\n\
+         encoder bridges the two. A vector of N/2 complex slots is the list\n\
+         of values of a polynomial m(X) at N/2 complex roots of X^N + 1, so\n\
+         an inverse FFT (the special IDFT) finds the coefficients.",
     );
-    println!(
-        "Expected per-slot rounding error ≲ 1/Δ ≈ {:.2e}\n",
-        1.0 / delta
-    );
+    say(&format!(
+        "\nThose coefficients are real, not integers. Multiplying by the\n\
+         scale and rounding makes them integers:\n  {}\n  {}\n\
+         Rounding loses at most 1/2 per coefficient, so the slot error is\n\
+         about 1/scale. Adding and multiplying polynomials then adds and\n\
+         multiplies the slots: one operation acts on every slot at once.\n",
+        formula("encode: m = round(scale * IDFT(z))"),
+        formula("decode: z ~ DFT(m) / scale")
+    ));
 
-    // ── 2. RNS basis ──────────────────────────────────────────────────────────
-    // Each prime must satisfy p ≡ 1 (mod 2N) so Z_p contains a primitive 2N-th
-    // root of unity, enabling the negacyclic NTT. Three 31-bit primes give
-    // Q = p0·p1·p2 ≈ 2^93, comfortably above the scaled coefficient range.
+    println!("{}", heading("Parameters"));
+    let scale = Scale::power_of_two(SCALE_BITS)?;
     let primes = generate_primes(31, 3, N as u64);
-
-    println!("RNS primes  (each ≡ 1  mod  2N = {}):", 2 * N);
-    for (i, &p) in primes.iter().enumerate() {
-        println!("  q{i} = {p}");
-    }
-
-    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let scale = Scale::power_of_two(SCALE_BITS as i32).expect("valid scale");
+    param("N     ", N, "ring degree; N/2 = 8 slots");
+    param(
+        "scale ",
+        format!("2^{SCALE_BITS}"),
+        "precision about 2^-30 = 9e-10",
+    );
+    param(
+        "primes",
+        "3 x 31 bits",
+        "Q ~ 2^93 holds the scaled coefficients",
+    );
+    println!(
+        "  {}\n",
+        dim("each prime is 1 mod 2N, so the ring has the roots NTT needs")
+    );
+    let basis = Arc::new(RnsBasis::<N>::new(primes)?);
     let encoder = CkksEncoder::<N>::new(scale);
+    let bound = 2.0 / scale.value();
+    let mut passed = true;
 
-    // ── 3 & 4. Real-value round-trip ──────────────────────────────────────────
-    println!(
-        "\n─── Real-value round-trip ───────────────────────────────────────\n"
+    println!("{}", heading("Step 1: real slots"));
+    let originals = [PI, E, SQRT_2, 1.0 / 3.0, -1.5, 0.5, -0.25, 0.125];
+    let pt: Pt = encoder.encode(&originals, basis.clone());
+    let coefficients = pt.poly.to_centered_f64();
+    say("The encoded polynomial: integers of about scale * |z| = 2^31.");
+    step(
+        "m[0..4]",
+        format!(
+            "{:.0}, {:.0}, {:.0}, {:.0}, ...",
+            coefficients[0], coefficients[1], coefficients[2], coefficients[3]
+        ),
     );
-
-    // Fill all N/2 = 8 slots.
-    let originals: [f64; 8] = [
-        std::f64::consts::PI,     // 3.14159…
-        std::f64::consts::E,      // 2.71828…
-        std::f64::consts::SQRT_2, // 1.41421…
-        1.0 / 3.0,                // 0.33333…
-        -1.5,
-        0.5,
-        -0.25,
-        0.125,
-    ];
-
-    println!("Input values ({} slots):", originals.len());
-    for (i, v) in originals.iter().enumerate() {
-        println!("  slot[{i}] = {v:.8}");
-    }
-
-    let pt: Plaintext<RnsPoly<N>, N> = encoder.encode(&originals, basis.clone());
     let decoded = encoder.decode(&pt);
-
-    println!("\nDecoded values:");
-    let mut max_err = 0f64;
-    for (i, (orig, dec)) in originals.iter().zip(decoded.iter()).enumerate() {
-        let err = (orig - dec).abs();
-        max_err = max_err.max(err);
-        println!("  slot[{i}]  orig={orig:.8}  decoded={dec:.8}  |err|={err:.2e}");
-    }
-    println!("\nMax absolute error : {max_err:.2e}");
-    check_bound(max_err, delta);
-
-    // ── Complex-value round-trip ──────────────────────────────────────────────
     println!(
-        "\n─── Complex-value round-trip ────────────────────────────────────\n"
+        "\n  {:>4} | {:>12} | {:>12} | {:>9}",
+        "slot", "input", "decoded", "error"
     );
+    println!("  {}", "-".repeat(46));
+    let mut worst: f64 = 0.0;
+    for (j, (a, b)) in originals.iter().zip(&decoded).enumerate() {
+        let error = (a - b).abs();
+        worst = worst.max(error);
+        println!(
+            "  {j:>4} | {a:>12.8} | {} | {error:>9.2e}",
+            value(format!("{b:>12.8}"))
+        );
+    }
+    passed &= check("real round trip", worst, bound);
 
-    let cx_in = [
+    println!("\n{}", heading("Step 2: complex slots"));
+    say(
+        "The same encoder packs complex numbers. Unused slots are zero:\n\
+         here 4 of the 8 slots are filled.",
+    );
+    let complex_in = [
         Complex64::new(1.0, 0.5),
         Complex64::new(-0.5, 0.25),
         Complex64::new(0.0, -1.0),
         Complex64::new(0.75, -0.75),
     ];
-
-    println!("Input values ({} slots):", cx_in.len());
-    for (i, c) in cx_in.iter().enumerate() {
-        println!("  slot[{i}] = ({:.6}, {:.6}i)", c.re, c.im);
-    }
-
-    let pt_cx: Plaintext<RnsPoly<N>, N> =
-        encoder.encode_complex(&cx_in, basis.clone());
-    let cx_out = encoder.decode_complex(&pt_cx);
-
-    println!("\nDecoded values:");
-    let mut max_err_cx = 0f64;
-    for (i, (orig, dec)) in cx_in.iter().zip(cx_out.iter()).enumerate() {
-        let err = (orig - dec).norm();
-        max_err_cx = max_err_cx.max(err);
+    let pt: Pt = encoder.encode_complex(&complex_in, basis.clone());
+    let complex_out = encoder.decode_complex(&pt);
+    let mut worst: f64 = 0.0;
+    for (j, (a, b)) in complex_in.iter().zip(&complex_out).enumerate() {
+        worst = worst.max((a - b).norm());
         println!(
-            "  slot[{i}]  orig=({:.6},{:.6}i)  decoded=({:.6},{:.6}i)  |err|={err:.2e}",
-            orig.re, orig.im, dec.re, dec.im
+            "  {} {}",
+            formula(&format!("slot {j}: {:>12} ->", format!("{a:.2}"))),
+            value(format!("{b:.8}"))
         );
     }
-    println!("\nMax complex error  : {max_err_cx:.2e}");
-    check_bound(max_err_cx, delta);
+    passed &= check("complex round trip", worst, bound);
 
-    // ── Precision vs. scale_bits ──────────────────────────────────────────────
+    println!("\n{}", heading("Step 3: the scale sets the precision"));
+    say("Encode pi with growing scales: each 10 bits buy 3 decimal digits.\n");
+    println!("  {:>10} | {:>14} | {:>9}", "scale", "decoded pi", "error");
+    println!("  {}", "-".repeat(40));
+    for bits in [10, 20, 30, 40] {
+        let encoder = CkksEncoder::<N>::new(Scale::power_of_two(bits)?);
+        let pt: Pt = encoder.encode(&[PI], basis.clone());
+        let decoded = encoder.decode(&pt)[0];
+        println!(
+            "  {:>10} | {} | {:>9.2e}",
+            format!("2^{bits}"),
+            value(format!("{decoded:>14.10}")),
+            (PI - decoded).abs()
+        );
+    }
     println!(
-        "\n─── Precision vs. scale_bits (encoding π) ──────────────────────\n"
+        "  {}",
+        dim("At 2^40 the f64 FFT (about 1e-12 here), not the scale, limits it.")
+    );
+
+    println!("\n{}", heading("Takeaways"));
+    say(
+        "Slots are the user's view, coefficients the ring's view, and the\n\
+         scale is the fixed-point factor between them. A larger scale gives\n\
+         more precision but needs a larger modulus. Next: keys, then\n\
+         encrypt_add.",
     );
     println!(
-        "{:<12} {:<18} {:<18} |error|",
-        "scale_bits", "Δ", "decoded π"
+        "{}",
+        dim("Reference: fhetextbook.github.io/EncodingandDecoding.html")
     );
-
-    let pi_slice = [std::f64::consts::PI];
-    for bits in [10u32, 20, 30, 40] {
-        let enc = CkksEncoder::<N>::new(
-            Scale::power_of_two(bits as i32).expect("valid scale"),
-        );
-        let pt: Plaintext<RnsPoly<N>, N> = enc.encode(&pi_slice, basis.clone());
-        let dec = enc.decode(&pt);
-        let err = (std::f64::consts::PI - dec[0]).abs();
-        println!(
-            "{:<12} {:<18.3e} {:<18.10} {:.3e}",
-            bits,
-            2f64.powi(bits as i32),
-            dec[0],
-            err
-        );
+    if !passed {
+        return Err("encoding error above 2/scale".into());
     }
-
-    println!("\nDone.");
-}
-
-fn check_bound(err: f64, delta: f64) {
-    let bound = 1.0 / delta;
-    if err <= bound * 2.0 {
-        println!("✓  within expected rounding bound (≲ 2/Δ)");
-    } else {
-        println!("✗  ERROR: {err:.2e} exceeds 2/Δ = {:.2e}", 2.0 * bound);
-    }
+    println!("\n{}", ok("All checks passed."));
+    Ok(())
 }

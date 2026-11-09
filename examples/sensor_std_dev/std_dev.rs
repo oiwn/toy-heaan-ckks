@@ -161,7 +161,7 @@ mod tests {
     /// N = 16, 8 diurnal-style readings, degree 7. Levels: 3 + 1 + 3 = 7,
     /// so 13 primes leave 6 channels at the end.
     /// The fit interval is narrow ([1e-4, 6.4e-3]), so the affine map
-    /// multiplies by ~635 — no longer an encoder problem.
+    /// multiplies by ~635; no longer an encoder problem.
     #[test]
     fn encrypted_std_dev_end_to_end() {
         const N: usize = 16;

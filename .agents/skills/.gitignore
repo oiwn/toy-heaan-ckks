@@ -1,0 +1,4 @@
+*
+!.gitignore
+!educational-examples/
+!educational-examples/**

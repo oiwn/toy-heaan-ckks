@@ -1,14 +1,14 @@
-//! CKKS homomorphic multiplication demonstration.
+//! Multiply two ciphertexts: tensor, relinearize, rescale.
 //!
-//! Full pipeline:
+//! ```bash
+//! cargo run --example encrypt_mul
+//! ```
 //!
-//!   encode → encrypt → homomorphic mul (gadget relin) → rescale → decrypt → decode
+//! A narrated walk-through of ciphertext multiplication: why the product
+//! decrypts under s^2, how the relinearization key brings it back to s,
+//! and why the scale doubles and a rescale divides it back down.
 //!
-//! Two vectors of real values are encoded and encrypted independently.
-//! Their ciphertexts are multiplied homomorphically (no decryption needed).
-//! After rescaling the result is decrypted and decoded, then compared to the
-//! element-wise products.
-
+//! Colors are on in a terminal and off when piped or with `NO_COLOR=1`.
 use std::sync::Arc;
 
 use rand::SeedableRng;
@@ -20,137 +20,140 @@ use toy_heaan_ckks::ckks::keys::RelinearizationKey;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
-/// Ring degree — polynomial lives in Z[X]/(X^N + 1), N/2 real slots available.
+#[path = "support/narrate.rs"]
+mod narrate;
+use narrate::{check, formula, heading, ok, param, say, step, value};
+
 const N: usize = 16;
+const SCALE_BITS: i32 = 30;
+const SEED: u64 = 42;
+const BOUND: f64 = 1e-4;
 
-/// Encoding scale: Δ = 2^SCALE_BITS.
-const SCALE_BITS: u32 = 30;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}\n", heading("Homomorphic multiplication"));
+    say(&format!(
+        "Multiplying (c0 + c1*s)(d0 + d1*s) gives three terms:\n  {}\n\
+         The result decrypts with 1, s and s^2: a ciphertext of degree 2.\n\
+         Left alone, every product would add a degree.",
+        formula("c0*d0 + (c0*d1 + c1*d0)*s + c1*d1*s^2")
+    ));
+    say(&format!(
+        "\nTwo fixes keep ciphertexts small:\n  {}  key-switch the s^2 term back to s\n  \
+         {}      the scale became scale^2; divide by the last\n               \
+         prime (about scale) and drop it: one level\n",
+        formula("relinearize"),
+        formula("rescale")
+    ));
 
-fn main() {
-    println!("╔═══════════════════════════════════════════╗");
-    println!("║  CKKS Homomorphic Multiplication  —  Demo ║");
-    println!("╚═══════════════════════════════════════════╝\n");
-
-    // ── 1. Parameters ──────────────────────────────────────────────────────────
-    let delta = 2f64.powi(SCALE_BITS as i32);
-    let scale = Scale::power_of_two(SCALE_BITS as i32).expect("valid scale");
-    println!("Ring degree N    : {N}");
-    println!("Slots  (N/2)     : {}", N / 2);
-    println!("Scale bits       : {SCALE_BITS}  →  Δ ≈ {delta:.3e}\n");
-
-    // ── 2. RNS basis ───────────────────────────────────────────────────────────
-    // Four 31-bit NTT-friendly primes.  After multiplying two ciphertexts at
-    // scale 2^30, rescaling drops the last prime (≈30 bits), leaving three
-    // primes with the scale back at 2^30.
-    let primes = generate_primes(31, 4, N as u64);
-    println!("RNS primes (each ≡ 1 mod 2N = {}):", 2 * N);
-    for (i, &p) in primes.iter().enumerate() {
-        println!("  q{i} = {p}");
-    }
-
-    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let logq = basis.total_bits();
-    println!("  logq (Σ floor(log2 qᵢ)) = {logq}\n");
-
-    // ── 3. Engine & keys ───────────────────────────────────────────────────────
-    let params = CkksParams {
-        error_variance: 3.2,
-        hamming_weight: N / 2,
-        scale,
-    };
-    let engine = CkksEngine::<RnsPoly<N>, N>::new(basis.clone(), params);
-
-    let mut rng = ChaCha20Rng::seed_from_u64(42);
-    let sk = engine.generate_secret_key(&mut rng).expect("keygen");
-    let pk = engine.generate_public_key(&sk, &mut rng).expect("keygen");
+    println!("{}", heading("Parameters"));
+    let scale = Scale::power_of_two(SCALE_BITS)?;
+    param("N     ", N, "ring degree; 8 slots, 4 used");
+    param(
+        "scale ",
+        format!("2^{SCALE_BITS}"),
+        "the product sits at 2^60 before rescale",
+    );
+    param("primes", "4 x 31 bits", "one is dropped by the rescale");
+    param(
+        "seed  ",
+        SEED,
+        "fixed, so every run prints the same numbers",
+    );
+    println!();
+    let basis = Arc::new(RnsBasis::<N>::new(generate_primes(31, 4, N as u64))?);
+    let engine = CkksEngine::<RnsPoly<N>, N>::new(
+        basis.clone(),
+        CkksParams {
+            error_variance: 3.2,
+            hamming_weight: N / 2,
+            scale,
+        },
+    );
+    let encoder = CkksEncoder::<N>::new(scale);
+    let mut rng = ChaCha20Rng::seed_from_u64(SEED);
+    let sk = engine.generate_secret_key(&mut rng)?;
+    let pk = engine.generate_public_key(&sk, &mut rng)?;
     let rlk: RelinearizationKey<RnsPoly<N>, N> =
         engine.generate_relin_key(&sk, &mut rng);
-    println!("Keys generated (secret, public, gadget-relin).\n");
 
-    // ── 4. Input vectors ───────────────────────────────────────────────────────
-    let a: [f64; 4] = [1.0, 2.0, 3.0, 4.0];
-    let b: [f64; 4] = [0.5, 1.0, 1.5, 2.0];
-    let expected: Vec<f64> = a.iter().zip(b.iter()).map(|(x, y)| x * y).collect();
-
-    println!("Input A : {:?}", a);
-    println!("Input B : {:?}", b);
-    println!("Expected: {:?}\n", expected);
-
-    // ── 5. Encode ──────────────────────────────────────────────────────────────
-    let encoder = CkksEncoder::<N>::new(scale);
-    let pt_a = encoder.encode(&a, basis.clone());
-    let pt_b = encoder.encode(&b, basis.clone());
-
-    // ── 6. Encrypt ─────────────────────────────────────────────────────────────
-    let ct_a = engine.encrypt(&pt_a, &pk, &mut rng);
-    let ct_b = engine.encrypt(&pt_b, &pk, &mut rng);
-    println!(
-        "Both plaintexts encrypted (log2(scale)={:.1}, logq={}).\n",
+    let a = [1.0, 2.0, 3.0, 4.0];
+    let b = [0.5, 1.0, 1.5, 2.0];
+    println!("{}", heading("Inputs"));
+    step("a", format!("{a:?}"));
+    step("b", format!("{b:?}"));
+    let ct_a = engine.encrypt(&encoder.encode(&a, basis.clone()), &pk, &mut rng);
+    let ct_b = engine.encrypt(&encoder.encode(&b, basis), &pk, &mut rng);
+    let report = |label: &str, level: usize, logq: u32, scale_bits: f64| {
+        step(
+            label,
+            format!("level {level}, logq {logq}, scale 2^{scale_bits:.1}"),
+        );
+    };
+    report(
+        "encrypted          ",
+        ct_a.level(),
+        ct_a.logq(),
         ct_a.scale.log2(),
-        ct_a.logq()
     );
 
-    // ── 7. Homomorphic multiply ────────────────────────────────────────────────
-    // Uses the RNS gadget relinearization key to keep the degree at 1.
-    let ct_product = ct_a.mul(&ct_b, &rlk);
+    println!("\n{}", heading("Step 1: multiply and relinearize"));
+    say(
+        "`mul` forms the three terms and key-switches c1*d1 with the\n\
+         relinearization key, so the result is again a pair (c0, c1).",
+    );
+    let product = ct_a.mul(&ct_b, &rlk);
+    report(
+        "after mul          ",
+        product.level(),
+        product.logq(),
+        product.scale.log2(),
+    );
+
+    println!("\n{}", heading("Step 2: rescale"));
+    say(
+        "Divide by the last prime and drop it. The 31-bit primes are a bit\n\
+         above 2^30, so the scale lands just below 2^30. CKKS tracks the\n\
+         exact value, so decoding stays correct.",
+    );
+    let rescaled = product.rescale()?;
+    report(
+        "after rescale      ",
+        rescaled.level(),
+        rescaled.logq(),
+        rescaled.scale.log2(),
+    );
+
+    println!("\n{}", heading("Step 3: decrypt and decode"));
+    say("The key is cut to the ciphertext's level before decrypting.");
+    let sk_low = sk.mod_switch_to(rescaled.level())?;
+    let decoded = encoder.decode(&CkksEngine::decrypt(&rescaled, &sk_low));
     println!(
-        "Gadget multiplication done  (log2(scale)={:.1}, logq={}).",
-        ct_product.scale.log2(),
-        ct_product.logq()
+        "\n  {:>4} | {:>6} | {:>6} | {:>7} | {:>12} | {:>9}",
+        "slot", "a", "b", "a * b", "decrypted", "error"
     );
-
-    // ── 8. Rescale ─────────────────────────────────────────────────────────────
-    // Drops the last RNS prime and divides coefficients by it, bringing the
-    // scale from 2^(2*SCALE_BITS) back to 2^SCALE_BITS.
-    let ct_rescaled = ct_product.rescale().expect("rescale");
-    println!(
-        "Rescale done                (log2(scale)={:.1}, logq={}).\n",
-        ct_rescaled.scale.log2(),
-        ct_rescaled.logq()
-    );
-
-    // ── 9. Decrypt ─────────────────────────────────────────────────────────────
-    // The rescaled ciphertext lives one level down; mod-switch the secret key
-    // to the same level so both sit on the same chain basis.
-    let sk_reduced = sk.mod_switch_to(ct_rescaled.level()).expect("sk level");
-
-    let pt_product =
-        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_rescaled, &sk_reduced);
-
-    // ── 10. Decode ─────────────────────────────────────────────────────────────
-    let decoded = encoder.decode(&pt_product);
-    let result: Vec<f64> = decoded.into_iter().take(a.len()).collect();
-
-    // ── 11. Verify ─────────────────────────────────────────────────────────────
-    println!(
-        "─── Results ──────────────────────────────────────────────────────\n"
-    );
-    println!(
-        "{:<6} {:>8} {:>8} {:>10} {:>12} {:>10}",
-        "slot", "a[i]", "b[i]", "expected", "decoded", "|err|"
-    );
-
-    let mut max_err = 0f64;
-    for (i, (&exp, &got)) in expected.iter().zip(result.iter()).enumerate() {
-        let err = (exp - got).abs();
-        max_err = max_err.max(err);
+    println!("  {}", "-".repeat(58));
+    let mut worst: f64 = 0.0;
+    for (j, ((x, y), got)) in a.iter().zip(&b).zip(&decoded).enumerate() {
+        let error = (x * y - got).abs();
+        worst = worst.max(error);
         println!(
-            "{:<6} {:>8.4} {:>8.4} {:>10.6} {:>12.6} {:>10.2e}",
-            i, a[i], b[i], exp, got, err
+            "  {j:>4} | {x:>6.2} | {y:>6.2} | {:>7.3} | {} | {error:>9.2e}",
+            x * y,
+            value(format!("{got:>12.8}"))
         );
     }
+    let passed = check("a * b", worst, BOUND);
 
-    println!("\nMax absolute error : {max_err:.2e}");
-
-    // Loose bound: encryption noise (~1e-7 each) + relin noise (~5e-8)
-    // + tensor-product noise accumulation.  Use 1e-4 as a generous safety margin.
-    let bound = 1e-4_f64;
-    if max_err <= bound {
-        println!("✓  within expected bound (≤ {bound:.0e})");
-    } else {
-        println!("✗  ERROR: {max_err:.2e} exceeds bound {bound:.0e}");
-        std::process::exit(1);
+    println!("\n{}", heading("Takeaways"));
+    say(
+        "Each multiplication costs one prime (one level); the chain length\n\
+         is the multiplicative depth. Noise grows with each product, and\n\
+         relinearization adds key-switch noise. Next: mod_switch for levels,\n\
+         key_switch for what relinearization does inside.",
+    );
+    if !passed {
+        return Err("multiplication error above bound".into());
     }
-
-    println!("\nDone.");
+    println!("\n{}", ok("All checks passed."));
+    Ok(())
 }

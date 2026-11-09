@@ -12,7 +12,6 @@
 //!
 //! Colors are on in a terminal and off when piped or with `NO_COLOR=1`.
 
-use std::fmt::Display;
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -22,58 +21,16 @@ use rand_chacha::ChaCha20Rng;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::math::modular::{Barrett, mul_shoup, shoup_companion};
 
+#[path = "support/narrate.rs"]
+mod narrate;
+use narrate::{dim, formula, heading, ok, say, step, subheading, value};
+
 /// Products per timing loop.
 const LOOP_LEN: usize = 1 << 20;
 /// Timing repetitions; the fastest is reported.
 const REPEATS: usize = 5;
 /// Random pairs per modulus in the agreement check.
 const CHECKS: usize = 100_000;
-
-/// Section title: bold cyan.
-fn heading(text: &str) -> String {
-    let text = format!("== {text} ==");
-    format!(
-        "{}",
-        text.if_supports_color(Stream::Stdout, |t| t.bold().cyan().to_string())
-    )
-}
-
-/// Method sub-title: bold.
-fn subheading(text: &str) -> String {
-    let text = format!("-- {text} --");
-    format!("{}", text.if_supports_color(Stream::Stdout, |t| t.bold()))
-}
-
-/// A formula: yellow.
-fn formula(text: &str) -> String {
-    format!("{}", text.if_supports_color(Stream::Stdout, |t| t.yellow()))
-}
-
-/// A computed number: bold.
-fn value(x: impl Display) -> String {
-    let text = x.to_string();
-    format!("{}", text.if_supports_color(Stream::Stdout, |t| t.bold()))
-}
-
-/// A passed check: green.
-fn ok(text: &str) -> String {
-    format!("{}", text.if_supports_color(Stream::Stdout, |t| t.green()))
-}
-
-/// A side note: dimmed.
-fn dim(text: &str) -> String {
-    format!("{}", text.if_supports_color(Stream::Stdout, |t| t.dimmed()))
-}
-
-/// Prints `label = value`, label as a formula, value in bold.
-fn step(label: &str, x: impl Display) {
-    println!("  {} = {}", formula(label), value(x));
-}
-
-/// Prints a narration paragraph (already wrapped).
-fn say(text: &str) {
-    println!("{text}");
-}
 
 /// The reference: widen to 128 bits and divide.
 fn mul_u128(a: u64, b: u64, modulus: u64) -> u64 {

@@ -321,11 +321,31 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
             .rescale()
     }
 
-    fn eval_mod(
+    fn check_keys(&self, keys: &BootstrapKeys<P, N>) -> CkksResult<()> {
+        if P::zero(&keys.context).same_context(&P::zero(&self.context)) {
+            Ok(())
+        } else {
+            Err(invalid_parameter("bootstrap keys belong to another plan"))
+        }
+    }
+
+    /// Stage 4, EvalMod: remove the multiples of `q0` that ModRaise added.
+    ///
+    /// Takes one half returned by [`Self::coeffs_to_slots`]. Each slot holds
+    /// `(m + q0 * I) / (radius * q0)` for a small integer `I`; the
+    /// scaled cosine and its double angles turn that into a value
+    /// proportional to `sin(2 * pi * m / q0)`, which is about
+    /// `2 * pi * m / q0` because `m` is much smaller than `q0`.
+    ///
+    /// # Errors
+    /// Rejects keys of another plan, a level or scale other than the
+    /// schedule's, and missing relinearization keys.
+    pub fn eval_mod(
         &self,
         ct: &Ciphertext<P, N>,
         keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
+        self.check_keys(keys)?;
         // Forward diagonals already apply the interval normalization.
         let t = ct.add_const(-0.25 / self.config.radius());
         // The schedule compiled the cosine polynomial for this stage's level
@@ -356,6 +376,10 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
     /// Preparation preserves represented values but cannot recover lost
     /// precision. The input is not modified.
     ///
+    /// The stages run in order: [`Self::prepare`], [`Self::mod_raise`],
+    /// [`Self::coeffs_to_slots`], [`Self::eval_mod`] on each half, and
+    /// [`Self::slots_to_coeffs`].
+    ///
     /// # Errors
     /// Rejects incompatible contexts, unsupported scales and missing keys.
     /// Slot magnitudes <=1 are a hidden-data precondition.
@@ -365,24 +389,35 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
         keys.check(self.schedule.required_keys())?;
-        let prepared = self.prepare_input(input, keys)?;
-        self.bootstrap_prepared(&prepared, keys)
+        self.check_keys(keys)?;
+        let prepared = self.prepare(input)?;
+        let raised = self.mod_raise(&prepared)?;
+        let (real, imaginary) = self.coeffs_to_slots(&raised, keys)?;
+        let real = self.eval_mod(&real, keys)?;
+        let imaginary = self.eval_mod(&imaginary, keys)?;
+        self.slots_to_coeffs(&real, &imaginary, prepared.scale, keys)
     }
 
-    fn prepare_input(
+    /// Stage 1: lift the scale to the message scale and drop to level 1.
+    ///
+    /// The lift multiplies the integer representation and the tracked scale
+    /// by the same power of two, so slot values do not change. A prepared
+    /// ciphertext prepares to itself.
+    ///
+    /// # Errors
+    /// Rejects scales below 2 or more than half a bit above the message
+    /// scale, and ciphertexts of another context chain.
+    pub fn prepare(
         &self,
         input: &Ciphertext<P, N>,
-        keys: &BootstrapKeys<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
         let target = self.schedule.message_scale();
         let increase = target.checked_div(input.scale)?.log2().round();
-        if input.scale.log2() < 1.0 || increase < 0.0 {
-            return Err(invalid_parameter("invalid bootstrap ciphertext or keys"));
-        }
-        if !input.c0.same_context(&input.c1)
-            || !P::zero(&keys.context).same_context(&P::zero(&self.context))
+        if input.scale.log2() < 1.0
+            || increase < 0.0
+            || !input.c0.same_context(&input.c1)
         {
-            return Err(invalid_parameter("invalid bootstrap ciphertext or keys"));
+            return Err(invalid_parameter("invalid bootstrap ciphertext"));
         }
         let expected = P::zero(&self.context).mod_switch_to(input.level())?;
         if !input.c0.same_context(&expected) {
@@ -402,17 +437,45 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         normalized.mod_switch_to(1)
     }
 
-    fn bootstrap_prepared(
+    /// Stage 2, ModRaise: read a level-1 ciphertext modulo the full chain.
+    ///
+    /// Each centered coefficient of `c0 + c1 * s` is kept, so the raised
+    /// ciphertext decrypts to `m + q0 * I`, where `I` is a small integer
+    /// polynomial whose size grows with the secret weight. The scale becomes the
+    /// working scale: the forward transform reads coefficients relative to
+    /// `q0`, not to the message scale.
+    ///
+    /// # Errors
+    /// Rejects ciphertexts that are not at level 1 of this plan's chain.
+    pub fn mod_raise(
         &self,
-        input: &Ciphertext<P, N>,
-        keys: &BootstrapKeys<P, N>,
+        prepared: &Ciphertext<P, N>,
     ) -> CkksResult<Ciphertext<P, N>> {
-        let raised = Ciphertext {
-            c0: input.c0.mod_raise(&self.context)?,
-            c1: input.c1.mod_raise(&self.context)?,
+        Ok(Ciphertext {
+            c0: prepared.c0.mod_raise(&self.context)?,
+            c1: prepared.c1.mod_raise(&self.context)?,
             scale: self.config.working_scale,
-        };
-        let packed = self.transform(&raised, &self.forward, keys)?;
+        })
+    }
+
+    /// Stage 3, CoeffsToSlots: move coefficients into slots, then split.
+    ///
+    /// The forward transform puts coefficient `j` in the real part and
+    /// coefficient `j + N/2` in the imaginary part of a slot (in bit-reversed
+    /// order). A conjugation separates them into two ciphertexts with real
+    /// slots, returned as `(real, imaginary)`; each slot holds a raised
+    /// coefficient divided by `radius * q0`.
+    ///
+    /// # Errors
+    /// Rejects keys of another plan and missing rotation or conjugation
+    /// keys.
+    pub fn coeffs_to_slots(
+        &self,
+        raised: &Ciphertext<P, N>,
+        keys: &BootstrapKeys<P, N>,
+    ) -> CkksResult<(Ciphertext<P, N>, Ciphertext<P, N>)> {
+        self.check_keys(keys)?;
+        let packed = self.transform(raised, &self.forward, keys)?;
         let conjugation = keys
             .conjugation
             .get(&packed.level())
@@ -421,14 +484,32 @@ impl<P: PolyRing<N>, const N: usize> BootstrapPlan<P, N> {
         // Half factors were fused into the forward diagonals.
         let real = packed.add(&conjugate)?;
         let imaginary = Self::multiply_by_i(&packed.sub(&conjugate)?, true);
-        let real = self.eval_mod(&real, keys)?;
-        let imaginary = self.eval_mod(&imaginary, keys)?;
-        let combined = real.add(&Self::multiply_by_i(&imaginary, false))?;
+        Ok((real, imaginary))
+    }
+
+    /// Stage 5, SlotsToCoeffs: recombine both halves and move slots back to
+    /// coefficients.
+    ///
+    /// `prepared_scale` is the scale [`Self::prepare`] produced; the output
+    /// scale is [`BootstrapSchedule::output_scale`] of it.
+    ///
+    /// # Errors
+    /// Rejects keys of another plan, halves at different levels and missing
+    /// rotation keys.
+    pub fn slots_to_coeffs(
+        &self,
+        real: &Ciphertext<P, N>,
+        imaginary: &Ciphertext<P, N>,
+        prepared_scale: Scale,
+        keys: &BootstrapKeys<P, N>,
+    ) -> CkksResult<Ciphertext<P, N>> {
+        self.check_keys(keys)?;
+        let combined = real.add(&Self::multiply_by_i(imaginary, false))?;
         let mut output = self.transform(&combined, &self.inverse, keys)?;
         // The inverse diagonals assume the message scale, so the tracked
         // output scale decodes to `x * s' / message_scale`. Recording
         // `tracked * s' / message_scale` decodes to `x` exactly.
-        output.scale = self.schedule.output_scale(input.scale)?;
+        output.scale = self.schedule.output_scale(prepared_scale)?;
         Ok(output)
     }
 
@@ -785,7 +866,7 @@ mod tests {
     ) {
         for level in 1..=18 {
             let at_level = initial.mod_switch_to(level).unwrap();
-            let prepared = plan.prepare_input(&at_level, keys).unwrap();
+            let prepared = plan.prepare(&at_level).unwrap();
             let bits = initial.scale.exact_log2().unwrap();
             let normalized = if bits == 44 {
                 initial.clone()
@@ -805,8 +886,19 @@ mod tests {
         assert!(plan.bootstrap(initial, keys).is_err());
         keys.relin.insert(double_angle, key);
 
-        let prepared = plan.prepare_input(initial, keys).unwrap();
-        assert_same(&plan.prepare_input(&prepared, keys).unwrap(), &prepared);
+        let prepared = plan.prepare(initial).unwrap();
+        assert_same(&plan.prepare(&prepared).unwrap(), &prepared);
+
+        // The public stages compose to exactly `bootstrap`.
+        let raised = plan.mod_raise(&prepared).unwrap();
+        assert!(plan.mod_raise(initial).is_err());
+        let (real, imaginary) = plan.coeffs_to_slots(&raised, keys).unwrap();
+        let real = plan.eval_mod(&real, keys).unwrap();
+        let imaginary = plan.eval_mod(&imaginary, keys).unwrap();
+        let staged = plan
+            .slots_to_coeffs(&real, &imaginary, prepared.scale, keys)
+            .unwrap();
+        assert_same(&staged, &plan.bootstrap(initial, keys).unwrap());
     }
 
     fn check_modular_reduction<const N: usize>(

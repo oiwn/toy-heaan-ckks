@@ -14,7 +14,9 @@ cargo run --release --example bootstrap_demo
 
 ## Examples
 
-`cargo run --example <name>`; add `--release` for bootstrap examples.
+`cargo run --example <name>`; add `--release` for bootstrap and N=8192
+examples. Each one narrates its step in color and checks itself against
+plain f64 math.
 
 | Step | Example | Shows |
 |---|---|---|
@@ -22,8 +24,12 @@ cargo run --release --example bootstrap_demo
 | Keys | `keys` | Secret, public and relinearization keys |
 | Add | `encrypt_add` | Encrypt, add, decrypt, decode |
 | Multiply | `encrypt_mul` | Multiply, relinearize, rescale |
+| Levels | `mod_switch` | Mod switch vs rescale; align levels before adding |
+| Key switch | `key_switch` | Move a ciphertext to another secret key |
 | Rotate | `rotation_demo`, `rotation_stress` | Slot rotation; noise over many rotations |
+| Conjugate | `conjugation` | Conjugate slots; split real and imaginary parts |
 | Depth | `horner_chain` | Multi-level polynomial over 4096 slots |
+| Bootstrap | `bootstrap_stages` | ModRaise, CoeffsToSlots, EvalMod, SlotsToCoeffs one by one |
 | Bootstrap | `bootstrap_demo` | Refresh, multiply, refresh again (N=16/64) |
 | Bootstrap | `bootstrap_large` | Large degrees up to N=8192 |
 | Bootstrap | `recurrence_bootstrap_demo` | 32 rounds of a recurrence, with and without refresh |

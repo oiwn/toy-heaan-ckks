@@ -1,196 +1,16 @@
-//! Plan for homomorphic standard deviation over 8 CKKS slots.
+//! Encrypted variance of 8 numbers, one operation at a time.
 //!
-//! This example is intentionally a scaffold.  It documents the encrypted
-//! pipeline we want to build, and keeps a plaintext reference calculation in
-//! `main` so the target values are concrete before the missing homomorphic
-//! helper operations are implemented.
-//!
-//! ## Goal
-//!
-//! Start with one ciphertext containing 8 real-valued slots:
-//!
-//! ```text
-//! ct = Enc([x0, x1, x2, x3, x4, x5, x6, x7])
+//! ```bash
+//! cargo run --example std_dev_8
 //! ```
 //!
-//! Produce one ciphertext where every slot contains the same standard
-//! deviation:
+//! A narrated walk-through of the statistics pipeline at toy size (N=16,
+//! 8 slots): sum the slots with a rotation tree, divide by 8, center,
+//! square, sum again and divide. Each step is decrypted (a diagnostic only)
+//! and compared with plain f64. The square root comes in
+//! `sqrt_chebyshev_plain` and, encrypted at full size, `sensor_std_dev`.
 //!
-//! ```text
-//! Enc([std_dev, std_dev, std_dev, std_dev,
-//!      std_dev, std_dev, std_dev, std_dev])
-//! ```
-//!
-//! ## Plain formula
-//!
-//! ```text
-//! mean = (x0 + x1 + ... + x7) / 8
-//!
-//! variance = ((x0 - mean)^2
-//!           + (x1 - mean)^2
-//!           + ...
-//!           + (x7 - mean)^2) / 8
-//!
-//! std_dev = sqrt(variance)
-//! ```
-//!
-//! ## Encrypted pipeline
-//!
-//! 1. Encrypt 8 input values into one ciphertext.
-//!
-//! ```text
-//! ct = Enc([x0, x1, x2, x3, x4, x5, x6, x7])
-//! ```
-//!
-//! 2. Sum all slots with a binary rotation tree.
-//!
-//! For 8 slots, the required rotations are 1, 2, and 4:
-//!
-//! ```text
-//! sum_ct = ct
-//! sum_ct = sum_ct + rotate(sum_ct, 1)
-//! sum_ct = sum_ct + rotate(sum_ct, 2)
-//! sum_ct = sum_ct + rotate(sum_ct, 4)
-//! ```
-//!
-//! After this step:
-//!
-//! ```text
-//! sum_ct = Enc([sum, sum, sum, sum, sum, sum, sum, sum])
-//! sum = x0 + x1 + ... + x7
-//! ```
-//!
-//! Required operations:
-//!
-//! ```text
-//! ct.rotate(&rotk)
-//! ct1.add(&ct2)?
-//! rotation keys for offsets 1, 2, 4
-//! ```
-//!
-//! 3. Compute the encrypted mean.
-//!
-//! ```text
-//! mean_ct = sum_ct.mul_const_to_scale(1.0 / 8.0, input_ct.scale)?
-//! ```
-//!
-//! After this step:
-//!
-//! ```text
-//! mean_ct = Enc([mean, mean, mean, mean, mean, mean, mean, mean])
-//! ```
-//!
-//! Required operations:
-//!
-//! ```text
-//! ct.mul_const(scalar, scale)
-//! rescale
-//! ```
-//!
-//! 4. Subtract the mean from the original input.
-//!
-//! ```text
-//! centered_ct = ct.match_level(&mean_ct)?.sub(&mean_ct)?
-//! ```
-//!
-//! After this step:
-//!
-//! ```text
-//! centered_ct = Enc([x0 - mean, x1 - mean, ..., x7 - mean])
-//! ```
-//!
-//! Required operations:
-//!
-//! ```text
-//! ct1.sub(&ct2)?
-//! match_level before subtraction
-//! ```
-//!
-//! 5. Square each centered value.
-//!
-//! ```text
-//! sq_diff_ct = centered_ct.mul(&centered_ct, &rlk).rescale()
-//! ```
-//!
-//! After this step:
-//!
-//! ```text
-//! sq_diff_ct = Enc([
-//!   (x0 - mean)^2,
-//!   (x1 - mean)^2,
-//!   ...
-//!   (x7 - mean)^2
-//! ])
-//! ```
-//!
-//! Required operations:
-//!
-//! ```text
-//! ct1.mul(&ct2, &rlk)
-//! rescale
-//! ```
-//!
-//! 6. Sum squared deviations with rotations 1, 2, and 4.
-//!
-//! ```text
-//! var_sum_ct = sq_diff_ct
-//! var_sum_ct = var_sum_ct + rotate(var_sum_ct, 1)
-//! var_sum_ct = var_sum_ct + rotate(var_sum_ct, 2)
-//! var_sum_ct = var_sum_ct + rotate(var_sum_ct, 4)
-//! ```
-//!
-//! After this step:
-//!
-//! ```text
-//! var_sum_ct = Enc([sum_sq_diff, sum_sq_diff, ..., sum_sq_diff])
-//! sum_sq_diff = (x0 - mean)^2 + ... + (x7 - mean)^2
-//! ```
-//!
-//! 7. Divide by 8 to get encrypted variance.
-//!
-//! ```text
-//! variance_ct = var_sum_ct.mul_const(1.0 / 8.0, scale).rescale()
-//! ```
-//!
-//! This is the first implementation milestone:
-//!
-//! ```text
-//! variance_ct = Enc([variance, variance, ..., variance])
-//! ```
-//!
-//! 8. Later, approximate square root.
-//!
-//! ```text
-//! std_dev_ct = eval_poly(variance_ct, sqrt_coeffs)
-//! ```
-//!
-//! The square-root approximation should be decided separately.  Bounding
-//! inputs to a small interval helps, but `sqrt(x)` remains difficult near
-//! zero, so the polynomial must be fitted for the expected variance range.
-//!
-//! ## Minimum operation set for encrypted variance
-//!
-//! ```text
-//! + / - / neg (std::ops)
-//! rotate
-//! sum_slots (power-of-two window)
-//! mul_const
-//! mul (gadget relinearization)
-//! rescale
-//! match_level
-//! ```
-//!
-//! ## Depth budget
-//!
-//! ```text
-//! mean = sum / 8                1 level
-//! squared deviations            1 level
-//! variance = sum_sq_diff / 8    1 level
-//! ```
-//!
-//! Encrypted variance needs about 3 levels.  A degree-3 polynomial square
-//! root would add about 2 more levels, for about 5 levels total.
-
+//! Colors are on in a terminal and off when piped or with `NO_COLOR=1`.
 use std::sync::Arc;
 
 use rand::SeedableRng;
@@ -199,186 +19,176 @@ use toy_heaan_ckks::ckks::Scale;
 use toy_heaan_ckks::ckks::algorithms::sum_slots::sum_slots;
 use toy_heaan_ckks::ckks::encoding::ckks_encoder::CkksEncoder;
 use toy_heaan_ckks::ckks::engine::{CkksEngine, CkksParams};
-use toy_heaan_ckks::ckks::evaluator::{RotationKeyMap, generate_rotation_key_set};
-use toy_heaan_ckks::ckks::keys::{RelinearizationKey, SecretKey};
+use toy_heaan_ckks::ckks::evaluator::generate_rotation_key_set;
+use toy_heaan_ckks::ckks::keys::SecretKey;
 use toy_heaan_ckks::ckks::types::Ciphertext;
 use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 
+#[path = "support/narrate.rs"]
+mod narrate;
+use narrate::{check, formula, heading, ok, param, say, step, table};
+
 const N: usize = 16;
 const SLOTS: usize = 8;
-const SCALE: u32 = 61;
-const NUM_PRIMES: usize = 5;
+const SCALE_BITS: i32 = 61;
+const PRIMES: usize = 5;
+const SEED: u64 = 42;
+const BOUND: f64 = 1e-6;
 const INPUT: [f64; SLOTS] = [0.12, 0.18, 0.21, 0.27, 0.31, 0.38, 0.42, 0.49];
 
 type Ct = Ciphertext<RnsPoly<N>, N>;
 type Sk = SecretKey<RnsPoly<N>, N>;
-type Basis = Arc<RnsBasis<N>>;
-type RotKeyMap = RotationKeyMap<RnsPoly<N>, N>;
-type Rlk = RelinearizationKey<RnsPoly<N>, N>;
+type Engine = CkksEngine<RnsPoly<N>, N>;
 
-/// The encoding scale `2^SCALE`.
-fn scale() -> Scale {
-    Scale::power_of_two(SCALE as i32).expect("valid scale")
-}
-
-fn make_engine(basis: Basis) -> CkksEngine<RnsPoly<N>, N> {
+fn make_engine(basis: Arc<RnsBasis<N>>, scale: Scale) -> Engine {
     CkksEngine::new(
         basis,
         CkksParams {
             error_variance: 3.2,
             hamming_weight: N / 2,
-            scale: scale(),
+            scale,
         },
     )
 }
 
-fn make_rotkeys(
-    engine: &CkksEngine<RnsPoly<N>, N>,
+/// Decrypts every slot (diagnostic only).
+fn peek(
+    ct: &Ct,
     sk: &Sk,
-    rng: &mut ChaCha20Rng,
-) -> RotKeyMap {
-    generate_rotation_key_set(engine, sk, SLOTS, rng)
+    encoder: &CkksEncoder<N>,
+) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
+    let sk = sk.mod_switch_to(ct.level())?;
+    Ok(encoder.decode(&CkksEngine::decrypt(ct, &sk))[..SLOTS].to_vec())
 }
 
-fn mul_and_rescale(ct_a: &Ct, ct_b: &Ct, rlk: &Rlk) -> Ct {
-    ct_a.mul(ct_b, rlk)
-        .rescale()
-        .expect("mul_and_rescale: rescale")
-}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}\n", heading("Encrypted variance of 8 slots"));
+    say(&format!(
+        "Goal: from Enc([x0, ..., x7]) compute Enc([v, ..., v]) with\n  {}\n  {}\n\
+         using only CKKS operations. Two tricks do most of the work:",
+        formula("mean = (x0 + ... + x7) / 8"),
+        formula("v    = ((x0 - mean)^2 + ... + (x7 - mean)^2) / 8")
+    ));
+    say(&format!(
+        "  {}  x + rot(x,1), then + rot(.,2), then + rot(.,4):\n\
+         \x20                after log2(8) = 3 steps every slot holds the sum\n  \
+         {}  multiply by the constant 1/8 and rescale (one level)\n",
+        formula("rotation tree"),
+        formula("division     ")
+    ));
 
-/// Multiplies every slot by `1 / SLOTS` and rescales, landing at `target`
-/// scale. Rescale divides by the actual prime, so a plain multiply would
-/// leave the mean slightly off the input's scale; the target-scale encoding
-/// keeps the later subtraction compatible.
-fn divide_by_slots(ct: &Ct, target: Scale) -> Ct {
-    ct.mul_const_to_scale(1.0 / SLOTS as f64, target)
-        .expect("divide_by_slots: rescale")
-}
-
-fn sk_at(sk: &Sk, ct: &Ct) -> Sk {
-    sk.mod_switch_to(ct.level()).expect("sk level")
-}
-
-fn main() {
-    let mean = INPUT.iter().sum::<f64>() / INPUT.len() as f64;
-    let sum = INPUT.iter().sum::<f64>();
-    let variance = INPUT
-        .iter()
-        .map(|value| {
-            let centered = value - mean;
-            centered * centered
-        })
-        .sum::<f64>()
-        / INPUT.len() as f64;
-    let std_dev = variance.sqrt();
-
-    println!("CKKS std-dev over 8 slots: encrypted variance demo");
-    println!("input     : {INPUT:?}");
-    println!("sum       : {sum:.8}");
-    println!("mean      : {mean:.8}");
-    println!("variance  : {variance:.8}");
-    println!("std-dev   : {std_dev:.8}");
-    println!();
-
-    let primes = generate_primes(SCALE as usize, NUM_PRIMES, N as u64);
-    let basis = Arc::new(RnsBasis::<N>::new(primes).expect("valid NTT primes"));
-    let engine = make_engine(basis.clone());
-    let encoder = CkksEncoder::<N>::new(scale());
-    let mut rng = ChaCha20Rng::seed_from_u64(42);
-
-    let sk = engine.generate_secret_key(&mut rng).expect("sk");
-    let pk = engine.generate_public_key(&sk, &mut rng).expect("pk");
-    let rotkeys = make_rotkeys(&engine, &sk, &mut rng);
-
-    let pt_input = encoder.encode(&INPUT, basis);
-    let ct_input = engine.encrypt(&pt_input, &pk, &mut rng);
-    let ct_sum = sum_slots(&ct_input, SLOTS, &rotkeys);
-    println!(
-        "After sum_slots: log2(scale)={:.1}, logq={}, primes={}",
-        ct_sum.scale.log2(),
-        ct_sum.logq(),
-        ct_sum.level()
+    println!("{}", heading("Parameters"));
+    let scale = Scale::power_of_two(SCALE_BITS)?;
+    param("N     ", N, "8 slots, all used");
+    param(
+        "primes",
+        "5 x 61 bits",
+        "mean, square, variance: 3 levels, 2 to spare",
     );
-    let pt_sum =
-        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_sum, &sk_at(&sk, &ct_sum));
-    let decoded_sum = encoder.decode(&pt_sum);
-    println!(
-        "  decoded sum: {:.8}, expected {sum:.8}, err={:.2e}",
-        decoded_sum[0],
-        (decoded_sum[0] - sum).abs()
+    param("scale ", format!("2^{SCALE_BITS}"), "matches the primes");
+    param(
+        "seed  ",
+        SEED,
+        "fixed, so every run prints the same numbers",
     );
     println!();
+    let basis = Arc::new(RnsBasis::<N>::new(generate_primes(
+        SCALE_BITS as usize,
+        PRIMES,
+        N as u64,
+    ))?);
+    let engine = make_engine(basis.clone(), scale);
+    let encoder = CkksEncoder::<N>::new(scale);
+    let mut rng = ChaCha20Rng::seed_from_u64(SEED);
+    let sk = engine.generate_secret_key(&mut rng)?;
+    let pk = engine.generate_public_key(&sk, &mut rng)?;
+    let rotation_keys = generate_rotation_key_set(&engine, &sk, SLOTS, &mut rng);
 
-    let ct_mean = divide_by_slots(&ct_sum, ct_input.scale);
-    println!(
-        "After mean = sum * 1/{SLOTS}: log2(scale)={:.1}, logq={}, primes={}",
-        ct_mean.scale.log2(),
-        ct_mean.logq(),
-        ct_mean.level()
+    let sum: f64 = INPUT.iter().sum();
+    let mean = sum / SLOTS as f64;
+    let centered: Vec<f64> = INPUT.iter().map(|x| x - mean).collect();
+    let squares: Vec<f64> = centered.iter().map(|c| c * c).collect();
+    let variance = squares.iter().sum::<f64>() / SLOTS as f64;
+    step("x", format!("{INPUT:?}"));
+
+    println!("\n{}", heading("Steps"));
+    let input = engine.encrypt(&encoder.encode(&INPUT, basis), &pk, &mut rng);
+    let mut rows = Vec::new();
+    let mut worst: f64 = 0.0;
+    let mut record = |name: &str,
+                      ct: &Ct,
+                      expected: &[f64]|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let got = peek(ct, &sk, &encoder)?;
+        let error = got
+            .iter()
+            .zip(expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        worst = worst.max(error);
+        rows.push(vec![
+            name.to_string(),
+            format!("{}, 2^{:.1}", ct.level(), ct.scale.log2()),
+            format!("{:.8}", got[0]),
+            format!("{:.8}", expected[0]),
+            format!("{error:.2e}"),
+        ]);
+        Ok(())
+    };
+    record("input x", &input, &INPUT)?;
+
+    let total = sum_slots(&input, SLOTS, &rotation_keys);
+    record("sum (rotation tree)", &total, &[sum; SLOTS])?;
+
+    // Land on the input's exact scale so the subtraction is compatible.
+    let mean_ct = total.mul_const_to_scale(1.0 / SLOTS as f64, input.scale)?;
+    record("mean = sum * 1/8", &mean_ct, &[mean; SLOTS])?;
+
+    let centered_ct = input.match_level(&mean_ct)?.sub(&mean_ct)?;
+    record("x - mean", &centered_ct, &centered)?;
+
+    // Keys for the lower level the centered values live at.
+    let sk_low = sk.mod_switch_to(centered_ct.level())?;
+    let engine_low = make_engine(centered_ct.c0.basis().clone(), scale);
+    let relin = engine_low.generate_relin_key(&sk_low, &mut rng);
+    let squared = centered_ct.mul(&centered_ct, &relin).rescale()?;
+    record("(x - mean)^2", &squared, &squares)?;
+
+    let sk_sq = sk.mod_switch_to(squared.level())?;
+    let engine_sq = make_engine(squared.c0.basis().clone(), scale);
+    let rotation_keys_sq =
+        generate_rotation_key_set(&engine_sq, &sk_sq, SLOTS, &mut rng);
+    let sum_squares = sum_slots(&squared, SLOTS, &rotation_keys_sq);
+    let variance_ct =
+        sum_squares.mul_const_to_scale(1.0 / SLOTS as f64, sum_squares.scale)?;
+    record("variance", &variance_ct, &[variance; SLOTS])?;
+
+    table(
+        &["step", "level, scale", "slot 0", "expected", "max error"],
+        &rows,
     );
-    let pt_mean =
-        CkksEngine::<RnsPoly<N>, N>::decrypt(&ct_mean, &sk_at(&sk, &ct_mean));
-    let decoded_mean = encoder.decode(&pt_mean);
-    println!(
-        "  decoded mean: {:.8}, expected {mean:.8}, err={:.2e}",
-        decoded_mean[0],
-        (decoded_mean[0] - mean).abs()
+    say(
+        "\nRotations and additions keep the level; each division and the\n\
+         square spend one. Keys are made for each level the data reaches.\n",
+    );
+    step(
+        "std_dev = sqrt(variance)",
+        format!("{:.8} (plain f64)", variance.sqrt()),
     );
     println!();
+    let passed = check("every step, every slot", worst, BOUND);
 
-    let ct_input_mean_level = ct_input.match_level(&ct_mean).expect("level");
-    let ct_centered = ct_input_mean_level.sub(&ct_mean).expect("center");
-    println!(
-        "After centered = input - mean: log2(scale)={:.1}, logq={}, primes={}",
-        ct_centered.scale.log2(),
-        ct_centered.logq(),
-        ct_centered.level()
+    println!("\n{}", heading("Takeaways"));
+    say(
+        "Statistics over packed slots cost log2(slots) rotations per sum\n\
+         and one level per multiplication. sqrt is not a CKKS operation:\n\
+         sqrt_chebyshev_plain fits it as a polynomial, sensor_std_dev runs\n\
+         the full pipeline encrypted.",
     );
-
-    let sk_centered = sk_at(&sk, &ct_centered);
-    let engine_centered = make_engine(ct_centered.c0.basis().clone());
-    let rlk_centered = engine_centered.generate_relin_key(&sk_centered, &mut rng);
-    let ct_sq_diff = mul_and_rescale(&ct_centered, &ct_centered, &rlk_centered);
-    println!(
-        "After squared differences: log2(scale)={:.1}, logq={}, primes={}",
-        ct_sq_diff.scale.log2(),
-        ct_sq_diff.logq(),
-        ct_sq_diff.level()
-    );
-
-    let sk_sq = sk_at(&sk, &ct_sq_diff);
-    let engine_sq = make_engine(ct_sq_diff.c0.basis().clone());
-    let rotkeys_sq = make_rotkeys(&engine_sq, &sk_sq, &mut rng);
-    let ct_var_sum = sum_slots(&ct_sq_diff, SLOTS, &rotkeys_sq);
-    let ct_variance = divide_by_slots(&ct_var_sum, ct_var_sum.scale);
-    println!(
-        "After variance = sum_sq_diff * 1/{SLOTS}: log2(scale)={:.1}, logq={}, primes={}",
-        ct_variance.scale.log2(),
-        ct_variance.logq(),
-        ct_variance.level()
-    );
-
-    let pt_variance = CkksEngine::<RnsPoly<N>, N>::decrypt(
-        &ct_variance,
-        &sk_at(&sk, &ct_variance),
-    );
-    let decoded_variance = encoder.decode(&pt_variance);
-
-    let max_variance_err = decoded_variance
-        .iter()
-        .take(SLOTS)
-        .map(|got| (got - variance).abs())
-        .fold(0.0f64, f64::max);
-
-    println!("Encrypted variance result:");
-    println!("  plaintext variance : {variance:.8}");
-    println!("  plaintext std-dev  : {std_dev:.8}");
-    for (slot, got) in decoded_variance.iter().take(SLOTS).enumerate() {
-        println!(
-            "  slot {slot}: decoded={got:.8}, expected={variance:.8}, err={:.2e}",
-            (got - variance).abs()
-        );
+    if !passed {
+        return Err("variance error above bound".into());
     }
-    println!("max variance error: {max_variance_err:.2e}");
+    println!("\n{}", ok("All checks passed."));
+    Ok(())
 }
