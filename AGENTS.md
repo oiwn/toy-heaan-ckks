@@ -47,7 +47,9 @@ pre-commit install                          # install git hooks
 - `src/rings/backends/rns_ntt/` - RNS-NTT backend
 - `src/math/` - primes, sampling, utils
 - Module layout: `foo.rs` + `foo/`, never `mod.rs`
-- `examples/` - runnable demos
+- `examples/` - runnable demos; write them by the `educational-examples`
+  skill (`.agents/skills/educational-examples/SKILL.md`, committed) with
+  helpers in `examples/support/narrate.rs`
 - `tests/` - integration tests
 - `src/rings/traits.rs` - the backend trait `PolyRing` (only ring view of `ckks/`)
 

@@ -1,16 +1,15 @@
-//! CKKS key generation demonstration.
+//! Key generation: secret, public and relinearization keys.
 //!
-//! Shows the three key types used in CKKS and verifies the algebraic
-//! relations that make them correct:
+//! ```bash
+//! cargo run --example keys
+//! ```
 //!
-//!   Secret key s  : ternary polynomial (coefficients in {-1, 0, 1})
-//!   Public key (a, b) : RLWE sample  →  b + a·s  ≈  0  (only noise)
-//!   Relin key  (a[k], b[k]) : gadget encryption of s²
-//!                       →  b[k] + a[k]·s  ≈  s²·g_k (only noise)
+//! A narrated walk-through of the three CKKS key types and the relation
+//! each one satisfies, checked on real keys: the secret is a small ternary
+//! polynomial, the public key is an RLWE sample `b + a*s = e`, and the
+//! relinearization key is a gadget encryption of `s^2`.
 //!
-//! Reference: <https://fhetextbook.github.io/KeyGeneration.html>,
-//! key switching: <https://fhetextbook.github.io/HomomorphicKeySwitching2.html>
-
+//! Colors are on in a terminal and off when piped or with `NO_COLOR=1`.
 use std::sync::Arc;
 
 use rand::SeedableRng;
@@ -23,149 +22,149 @@ use toy_heaan_ckks::math::generate_primes;
 use toy_heaan_ckks::rings::backends::rns_ntt::{RnsBasis, RnsPoly};
 use toy_heaan_ckks::rings::traits::PolyRing;
 
-/// Ring degree — polynomial lives in Z[X]/(X^N + 1).
+#[path = "support/narrate.rs"]
+mod narrate;
+use narrate::{confirm, dim, formula, heading, ok, param, say, step};
+
 const N: usize = 16;
-/// Fraction of non-zero coefficients in the secret key.
 const HAMMING_WEIGHT: usize = N / 2;
-/// Standard deviation for the Gaussian error distribution.
 const ERROR_STD: f64 = 3.2;
+const SEED: u64 = 42;
+/// A Gaussian with std_dev 3.2 stays far below this over 16 coefficients.
+const SMALL: u64 = 50;
 
-fn main() {
-    println!("╔═══════════════════════════════════════╗");
-    println!("║   CKKS Key Generation  —  Demo        ║");
-    println!("╚═══════════════════════════════════════╝\n");
-
-    // ── Parameters ────────────────────────────────────────────────────────────
-    println!("Ring degree N       : {N}");
-    println!(
-        "Hamming weight h    : {HAMMING_WEIGHT}  ({} non-zero out of {N} coeffs)",
-        HAMMING_WEIGHT
-    );
-    println!("Error std σ         : {ERROR_STD}");
-
-    // ── RNS basis ─────────────────────────────────────────────────────────────
-    // Two 20-bit NTT-friendly primes. Q = q0·q1 ≈ 2^40 is large enough to hold
-    // any intermediate product that arises during key verification (≈ N·q ≈ 2^24).
-    let primes = generate_primes(20, 2, N as u64);
-    println!("\nRNS primes (each ≡ 1  mod  2N={}):", 2 * N);
-    for (i, &p) in primes.iter().enumerate() {
-        println!("  q{i} = {p}");
-    }
-
-    let basis: Arc<RnsBasis<N>> =
-        Arc::new(RnsBasis::new(primes).expect("valid NTT primes"));
-    let mut rng = ChaCha20Rng::seed_from_u64(42);
-
-    // ── Secret key ────────────────────────────────────────────────────────────
-    println!(
-        "\n─── Secret key ──────────────────────────────────────────────────\n"
-    );
-
-    let sk_params = SecretKeyParams::<N>::new(HAMMING_WEIGHT).unwrap();
-    let sk = SecretKey::<RnsPoly<N>, N>::generate(&sk_params, &basis, &mut rng)
-        .expect("secret key");
-
-    let sk_coeffs = sk.poly.to_coeffs();
-    let nonzero: Vec<(usize, i64)> = sk_coeffs
+fn max_abs(coefficients: &[i64]) -> u64 {
+    coefficients
         .iter()
-        .enumerate()
-        .filter(|&(_, c)| *c != 0)
-        .map(|(i, &c)| (i, c))
-        .collect();
-
-    println!(
-        "Hamming weight      : {} (expected {})",
-        nonzero.len(),
-        HAMMING_WEIGHT
-    );
-    println!(
-        "Non-zero positions  : {:?}",
-        nonzero.iter().map(|(i, _)| i).collect::<Vec<_>>()
-    );
-    println!(
-        "Non-zero values     : {:?}",
-        nonzero.iter().map(|(_, v)| v).collect::<Vec<_>>()
-    );
-    let all_ternary = sk_coeffs.iter().all(|&c| c == -1 || c == 0 || c == 1);
-    println!("All coeffs ∈ {{-1,0,1}} : {}", check(all_ternary));
-
-    // ── Public key ────────────────────────────────────────────────────────────
-    println!(
-        "\n─── Public key ──────────────────────────────────────────────────\n"
-    );
-    println!("Algorithm: sample uniform a, small error e, set b = -(a·s) + e");
-    println!("Relation : b + a·s = e  (small noise)\n");
-
-    let pk_params = PublicKeyParams::<N>::new(ERROR_STD).unwrap();
-    let pk =
-        PublicKey::<RnsPoly<N>, N>::generate(&sk, &pk_params, &basis, &mut rng)
-            .expect("public key");
-
-    // Verify: b + a·s should equal the (unknown) error e — coefficients ≈ 0.
-    let mut a_times_s = pk.a.clone();
-    a_times_s *= &sk.poly; // a·s  (schoolbook, coeff domain)
-    let mut check_pk = pk.b.clone();
-    check_pk += &a_times_s; // b + a·s  ≈  e
-
-    let residual = check_pk.to_coeffs();
-    let max_pk = residual.iter().map(|c| c.unsigned_abs()).max().unwrap_or(0);
-    println!("b + a·s  (should be small error):");
-    println!("  coefficients : {:?}", &residual[..8]);
-    println!("  ... (showing first 8 of {N})");
-    println!(
-        "  max |coeff|  : {max_pk}  (expect ≲ 3σ ≈ {})",
-        (3.0 * ERROR_STD) as u64
-    );
-    println!("  relation ok  : {}", check(max_pk < 50));
-
-    // ── Relinearization key ───────────────────────────────────────────────────
-    println!(
-        "\n─── Relinearization key ─────────────────────────────────────────\n"
-    );
-    println!(
-        "Algorithm: compute s²; per gadget term k sample uniform a[k], small error e,"
-    );
-    println!("           set b[k] = -(a[k]·s) + e + s²·g_k");
-    println!(
-        "Relation : b[k] + a[k]·s = s²·g_k + e  (g_k: digit k of base 2^{DIGIT_BITS})\n"
-    );
-
-    let rk =
-        RelinearizationKey::<RnsPoly<N>, N>::generate(&sk, ERROR_STD, &mut rng);
-    println!(
-        "Gadget terms        : {}  (one per channel x base-2^{DIGIT_BITS} digit)",
-        rk.ksk.a.len()
-    );
-
-    // Compute s² for comparison.
-    let mut s_sq = sk.poly.clone();
-    s_sq *= &sk.poly; // s²
-
-    // Verify every term: b[k] + a[k]·s - s²·g_k should equal e (small noise).
-    let mut max_rk = 0;
-    for (k, (a, b)) in rk.ksk.a.iter().zip(&rk.ksk.b).enumerate() {
-        let mut check_rk = a.clone();
-        check_rk *= &sk.poly; // a[k]·s
-        check_rk += b; // b[k] + a[k]·s
-        check_rk -= &s_sq.gadget_term(k, DIGIT_BITS); // ... - s²·g_k  ≈  e
-        let residual_rk = check_rk.to_coeffs();
-        if k == 0 {
-            println!("b[0] + a[0]·s - s²·g_0  (should be small error):");
-            println!("  coefficients : {:?}", &residual_rk[..8]);
-            println!("  ... (showing first 8 of {N})");
-        }
-        let term_max = residual_rk.iter().map(|c| c.unsigned_abs()).max();
-        max_rk = max_rk.max(term_max.unwrap_or(0));
-    }
-    println!(
-        "  max |coeff| over all terms : {max_rk}  (expect ≲ 3σ ≈ {})",
-        (3.0 * ERROR_STD) as u64
-    );
-    println!("  relation ok  : {}", check(max_rk < 50));
-
-    println!("\nDone.");
+        .map(|c| c.unsigned_abs())
+        .max()
+        .unwrap_or(0)
 }
 
-fn check(ok: bool) -> &'static str {
-    if ok { "✓" } else { "✗  FAIL" }
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}\n", heading("Keys: secret, public, relinearization"));
+    say(
+        "CKKS security rests on Ring-LWE: given a random polynomial a and\n\
+         b = -a*s + e with a small error e, finding s is hard. Every key is\n\
+         built from that one idea. The checks below use the secret key to\n\
+         confirm each relation; a real evaluator never sees it.\n",
+    );
+
+    println!("{}", heading("Parameters"));
+    let primes = generate_primes(20, 2, N as u64);
+    param("N             ", N, "ring degree; toy size, no security");
+    param(
+        "secret weight ",
+        HAMMING_WEIGHT,
+        "nonzero coefficients of s",
+    );
+    param("error std_dev ", ERROR_STD, "width of the Gaussian error e");
+    param(
+        "primes        ",
+        "2 x 20 bits",
+        "small, so the residues print",
+    );
+    param(
+        "seed          ",
+        SEED,
+        "fixed, so every run prints the same keys",
+    );
+    println!();
+    let basis: Arc<RnsBasis<N>> = Arc::new(RnsBasis::new(primes)?);
+    let mut rng = ChaCha20Rng::seed_from_u64(SEED);
+    let mut passed = true;
+
+    println!("{}", heading("Step 1: secret key s"));
+    say(
+        "A ternary polynomial: each coefficient is -1, 0 or 1, with exactly\n\
+         `weight` nonzeros. Small keys keep products like c1 * s small.",
+    );
+    let sk_params = SecretKeyParams::<N>::new(HAMMING_WEIGHT)?;
+    let sk = SecretKey::<RnsPoly<N>, N>::generate(&sk_params, &basis, &mut rng)?;
+    let coefficients = sk.poly.to_coeffs();
+    step("s", format!("{coefficients:?}"));
+    let weight = coefficients.iter().filter(|&&c| c != 0).count();
+    passed &= confirm(
+        "every coefficient in {-1, 0, 1}",
+        coefficients.iter().all(|c| (-1..=1).contains(c)),
+    );
+    passed &= confirm(
+        &format!("weight {weight} == {HAMMING_WEIGHT}"),
+        weight == HAMMING_WEIGHT,
+    );
+
+    println!("\n{}", heading("Step 2: public key (a, b)"));
+    say(&format!(
+        "Sample a uniformly and a small error e, then set\n  {}\n\
+         so that {} is small. Encryption multiplies (a, b) by\n\
+         a fresh random u; only s can strip the a*s part off again.",
+        formula("b = -(a * s) + e"),
+        formula("b + a * s = e")
+    ));
+    let pk_params = PublicKeyParams::<N>::new(ERROR_STD)?;
+    let pk =
+        PublicKey::<RnsPoly<N>, N>::generate(&sk, &pk_params, &basis, &mut rng)?;
+    let mut residual = pk.a.clone();
+    residual *= &sk.poly;
+    residual += &pk.b;
+    let residual = residual.to_coeffs();
+    step("a[0] (uniform, ~2^40)", pk.a.to_coeffs()[0]);
+    step(
+        "b + a*s, first 8 coefficients",
+        format!("{:?}", &residual[..8]),
+    );
+    passed &= confirm(
+        &format!(
+            "max |b + a*s| = {} is small (< {SMALL})",
+            max_abs(&residual)
+        ),
+        max_abs(&residual) < SMALL,
+    );
+
+    println!("\n{}", heading("Step 3: relinearization key"));
+    say(&format!(
+        "Multiplying two ciphertexts leaves a term d2 * s^2. The\n\
+         relinearization key encrypts s^2 under s, one entry per gadget\n\
+         digit (base 2^{DIGIT_BITS}), so key switching can turn d2 * s^2 into\n\
+         a pair under s (see key_switch):\n  {}",
+        formula("b[k] + a[k] * s = s^2 * g_k + e_k")
+    ));
+    let rk =
+        RelinearizationKey::<RnsPoly<N>, N>::generate(&sk, ERROR_STD, &mut rng);
+    step("gadget terms (2 primes x 1 digit)", rk.ksk.a.len());
+    let mut s_squared = sk.poly.clone();
+    s_squared *= &sk.poly;
+    let mut worst = 0;
+    for (k, (a, b)) in rk.ksk.a.iter().zip(&rk.ksk.b).enumerate() {
+        let mut residual = a.clone();
+        residual *= &sk.poly;
+        residual += b;
+        residual -= &s_squared.gadget_term(k, DIGIT_BITS);
+        let residual = residual.to_coeffs();
+        if k == 0 {
+            step(
+                "b[0] + a[0]*s - s^2*g_0, first 8",
+                format!("{:?}", &residual[..8]),
+            );
+        }
+        worst = worst.max(max_abs(&residual));
+    }
+    passed &= confirm(
+        &format!("max error over all terms = {worst} is small (< {SMALL})"),
+        worst < SMALL,
+    );
+
+    println!("\n{}", heading("Takeaways"));
+    say("s stays with the owner; (a, b) lets anyone encrypt; the\n\
+         relinearization key (and rotation/conjugation keys, built the same\n\
+         way) lets a server compute without decrypting. Next: encrypt_add.");
+    println!(
+        "{}",
+        dim("Reference: fhetextbook.github.io/KeyGeneration.html")
+    );
+    if !passed {
+        return Err("a key relation failed".into());
+    }
+    println!("\n{}", ok("All checks passed."));
+    Ok(())
 }

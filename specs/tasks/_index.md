@@ -21,6 +21,7 @@
 - **0049-bsgs-hoisted-transforms** — draft — bsgs hoisted transforms (Operator agreed large-degree roadmap, 2026-11-03)
 - **0050-bootstrap-arcsine-correction** — draft — bootstrap arcsine correction (Operator agreed large-degree roadmap, 2026-11-03)
 - **0051-meta-bootstrap-iterations** — draft — meta bootstrap iterations (Operator agreed large-degree roadmap, 2026-11-03)
+- **0055-encrypted-linear-regression** — draft — encrypted linear regression (Operator request 2026-11-09: ML example (linear regression) with bootstrap, checked against a plain reference)
 
 ## Blocked
 
@@ -61,3 +62,5 @@
 - **0044-bootstrap-validation-matrix** — done — bootstrap validation matrix (Operator split of 0043, 2026-11-02)
 - **0045-bootstrap-ratio-default** — done — bootstrap ratio default (Operator agreed large-degree roadmap, 2026-11-03)
 - **0052-rns-fast-modmul** — done — rns fast modmul (Operator: tests too slow, 2026-11-03)
+- **0053-scheme-step-examples** — done — scheme step examples (Operator request 2026-11-08: examples for scheme steps not yet covered (conjugation, modulus switching, key switching, bootstrap stages))
+- **0054-example-narration** — done — example narration (Operator decision 2026-11-09 (issue #39): rework all examples to the educational-examples skill)

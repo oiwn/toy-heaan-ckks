@@ -9,6 +9,16 @@ Completed tasks, newest entry at the top, dated. `specdev task done` adds an ent
 - files touched / decisions locked
 -->
 
+## 2026-11-09 — example narration
+
+- Every example reworked to the `educational-examples` skill (narrated, colored, self-checking, ASCII only), with new `narrate.rs` helpers (`confirm`, `table`, `elapsed`) and a fix for `sqrt_chebyshev_plain`'s NaN interval.
+- Task `0054-example-narration`; source: Operator decision 2026-11-09 (issue #39): rework all examples to the educational-examples skill
+
+## 2026-11-09 — scheme step examples
+
+- Four new narrated, colored step examples (`conjugation`, `mod_switch`, `key_switch`, `bootstrap_stages`), a public stage-by-stage bootstrap API (`BootstrapPlan::{prepare, mod_raise, coeffs_to_slots, eval_mod, slots_to_coeffs}`) that `bootstrap` is composed from, and the committed `educational-examples` skill with shared helpers `examples/support/narrate.rs` (closes issue #39).
+- Task `0053-scheme-step-examples`; source: Operator request 2026-11-08: examples for scheme steps not yet covered (conjugation, modulus switching, key switching, bootstrap stages)
+
 ## 2026-11-08 — bootstrap validation matrix
 
 - Recurrence and the bootstrap demos/tests run at any degree and scale the chain supports. Breaking change: `RecurrencePlan::new(context, scale)`, with a refresh level derived from the chain. `recurrence_bootstrap_demo` runs N=16/32/64/128, the final validation matrix passes, and `generic-bootstrap.md` is complete.
